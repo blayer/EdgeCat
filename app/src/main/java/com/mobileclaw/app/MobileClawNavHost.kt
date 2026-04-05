@@ -11,7 +11,6 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.navArgument
 import com.mobileclaw.app.customtasks.common.CustomTaskDataForBuiltinTask
-import com.mobileclaw.app.ui.modelmanager.ModelManager
 import com.mobileclaw.app.ui.modelmanager.ModelManagerViewModel
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -37,18 +36,15 @@ fun MobileClawNavHost(
   ) {
     // Model selection screen.
     composable(route = ROUTE_MODEL_SELECT) {
-      agentTask?.let { task ->
-        ModelManager(
-          viewModel = modelManagerViewModel,
-          task = task,
-          enableAnimation = true,
-          onModelClicked = { model ->
-            modelManagerViewModel.selectModel(model)
-            navController.navigate("$ROUTE_AGENT_CHAT/${model.name}")
-          },
-          navigateUp = { /* No back from root */ },
-        )
-      }
+      ModelSelectScreen(
+        task = agentTask,
+        modelManagerViewModel = modelManagerViewModel,
+        isLoading = uiState.loadingModelAllowlist,
+        onModelClicked = { model ->
+          modelManagerViewModel.selectModel(model)
+          navController.navigate("$ROUTE_AGENT_CHAT/${model.name}")
+        },
+      )
     }
 
     // Agent chat screen.
