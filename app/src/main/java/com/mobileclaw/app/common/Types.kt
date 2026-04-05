@@ -58,8 +58,15 @@ enum class AgentActionName() {
   CALL_JS_SKILL,
   SKILL_PROGRESS,
   ASK_INFO,
+  REQUEST_PERMISSION,
   ORCHESTRATION_STATE_UPDATE,
 }
+
+class RequestPermissionAgentAction(
+  val permissions: List<String>,
+  val rationale: String,
+  val result: CompletableDeferred<Boolean> = CompletableDeferred(),
+) : AgentAction(name = AgentActionName.REQUEST_PERMISSION)
 
 class OrchestrationStateUpdateAction(
   val state: com.mobileclaw.app.orchestration.OrchestrationState,

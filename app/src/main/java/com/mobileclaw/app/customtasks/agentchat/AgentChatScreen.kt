@@ -75,6 +75,8 @@ import com.mobileclaw.app.MobileClawEvent
 import com.mobileclaw.app.R
 import com.mobileclaw.app.common.AskInfoAgentAction
 import com.mobileclaw.app.common.CallJsAgentAction
+import com.mobileclaw.app.common.RequestPermissionAgentAction
+import androidx.activity.compose.rememberLauncherForActivityResult
 import com.mobileclaw.app.common.SkillProgressAgentAction
 import com.mobileclaw.app.data.BuiltInTaskId
 import com.mobileclaw.app.data.Model
@@ -141,6 +143,16 @@ fun AgentChatScreen(
   var disabledSkillName by remember { mutableStateOf("") }
   var orchestrationEnabled by remember { mutableStateOf(true) }
   val coroutineScope = androidx.compose.runtime.rememberCoroutineScope()
+
+  // Permission request handling for device skills.
+  var pendingPermissionAction by remember { mutableStateOf<RequestPermissionAgentAction?>(null) }
+  val permissionLauncher = rememberLauncherForActivityResult(
+    contract = androidx.activity.result.contract.ActivityResultContracts.RequestMultiplePermissions(),
+  ) { grants ->
+    val allGranted = grants.values.all { it }
+    pendingPermissionAction?.result?.complete(allGranted)
+    pendingPermissionAction = null
+  }
 
   // Orchestration controller — created lazily when the selected model is available.
   val orchestrationController = remember {
@@ -307,6 +319,11 @@ fun AgentChatScreen(
               currentAskInfoAction = action
               askInfoInputValue = "" // Reset input
               showAskInfoDialog = true
+            }
+            is RequestPermissionAgentAction -> {
+              // Request runtime permissions and complete the deferred.
+              pendingPermissionAction = action
+              permissionLauncher.launch(action.permissions.toTypedArray())
             }
           }
         }

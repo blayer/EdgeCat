@@ -113,6 +113,46 @@ class ToolExecutorImpl(
               error = if (result != "succeeded") "Intent failed" else null,
             )
           }
+          // ── App Skills (native device access) ──
+          "sendSms" -> {
+            val map = agentTools.sendSms(args["phoneNumber"] ?: "", args["messageBody"] ?: "")
+            ToolExecutionResult(success = map["status"] == "succeeded", output = map.toString())
+          }
+          "sendEmail" -> {
+            val map = agentTools.sendEmail(args["to"] ?: "", args["subject"] ?: "", args["body"] ?: "")
+            ToolExecutionResult(success = map["status"] == "succeeded", output = map.toString())
+          }
+          "readCalendarEvents" -> {
+            val map = agentTools.readCalendarEvents(args["startDate"] ?: "", args["endDate"] ?: "")
+            ToolExecutionResult(success = map["status"] == "succeeded", output = map.toString())
+          }
+          "createCalendarEvent" -> {
+            val map = agentTools.createCalendarEvent(
+              args["title"] ?: "", args["startDateTime"] ?: "", args["endDateTime"] ?: "",
+              args["location"] ?: "", args["description"] ?: "",
+            )
+            ToolExecutionResult(success = map["status"] == "succeeded", output = map.toString())
+          }
+          "readContacts" -> {
+            val map = agentTools.readContacts(args["query"] ?: "", args["maxResults"] ?: "20")
+            ToolExecutionResult(success = map["status"] == "succeeded", output = map.toString())
+          }
+          "listPhotos" -> {
+            val map = agentTools.listPhotos(args["maxResults"] ?: "20")
+            ToolExecutionResult(success = map["status"] == "succeeded", output = map.toString())
+          }
+          "listApps" -> {
+            val map = agentTools.listApps(args["query"] ?: "")
+            ToolExecutionResult(success = map["status"] == "succeeded", output = map.toString())
+          }
+          "launchApp" -> {
+            val map = agentTools.launchApp(args["packageName"] ?: "")
+            ToolExecutionResult(success = map["status"] == "succeeded", output = map.toString())
+          }
+          "makePhoneCall" -> {
+            val map = agentTools.makePhoneCall(args["phoneNumber"] ?: "")
+            ToolExecutionResult(success = map["status"] == "succeeded", output = map.toString())
+          }
           else ->
             ToolExecutionResult(
               success = false,

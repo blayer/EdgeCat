@@ -46,6 +46,11 @@ class AgentTools() : ToolSet {
   var resultImageToShow: CallJsSkillResultImage? = null
   var resultWebviewToShow: CallJsSkillResultWebview? = null
 
+  /** Native device skills — SMS, calendar, contacts, photos, apps, phone. */
+  val deviceSkills by lazy {
+    DeviceSkills(contextProvider = { context }, actionChannel = _actionChannel)
+  }
+
   /** Loads skill. */
   @Tool(description = "Loads a skill.")
   fun loadSkill(
@@ -257,6 +262,86 @@ class AgentTools() : ToolSet {
 
   fun sendAgentAction(action: AgentAction) {
     runBlocking(Dispatchers.Default) { _actionChannel.send(action) }
+  }
+
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  // App Skills — native device access (separate from JS/MCP skills above)
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  @Tool(description = "Send an SMS text message directly to a phone number")
+  fun sendSms(
+    @ToolParam(description = "The phone number to send the SMS to") phoneNumber: String,
+    @ToolParam(description = "The text message body to send") messageBody: String,
+  ): Map<String, String> {
+    return runBlocking(Dispatchers.Default) { deviceSkills.sendSms(phoneNumber, messageBody) }
+  }
+
+  @Tool(description = "Send an email by opening the email app with pre-filled fields")
+  fun sendEmail(
+    @ToolParam(description = "The email address to send to") to: String,
+    @ToolParam(description = "The email subject") subject: String,
+    @ToolParam(description = "The email body text") body: String,
+  ): Map<String, String> {
+    return runBlocking(Dispatchers.Default) { deviceSkills.sendEmail(to, subject, body) }
+  }
+
+  @Tool(description = "Read calendar events within a date range from the device calendar")
+  fun readCalendarEvents(
+    @ToolParam(description = "Start date in yyyy-MM-dd format") startDate: String,
+    @ToolParam(description = "End date in yyyy-MM-dd format") endDate: String,
+  ): Map<String, Any> {
+    return runBlocking(Dispatchers.Default) { deviceSkills.readCalendarEvents(startDate, endDate) }
+  }
+
+  @Tool(description = "Create a new event in the device calendar")
+  fun createCalendarEvent(
+    @ToolParam(description = "Event title") title: String,
+    @ToolParam(description = "Start date and time in yyyy-MM-ddTHH:mm format") startDateTime: String,
+    @ToolParam(description = "End date and time in yyyy-MM-ddTHH:mm format") endDateTime: String,
+    @ToolParam(description = "Event location, use empty string if none") location: String,
+    @ToolParam(description = "Event description, use empty string if none") description: String,
+  ): Map<String, String> {
+    return runBlocking(Dispatchers.Default) {
+      deviceSkills.createCalendarEvent(title, startDateTime, endDateTime, location, description)
+    }
+  }
+
+  @Tool(description = "Search contacts by name or list all contacts on the device")
+  fun readContacts(
+    @ToolParam(description = "Search query to filter contacts by name. Use empty string to list all") query: String,
+    @ToolParam(description = "Maximum number of contacts to return") maxResults: String,
+  ): Map<String, Any> {
+    val max = maxResults.toIntOrNull() ?: 20
+    return runBlocking(Dispatchers.Default) { deviceSkills.readContacts(query, max) }
+  }
+
+  @Tool(description = "List recent photos from the device gallery")
+  fun listPhotos(
+    @ToolParam(description = "Maximum number of photos to return") maxResults: String,
+  ): Map<String, Any> {
+    val max = maxResults.toIntOrNull() ?: 20
+    return runBlocking(Dispatchers.Default) { deviceSkills.listPhotos(max) }
+  }
+
+  @Tool(description = "List installed apps that can be launched on the device")
+  fun listApps(
+    @ToolParam(description = "Search query to filter apps by name. Use empty string to list all") query: String,
+  ): Map<String, Any> {
+    return runBlocking(Dispatchers.Default) { deviceSkills.listApps(query) }
+  }
+
+  @Tool(description = "Launch an app on the device by its package name")
+  fun launchApp(
+    @ToolParam(description = "The package name of the app to launch, e.g. com.android.chrome") packageName: String,
+  ): Map<String, String> {
+    return runBlocking(Dispatchers.Default) { deviceSkills.launchApp(packageName) }
+  }
+
+  @Tool(description = "Make a phone call to a number")
+  fun makePhoneCall(
+    @ToolParam(description = "The phone number to call") phoneNumber: String,
+  ): Map<String, String> {
+    return runBlocking(Dispatchers.Default) { deviceSkills.makePhoneCall(phoneNumber) }
   }
 }
 
