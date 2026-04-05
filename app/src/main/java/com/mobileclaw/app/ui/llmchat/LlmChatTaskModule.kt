@@ -124,11 +124,8 @@ class LlmChatTask @Inject constructor() : CustomTask {
   }
 }
 
-@Module
-@InstallIn(SingletonComponent::class) // Or another component that fits your scope
+// Disabled in Mobile-Claw — only AgentChatTask is registered.
 internal object LlmChatTaskModule {
-  @Provides
-  @IntoSet
   fun provideTask(): CustomTask {
     return LlmChatTask()
   }
@@ -188,11 +185,8 @@ class LlmAskImageTask @Inject constructor() : CustomTask {
   }
 }
 
-@Module
-@InstallIn(SingletonComponent::class) // Or another component that fits your scope
+// Disabled in Mobile-Claw — only AgentChatTask is registered.
 internal object LlmAskImageModule {
-  @Provides
-  @IntoSet
   fun provideTask(): CustomTask {
     return LlmAskImageTask()
   }
@@ -253,11 +247,8 @@ class LlmAskAudioTask @Inject constructor() : CustomTask {
   }
 }
 
-@Module
-@InstallIn(SingletonComponent::class) // Or another component that fits your scope
+// Disabled in Mobile-Claw — only AgentChatTask is registered.
 internal object LlmAskAudioModule {
-  @Provides
-  @IntoSet
   fun provideTask(): CustomTask {
     return LlmAskAudioTask()
   }

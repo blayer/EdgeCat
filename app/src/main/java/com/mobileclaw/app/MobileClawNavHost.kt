@@ -1,12 +1,9 @@
 package com.mobileclaw.app
 
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.platform.LocalContext
 import androidx.navigation.NavHostController
 import androidx.navigation.NavType
@@ -14,8 +11,6 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.navArgument
 import com.mobileclaw.app.customtasks.common.CustomTaskDataForBuiltinTask
-import com.mobileclaw.app.data.Model
-import com.mobileclaw.app.data.Task
 import com.mobileclaw.app.ui.modelmanager.ModelManager
 import com.mobileclaw.app.ui.modelmanager.ModelManagerViewModel
 import kotlinx.coroutines.Dispatchers
@@ -32,10 +27,9 @@ fun MobileClawNavHost(
   val context = LocalContext.current
   val scope = rememberCoroutineScope()
 
-  // Get the agent chat task (the only task in Mobile-Claw).
-  val agentTask = remember {
-    modelManagerViewModel.uiState.value.tasks.firstOrNull()
-  }
+  // Reactively observe the agent chat task (the only task in Mobile-Claw).
+  val uiState by modelManagerViewModel.uiState.collectAsState()
+  val agentTask = uiState.tasks.firstOrNull()
 
   NavHost(
     navController = navController,
