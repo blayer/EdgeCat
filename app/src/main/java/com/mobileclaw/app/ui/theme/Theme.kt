@@ -224,61 +224,49 @@ val lightCustomColors =
 
 val darkCustomColors =
   CustomColors(
-    appTitleGradientColors = listOf(Color(0xFF85B1F8), Color(0xFF3174F1)),
-    tabHeaderBgColor = Color(0xFF3174F1),
+    appTitleGradientColors = listOf(Color(0xFF7C6BF0), Color(0xFF4FC3F7), Color(0xFF3ECFCF)),
+    tabHeaderBgColor = Color(0xFF7C6BF0),
     taskCardBgColor = surfaceContainerHighDark,
     taskBgColors =
       listOf(
-        // red
-        Color(0xFF181210),
-        // green
-        Color(0xFF131711),
-        // blue
-        Color(0xFF191924),
-        // yellow
-        Color(0xFF1A1813),
+        Color(0xFF0E0E14),
+        Color(0xFF0E0E14),
+        Color(0xFF0E0E14),
+        Color(0xFF0E0E14),
       ),
     taskBgGradientColors =
       listOf(
-        // red
-        listOf(Color(0xFFE25F57), Color(0xFFDB372D)),
-        // green
-        listOf(Color(0xFF41A15F), Color(0xFF128937)),
-        // blue
-        listOf(Color(0xFF669DF6), Color(0xFF3174F1)),
-        // yellow
-        listOf(Color(0xFFFDD45D), Color(0xFFCAA12A)),
+        listOf(Color(0xFF7C6BF0), Color(0xFF9B8AFB)),
+        listOf(Color(0xFF3ECFCF), Color(0xFF34D399)),
+        listOf(Color(0xFF4FC3F7), Color(0xFF7C6BF0)),
+        listOf(Color(0xFF9B8AFB), Color(0xFF3ECFCF)),
       ),
     taskIconColors =
       listOf(
-        // red.
-        Color(0xFFE25F57),
-        // green
-        Color(0xFF41A15F),
-        // blue
-        Color(0xFF669DF6),
-        // yellow
-        Color(0xFFCAA12A),
+        Color(0xFF9B8AFB),
+        Color(0xFF3ECFCF),
+        Color(0xFF4FC3F7),
+        Color(0xFF34D399),
       ),
-    taskIconShapeBgColor = Color(0xFF202124),
-    homeBottomGradient = listOf(Color(0x00F8F9FF), Color(0x1AF6AD01)),
-    agentBubbleBgColor = Color(0xFF1b1c1d),
-    userBubbleBgColor = Color(0xFF1f3760),
-    linkColor = Color(0xFF9DCAFC),
-    successColor = Color(0xFFA1CE83),
+    taskIconShapeBgColor = Color(0xFF1A1A24),
+    homeBottomGradient = listOf(Color(0x000E0E14), Color(0x337C6BF0)),
+    agentBubbleBgColor = Color(0xFF1A1A24),
+    userBubbleBgColor = Color(0xFF2D2060),
+    linkColor = Color(0xFF9B8AFB),
+    successColor = Color(0xFF34D399),
     recordButtonBgColor = Color(0xFFEE675C),
-    waveFormBgColor = Color(0xFFaaaaaa),
-    modelInfoIconColor = Color(0xFFCCCCCC),
-    warningContainerColor = Color(0xff554c33),
+    waveFormBgColor = Color(0xFF8888A0),
+    modelInfoIconColor = Color(0xFF8888A0),
+    warningContainerColor = Color(0xff3D3520),
     warningTextColor = Color(0xfffcc934),
-    errorContainerColor = Color(0xff523a3b),
+    errorContainerColor = Color(0xff3D2020),
     errorTextColor = Color(0xffee675c),
-    newFeatureContainerColor = Color(0xFFEEDCFE),
-    newFeatureTextColor = Color(0xFF400B84),
-    bgStarColor = Color(0x19346BF0),
+    newFeatureContainerColor = Color(0xFF2D2060),
+    newFeatureTextColor = Color(0xFF9B8AFB),
+    bgStarColor = Color(0x197C6BF0),
     promoBannerBgBrush =
       Brush.linearGradient(
-        colorStops = arrayOf(0.0f to Color(0x82183570), 0.8077f to Color(0x820A122D)),
+        colorStops = arrayOf(0.0f to Color(0x407C6BF0), 0.8f to Color(0x100E0E14)),
         start = Offset(0f, 0f),
         end = Offset(0f, Float.POSITIVE_INFINITY),
       ),
@@ -286,9 +274,9 @@ val darkCustomColors =
       Brush.linearGradient(
         colorStops =
           arrayOf(
-            0.2442f to Color(0x6F0F41F8),
-            0.4296f to Color(0x6F1685F8),
-            0.6651f to Color(0x6F809EF3),
+            0.2f to Color(0x407C6BF0),
+            0.5f to Color(0x404FC3F7),
+            0.8f to Color(0x403ECFCF),
           ),
         start = Offset(0f, 1f),
         end = Offset(1f, 0f),
@@ -318,10 +306,8 @@ fun StatusBarColorController(useDarkTheme: Boolean) {
 
 @Composable
 fun MobileClawTheme(content: @Composable () -> Unit) {
-  val themeOverride = ThemeSettings.themeOverride
-  val darkTheme: Boolean =
-    (isSystemInDarkTheme() || themeOverride.value == Theme.THEME_DARK) &&
-      themeOverride.value != Theme.THEME_LIGHT
+  // Mobile Claw: always dark for premium AI look.
+  val darkTheme = true
   val view = LocalView.current
 
   StatusBarColorController(useDarkTheme = darkTheme)
