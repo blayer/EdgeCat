@@ -10,11 +10,11 @@ plugins {
 }
 
 android {
-  namespace = "com.google.ai.edge.gallery"
+  namespace = "com.mobileclaw.app"
   compileSdk = 35
 
   defaultConfig {
-    applicationId = "com.google.ai.edge.mobileclaw"
+    applicationId = "com.mobileclaw.app"
     minSdk = 31
     targetSdk = 35
     versionCode = 1
@@ -22,7 +22,7 @@ android {
 
     manifestPlaceholders["appAuthRedirectScheme"] =
         "REPLACE_WITH_YOUR_REDIRECT_SCHEME_IN_HUGGINGFACE_APP"
-    manifestPlaceholders["applicationName"] = "com.google.ai.edge.gallery.MobileClawApplication"
+    manifestPlaceholders["applicationName"] = "com.mobileclaw.app.MobileClawApplication"
 
     testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
   }

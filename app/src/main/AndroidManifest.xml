@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
-    package="com.google.ai.edge.gallery"
+    package="com.mobileclaw.app"
     xmlns:tools="http://schemas.android.com/tools">
 
     <uses-sdk
@@ -25,13 +25,13 @@
         android:label="Mobile-Claw"
         android:roundIcon="@mipmap/ic_launcher"
         android:supportsRtl="true"
-        android:theme="@style/Theme.Gallery"
+        android:theme="@style/Theme.MobileClaw"
         tools:targetApi="31">
 
         <activity
-            android:name="com.google.ai.edge.gallery.MobileClawActivity"
+            android:name="com.mobileclaw.app.MobileClawActivity"
             android:exported="true"
-            android:theme="@style/Theme.Gallery"
+            android:theme="@style/Theme.MobileClaw"
             android:screenOrientation="portrait"
             android:windowSoftInputMode="adjustResize"
             android:configChanges="uiMode"
