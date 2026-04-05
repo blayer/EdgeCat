@@ -1,16 +1,15 @@
 ---
 name: send-email
-description: Send an email.
+description: Send an email by opening the email app with pre-filled recipient, subject, and body.
 ---
 
-# Send email
+# Send Email
 
 ## Instructions
 
-Call the `run_intent` tool with the following exact parameters:
+Call the `send_email` tool with:
+- to: the email address to send to
+- subject: the email subject line
+- body: the email body text
 
-- intent: send_email
-- parameters: A JSON string with the following fields:
-  - extra_email: the email address to send the email to. String.
-  - extra_subject: the subject of the email. String.
-  - extra_text: the body of the email. String.
+Opens the device email app with the fields pre-filled for the user to review and send.
