@@ -153,6 +153,70 @@ class ToolExecutorImpl(
             val map = agentTools.makePhoneCall(args["phoneNumber"] ?: "")
             ToolExecutionResult(success = map["status"] == "succeeded", output = map.toString())
           }
+          "setAlarm" -> {
+            val map = agentTools.setAlarm(args["hour"] ?: "0", args["minute"] ?: "0", args["label"] ?: "")
+            ToolExecutionResult(success = map["status"] == "succeeded", output = map.toString())
+          }
+          "setTimer" -> {
+            val map = agentTools.setTimer(args["durationSeconds"] ?: "60", args["label"] ?: "")
+            ToolExecutionResult(success = map["status"] == "succeeded", output = map.toString())
+          }
+          "getLocation" -> {
+            val map = agentTools.getLocation()
+            ToolExecutionResult(success = map["status"] == "succeeded", output = map.toString())
+          }
+          "openUrl" -> {
+            val map = agentTools.openUrl(args["url"] ?: "")
+            ToolExecutionResult(success = map["status"] == "succeeded", output = map.toString())
+          }
+          "searchWeb" -> {
+            val map = agentTools.searchWeb(args["query"] ?: "")
+            ToolExecutionResult(success = map["status"] == "succeeded", output = map.toString())
+          }
+          "getClipboard" -> {
+            val map = agentTools.getClipboard()
+            ToolExecutionResult(success = map["status"] == "succeeded", output = map.toString())
+          }
+          "setClipboard" -> {
+            val map = agentTools.setClipboard(args["text"] ?: "")
+            ToolExecutionResult(success = map["status"] == "succeeded", output = map.toString())
+          }
+          "getDeviceInfo" -> {
+            val map = agentTools.getDeviceInfo()
+            ToolExecutionResult(success = map["status"] == "succeeded", output = map.toString())
+          }
+          "shareContent" -> {
+            val map = agentTools.shareContent(args["text"] ?: "", args["subject"] ?: "")
+            ToolExecutionResult(success = map["status"] == "succeeded", output = map.toString())
+          }
+          "toggleFlashlight" -> {
+            val map = agentTools.toggleFlashlight(args["turnOn"] ?: "true")
+            ToolExecutionResult(success = map["status"] == "succeeded", output = map.toString())
+          }
+          "setVolume" -> {
+            val map = agentTools.setVolume(args["streamType"] ?: "media", args["volumePercent"] ?: "50")
+            ToolExecutionResult(success = map["status"] == "succeeded", output = map.toString())
+          }
+          "setDoNotDisturb" -> {
+            val map = agentTools.setDoNotDisturb(args["enable"] ?: "true")
+            ToolExecutionResult(success = map["status"] == "succeeded", output = map.toString())
+          }
+          "takePhoto" -> {
+            val map = agentTools.takePhoto()
+            ToolExecutionResult(success = map["status"] == "succeeded", output = map.toString())
+          }
+          "listDownloads" -> {
+            val map = agentTools.listDownloads(args["maxResults"] ?: "20")
+            ToolExecutionResult(success = map["status"] == "succeeded", output = map.toString())
+          }
+          "openSettings" -> {
+            val map = agentTools.openSettings(args["settingsPage"] ?: "general")
+            ToolExecutionResult(success = map["status"] == "succeeded", output = map.toString())
+          }
+          "setReminder" -> {
+            val map = agentTools.setReminder(args["title"] ?: "", args["dateTime"] ?: "", args["minutesBefore"] ?: "10")
+            ToolExecutionResult(success = map["status"] == "succeeded", output = map.toString())
+          }
           else ->
             ToolExecutionResult(
               success = false,

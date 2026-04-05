@@ -343,6 +343,125 @@ class AgentTools() : ToolSet {
   ): Map<String, String> {
     return runBlocking(Dispatchers.Default) { deviceSkills.makePhoneCall(phoneNumber) }
   }
+
+  @Tool(description = "Set an alarm at a specific time")
+  fun setAlarm(
+    @ToolParam(description = "Hour in 24-hour format (0-23)") hour: String,
+    @ToolParam(description = "Minute (0-59)") minute: String,
+    @ToolParam(description = "Label for the alarm") label: String,
+  ): Map<String, String> {
+    return runBlocking(Dispatchers.Default) {
+      deviceSkills.setAlarm(hour.toIntOrNull() ?: 0, minute.toIntOrNull() ?: 0, label)
+    }
+  }
+
+  @Tool(description = "Set a countdown timer")
+  fun setTimer(
+    @ToolParam(description = "Duration in seconds") durationSeconds: String,
+    @ToolParam(description = "Label for the timer") label: String,
+  ): Map<String, String> {
+    return runBlocking(Dispatchers.Default) {
+      deviceSkills.setTimer(durationSeconds.toIntOrNull() ?: 60, label)
+    }
+  }
+
+  @Tool(description = "Get the device's current GPS location with address")
+  fun getLocation(): Map<String, String> {
+    return runBlocking(Dispatchers.Default) { deviceSkills.getLocation() }
+  }
+
+  @Tool(description = "Open a URL in the device's browser")
+  fun openUrl(
+    @ToolParam(description = "The URL to open") url: String,
+  ): Map<String, String> {
+    return runBlocking(Dispatchers.Default) { deviceSkills.openUrl(url) }
+  }
+
+  @Tool(description = "Search the web using the device's default search engine")
+  fun searchWeb(
+    @ToolParam(description = "The search query") query: String,
+  ): Map<String, String> {
+    return runBlocking(Dispatchers.Default) { deviceSkills.searchWeb(query) }
+  }
+
+  @Tool(description = "Read the current text content from the device clipboard")
+  fun getClipboard(): Map<String, String> {
+    return runBlocking(Dispatchers.Default) { deviceSkills.getClipboard() }
+  }
+
+  @Tool(description = "Copy text to the device clipboard")
+  fun setClipboard(
+    @ToolParam(description = "The text to copy to clipboard") text: String,
+  ): Map<String, String> {
+    return runBlocking(Dispatchers.Default) { deviceSkills.setClipboard(text) }
+  }
+
+  @Tool(description = "Get device information including battery level, storage, connectivity, and hardware details")
+  fun getDeviceInfo(): Map<String, String> {
+    return runBlocking(Dispatchers.Default) { deviceSkills.getDeviceInfo() }
+  }
+
+  @Tool(description = "Share text content to other apps via the Android share sheet")
+  fun shareContent(
+    @ToolParam(description = "The text content to share") text: String,
+    @ToolParam(description = "Subject line for the share, use empty string if none") subject: String,
+  ): Map<String, String> {
+    return runBlocking(Dispatchers.Default) { deviceSkills.shareContent(text, subject) }
+  }
+
+  @Tool(description = "Turn the device flashlight on or off")
+  fun toggleFlashlight(
+    @ToolParam(description = "true to turn on, false to turn off") turnOn: String,
+  ): Map<String, String> {
+    return runBlocking(Dispatchers.Default) { deviceSkills.toggleFlashlight(turnOn.toBoolean()) }
+  }
+
+  @Tool(description = "Set the device volume for a specific audio stream")
+  fun setVolume(
+    @ToolParam(description = "Audio stream: media, ring, alarm, or notification") streamType: String,
+    @ToolParam(description = "Volume level as percentage 0-100") volumePercent: String,
+  ): Map<String, String> {
+    return runBlocking(Dispatchers.Default) {
+      deviceSkills.setVolume(streamType, volumePercent.toIntOrNull() ?: 50)
+    }
+  }
+
+  @Tool(description = "Enable or disable Do Not Disturb mode")
+  fun setDoNotDisturb(
+    @ToolParam(description = "true to enable DnD, false to disable") enable: String,
+  ): Map<String, String> {
+    return runBlocking(Dispatchers.Default) { deviceSkills.setDoNotDisturb(enable.toBoolean()) }
+  }
+
+  @Tool(description = "Open the camera to take a photo")
+  fun takePhoto(): Map<String, String> {
+    return runBlocking(Dispatchers.Default) { deviceSkills.takePhoto() }
+  }
+
+  @Tool(description = "List files in the device Downloads folder")
+  fun listDownloads(
+    @ToolParam(description = "Maximum number of files to return") maxResults: String,
+  ): Map<String, Any> {
+    return runBlocking(Dispatchers.Default) { deviceSkills.listDownloads(maxResults.toIntOrNull() ?: 20) }
+  }
+
+  @Tool(description = "Open a specific Android settings page")
+  fun openSettings(
+    @ToolParam(description = "Settings page: wifi, bluetooth, display, sound, battery, location, security, apps, notifications, accessibility, date, language, developer, or general") settingsPage: String,
+  ): Map<String, String> {
+    return runBlocking(Dispatchers.Default) { deviceSkills.openSettings(settingsPage) }
+  }
+
+  @Tool(description = "Set a reminder with a notification alert at a specific date and time")
+  fun setReminder(
+    @ToolParam(description = "Reminder title") title: String,
+    @ToolParam(description = "Date and time in yyyy-MM-ddTHH:mm format") dateTime: String,
+    @ToolParam(description = "Minutes before the event to show the alert") minutesBefore: String,
+  ): Map<String, String> {
+    return runBlocking(Dispatchers.Default) {
+      deviceSkills.setReminder(title, dateTime, minutesBefore.toIntOrNull() ?: 10)
+    }
+  }
 }
 
 fun getSkillSecretKey(skillName: String): String {

@@ -35,6 +35,13 @@
     <!-- Device skills: Phone -->
     <uses-permission android:name="android.permission.CALL_PHONE" />
 
+    <!-- Device skills: Location -->
+    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
+    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
+
+    <!-- Device skills: Alarm/Timer (implicit via intent, but declare for clarity) -->
+    <uses-permission android:name="com.android.alarm.permission.SET_ALARM" />
+
     <!-- Device skills: List/launch apps -->
     <queries>
         <intent>
