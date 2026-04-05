@@ -83,6 +83,8 @@ dependencies {
   implementation(libs.moshi.kotlin)
   implementation("androidx.documentfile:documentfile:1.0.1")
   kapt(libs.hilt.android.compiler)
+  testImplementation("junit:junit:4.13.2")
+  testImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.7.3")
   debugImplementation(libs.androidx.ui.tooling)
   debugImplementation(libs.androidx.ui.test.manifest)
   ksp(libs.moshi.kotlin.codegen)

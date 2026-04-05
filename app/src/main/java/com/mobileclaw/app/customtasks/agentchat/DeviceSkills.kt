@@ -803,4 +803,284 @@ class DeviceSkills(
       mapOf("status" to "failed", "error" to (e.message ?: "Failed to set reminder"))
     }
   }
+
+  // ─── Calculator ───
+
+  suspend fun calculate(expression: String): Map<String, String> {
+    sendProgress("Calculating: $expression", inProgress = true, title = "Calculator", desc = expression)
+
+    return try {
+      val result = evaluateExpression(expression)
+      mapOf("status" to "succeeded", "expression" to expression, "result" to result.toString())
+    } catch (e: Exception) {
+      Log.e(TAG, "Failed to calculate", e)
+      mapOf("status" to "failed", "error" to "Invalid expression: ${e.message}")
+    }
+  }
+
+  /**
+   * Simple recursive-descent math expression evaluator.
+   * Supports: +, -, *, /, %, ^, parentheses, and common functions (sqrt, abs, sin, cos, tan, log, ln, round, ceil, floor, pi, e).
+   */
+  internal fun evaluateExpression(expr: String): Double {
+    val tokens = tokenize(expr)
+    val parser = ExprParser(tokens)
+    val result = parser.parseExpression()
+    if (parser.pos < tokens.size) throw IllegalArgumentException("Unexpected token: ${tokens[parser.pos]}")
+    return result
+  }
+
+  private fun tokenize(expr: String): List<String> {
+    val tokens = mutableListOf<String>()
+    var i = 0
+    val s = expr.replace(" ", "")
+    while (i < s.length) {
+      val c = s[i]
+      when {
+        c.isDigit() || c == '.' -> {
+          val start = i
+          while (i < s.length && (s[i].isDigit() || s[i] == '.')) i++
+          tokens.add(s.substring(start, i))
+        }
+        c.isLetter() -> {
+          val start = i
+          while (i < s.length && s[i].isLetter()) i++
+          tokens.add(s.substring(start, i))
+        }
+        c in "+-*/%()" || c == '^' -> {
+          tokens.add(c.toString())
+          i++
+        }
+        else -> i++ // skip unknown
+      }
+    }
+    return tokens
+  }
+
+  private class ExprParser(val tokens: List<String>) {
+    var pos = 0
+    fun peek(): String? = if (pos < tokens.size) tokens[pos] else null
+    fun consume(): String = tokens[pos++]
+    fun expect(t: String) { if (consume() != t) throw IllegalArgumentException("Expected $t") }
+
+    fun parseExpression(): Double {
+      var left = parseTerm()
+      while (peek() == "+" || peek() == "-") {
+        val op = consume()
+        val right = parseTerm()
+        left = if (op == "+") left + right else left - right
+      }
+      return left
+    }
+
+    fun parseTerm(): Double {
+      var left = parsePower()
+      while (peek() == "*" || peek() == "/" || peek() == "%") {
+        val op = consume()
+        val right = parsePower()
+        left = when (op) {
+          "*" -> left * right
+          "/" -> left / right
+          else -> left % right
+        }
+      }
+      return left
+    }
+
+    fun parsePower(): Double {
+      var base = parseUnary()
+      while (peek() == "^") {
+        consume()
+        val exp = parseUnary()
+        base = Math.pow(base, exp)
+      }
+      return base
+    }
+
+    fun parseUnary(): Double {
+      if (peek() == "-") {
+        consume()
+        return -parseAtom()
+      }
+      if (peek() == "+") { consume() }
+      return parseAtom()
+    }
+
+    fun parseAtom(): Double {
+      val token = peek() ?: throw IllegalArgumentException("Unexpected end of expression")
+
+      // Number literal.
+      if (token[0].isDigit() || token[0] == '.') {
+        consume()
+        return token.toDouble()
+      }
+
+      // Constants.
+      if (token == "pi") { consume(); return Math.PI }
+      if (token == "e" && (pos + 1 >= tokens.size || tokens[pos + 1] != "(")) { consume(); return Math.E }
+
+      // Function call: name(expr)
+      if (token[0].isLetter()) {
+        val name = consume()
+        expect("(")
+        val arg = parseExpression()
+        expect(")")
+        return when (name) {
+          "sqrt" -> Math.sqrt(arg)
+          "abs" -> Math.abs(arg)
+          "sin" -> Math.sin(arg)
+          "cos" -> Math.cos(arg)
+          "tan" -> Math.tan(arg)
+          "log" -> Math.log10(arg)
+          "ln" -> Math.log(arg)
+          "round" -> Math.round(arg).toDouble()
+          "ceil" -> Math.ceil(arg)
+          "floor" -> Math.floor(arg)
+          "exp" -> Math.exp(arg)
+          else -> throw IllegalArgumentException("Unknown function: $name")
+        }
+      }
+
+      // Parenthesized expression.
+      if (token == "(") {
+        consume()
+        val result = parseExpression()
+        expect(")")
+        return result
+      }
+
+      throw IllegalArgumentException("Unexpected token: $token")
+    }
+  }
+
+  // ─── Fetch Web Content ───
+
+  suspend fun fetchWebContent(url: String): Map<String, String> {
+    sendProgress("Fetching: $url", inProgress = true, title = "Fetch URL", desc = url)
+
+    return try {
+      val connection = java.net.URL(url).openConnection() as java.net.HttpURLConnection
+      connection.requestMethod = "GET"
+      connection.setRequestProperty("User-Agent", "MobileClaw/1.0")
+      connection.connectTimeout = 10_000
+      connection.readTimeout = 15_000
+      connection.instanceFollowRedirects = true
+
+      val responseCode = connection.responseCode
+      if (responseCode !in 200..299) {
+        return mapOf("status" to "failed", "error" to "HTTP $responseCode")
+      }
+
+      val contentType = connection.contentType ?: ""
+      val rawBody = connection.inputStream.bufferedReader().use { it.readText() }
+      connection.disconnect()
+
+      // Extract readable text from HTML.
+      val body = if (contentType.contains("html", ignoreCase = true)) {
+        extractTextFromHtml(rawBody)
+      } else {
+        rawBody
+      }
+
+      // Truncate to keep context window manageable for on-device LLM.
+      val truncated = if (body.length > 4000) body.take(4000) + "\n...[truncated]" else body
+
+      mapOf(
+        "status" to "succeeded",
+        "url" to url,
+        "content_type" to contentType,
+        "content" to truncated,
+        "content_length" to body.length.toString(),
+      )
+    } catch (e: Exception) {
+      Log.e(TAG, "Failed to fetch URL", e)
+      mapOf("status" to "failed", "error" to (e.message ?: "Failed to fetch URL"))
+    }
+  }
+
+  /**
+   * Basic HTML-to-text: strips tags, decodes common entities, collapses whitespace.
+   */
+  internal fun extractTextFromHtml(html: String): String {
+    // Remove script/style blocks.
+    var text = html.replace(Regex("<(script|style)[^>]*>[\\s\\S]*?</\\1>", RegexOption.IGNORE_CASE), "")
+    // Convert <br>, <p>, <div>, <li> to newlines.
+    text = text.replace(Regex("<(br|p|div|li|h[1-6])[^>]*/?>", RegexOption.IGNORE_CASE), "\n")
+    // Strip remaining tags.
+    text = text.replace(Regex("<[^>]+>"), "")
+    // Decode common entities.
+    text = text.replace("&amp;", "&").replace("&lt;", "<").replace("&gt;", ">")
+      .replace("&quot;", "\"").replace("&#39;", "'").replace("&nbsp;", " ")
+    // Collapse whitespace.
+    text = text.replace(Regex("[ \\t]+"), " ")
+    text = text.replace(Regex("\\n{3,}"), "\n\n")
+    return text.trim()
+  }
+
+  // ─── Web Search (returns results) ───
+
+  suspend fun webSearch(query: String): Map<String, String> {
+    sendProgress("Searching: $query", inProgress = true, title = "Web Search", desc = query)
+
+    return try {
+      // Use DuckDuckGo HTML lite — no API key needed, returns search results as text.
+      val encodedQuery = java.net.URLEncoder.encode(query, "UTF-8")
+      val url = "https://lite.duckduckgo.com/lite/?q=$encodedQuery"
+
+      val connection = java.net.URL(url).openConnection() as java.net.HttpURLConnection
+      connection.requestMethod = "GET"
+      connection.setRequestProperty("User-Agent", "MobileClaw/1.0")
+      connection.connectTimeout = 10_000
+      connection.readTimeout = 15_000
+      connection.instanceFollowRedirects = true
+
+      val responseCode = connection.responseCode
+      if (responseCode !in 200..299) {
+        return mapOf("status" to "failed", "error" to "Search failed: HTTP $responseCode")
+      }
+
+      val html = connection.inputStream.bufferedReader().use { it.readText() }
+      connection.disconnect()
+
+      // Extract search result snippets from DuckDuckGo lite HTML.
+      val results = extractSearchResults(html)
+      val truncated = if (results.length > 3000) results.take(3000) + "\n...[truncated]" else results
+
+      mapOf(
+        "status" to "succeeded",
+        "query" to query,
+        "results" to truncated,
+      )
+    } catch (e: Exception) {
+      Log.e(TAG, "Failed to web search", e)
+      mapOf("status" to "failed", "error" to (e.message ?: "Web search failed"))
+    }
+  }
+
+  /**
+   * Extract search results from DuckDuckGo lite HTML.
+   */
+  internal fun extractSearchResults(html: String): String {
+    val results = StringBuilder()
+    // DuckDuckGo lite wraps results in <a> tags with class "result-link" and snippets in <td> with class "result-snippet".
+    val linkPattern = Regex("<a[^>]*class=\"result-link\"[^>]*href=\"([^\"]+)\"[^>]*>([^<]+)</a>")
+    val snippetPattern = Regex("<td[^>]*class=\"result-snippet\"[^>]*>([^<]+)</td>")
+
+    val links = linkPattern.findAll(html).toList()
+    val snippets = snippetPattern.findAll(html).toList()
+
+    for (i in links.indices.take(8)) {
+      val url = links[i].groupValues[1]
+      val title = links[i].groupValues[2].trim()
+      val snippet = snippets.getOrNull(i)?.groupValues?.get(1)?.trim() ?: ""
+      results.append("${i + 1}. $title\n   $url\n   $snippet\n\n")
+    }
+
+    if (results.isEmpty()) {
+      // Fallback: just extract text.
+      return extractTextFromHtml(html).take(2000)
+    }
+
+    return results.toString().trim()
+  }
 }

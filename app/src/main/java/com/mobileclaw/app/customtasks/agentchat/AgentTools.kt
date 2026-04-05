@@ -377,11 +377,25 @@ class AgentTools() : ToolSet {
     return runBlocking(Dispatchers.Default) { deviceSkills.openUrl(url) }
   }
 
-  @Tool(description = "Search the web using the device's default search engine")
+  @Tool(description = "Search the web and return text results with titles, URLs, and snippets")
   fun searchWeb(
     @ToolParam(description = "The search query") query: String,
   ): Map<String, String> {
-    return runBlocking(Dispatchers.Default) { deviceSkills.searchWeb(query) }
+    return runBlocking(Dispatchers.Default) { deviceSkills.webSearch(query) }
+  }
+
+  @Tool(description = "Fetch the text content of a web page at a URL and return it")
+  fun fetchWebContent(
+    @ToolParam(description = "The full URL to fetch, e.g. https://example.com") url: String,
+  ): Map<String, String> {
+    return runBlocking(Dispatchers.Default) { deviceSkills.fetchWebContent(url) }
+  }
+
+  @Tool(description = "Evaluate a math expression and return the exact result. Supports +, -, *, /, %, ^, parentheses, sqrt, abs, sin, cos, tan, log, ln, round, ceil, floor, pi, e.")
+  fun calculate(
+    @ToolParam(description = "The math expression to evaluate, e.g. '(47.83 * 0.15) + 2'") expression: String,
+  ): Map<String, String> {
+    return runBlocking(Dispatchers.Default) { deviceSkills.calculate(expression) }
   }
 
   @Tool(description = "Read the current text content from the device clipboard")

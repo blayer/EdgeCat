@@ -173,6 +173,14 @@ class ToolExecutorImpl(
             val map = agentTools.searchWeb(args["query"] ?: "")
             ToolExecutionResult(success = map["status"] == "succeeded", output = map.toString())
           }
+          "fetchWebContent" -> {
+            val map = agentTools.fetchWebContent(args["url"] ?: "")
+            ToolExecutionResult(success = map["status"] == "succeeded", output = map.toString())
+          }
+          "calculate" -> {
+            val map = agentTools.calculate(args["expression"] ?: "")
+            ToolExecutionResult(success = map["status"] == "succeeded", output = map.toString())
+          }
           "getClipboard" -> {
             val map = agentTools.getClipboard()
             ToolExecutionResult(success = map["status"] == "succeeded", output = map.toString())
