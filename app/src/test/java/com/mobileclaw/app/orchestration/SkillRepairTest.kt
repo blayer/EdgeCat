@@ -194,4 +194,100 @@ class SkillRepairTest {
     assertTrue(notes.contains("set-reminder"))
     assertTrue(notes.contains("Wake up"))
   }
+
+  // ─── parseDiagnostic: update_instructions fixType ───
+
+  @Test
+  fun `parseDiagnostic handles update_instructions`() {
+    val json = """
+      {
+        "diagnosis": "The skill instructions don't specify the correct date format for Samsung Calendar",
+        "fixType": "update_instructions",
+        "alternativeSkillName": null,
+        "alternativeArgs": {},
+        "updatedInstructions": "Create a new event in the device calendar. Use ISO 8601 date format: yyyy-MM-ddTHH:mm. On Samsung devices, use content provider URI content://com.android.calendar/events."
+      }
+    """.trimIndent()
+
+    val result = creator.parseDiagnostic(json)
+    assertEquals("update_instructions", result.fixType)
+    assertNotNull(result.updatedInstructions)
+    assertTrue(result.updatedInstructions!!.contains("Samsung"))
+    assertTrue(result.updatedInstructions!!.contains("ISO 8601"))
+    assertNull(result.alternativeSkillName)
+  }
+
+  @Test
+  fun `parseDiagnostic update_instructions with alternative args`() {
+    val json = """
+      {
+        "diagnosis": "Date format wrong and instructions need update",
+        "fixType": "update_instructions",
+        "alternativeSkillName": null,
+        "alternativeArgs": {"startDateTime": "2026-04-06T15:00"},
+        "updatedInstructions": "Use ISO date format yyyy-MM-ddTHH:mm for all date arguments."
+      }
+    """.trimIndent()
+
+    val result = creator.parseDiagnostic(json)
+    assertEquals("update_instructions", result.fixType)
+    assertNotNull(result.updatedInstructions)
+    assertEquals("2026-04-06T15:00", result.alternativeArgs["startDateTime"])
+  }
+
+  // ─── ToolExecutor.updateSkillInstructions default ───
+
+  @Test
+  fun `ToolExecutor updateSkillInstructions default returns false`() {
+    // The default implementation should return false (no-op).
+    val executor = object : ToolExecutor {
+      override suspend fun executeTool(
+        toolName: String,
+        args: Map<String, String>,
+      ): ToolExecutionResult = ToolExecutionResult(success = false, output = "")
+
+      override fun getAvailableSkills(): List<SkillSummary> = emptyList()
+    }
+
+    kotlinx.coroutines.runBlocking {
+      val result = executor.updateSkillInstructions("test-skill", "new instructions")
+      assertEquals(false, result)
+    }
+  }
+
+  // ─── Repair flow: diagnostic determines retryable vs non-retryable ───
+
+  @Test
+  fun `retry_with_different_args is retryable`() {
+    val json = """
+      {
+        "diagnosis": "Date was malformed",
+        "fixType": "retry_with_different_args",
+        "alternativeSkillName": null,
+        "alternativeArgs": {"startDateTime": "2026-04-06T15:00"},
+        "updatedInstructions": null
+      }
+    """.trimIndent()
+
+    val result = creator.parseDiagnostic(json)
+    val retryable = result.fixType in listOf("retry_with_different_args", "update_instructions")
+    assertTrue(retryable)
+  }
+
+  @Test
+  fun `use_alternative_skill is not retryable`() {
+    val json = """
+      {
+        "diagnosis": "No clock app",
+        "fixType": "use_alternative_skill",
+        "alternativeSkillName": "set-reminder",
+        "alternativeArgs": {},
+        "updatedInstructions": null
+      }
+    """.trimIndent()
+
+    val result = creator.parseDiagnostic(json)
+    val retryable = result.fixType in listOf("retry_with_different_args", "update_instructions")
+    assertTrue(!retryable)
+  }
 }

@@ -35,4 +35,13 @@ interface ToolExecutor {
 
   /** Return the list of currently available skills. */
   fun getAvailableSkills(): List<SkillSummary>
+
+  /**
+   * Update a skill's instructions persistently (DataStore + disk).
+   * Returns true if the update succeeded, false if the skill is built-in or not found.
+   */
+  suspend fun updateSkillInstructions(
+    skillName: String,
+    newInstructions: String,
+  ): Boolean = false
 }

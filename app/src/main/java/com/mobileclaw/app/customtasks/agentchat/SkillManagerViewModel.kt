@@ -1140,6 +1140,54 @@ constructor(
     return _uiState.value.skills.firstOrNull { it.skill.name == skillName }?.skill?.selected == true
   }
 
+  /**
+   * Programmatically update a skill's instructions.
+   * Used by the orchestration auto-repair flow.
+   * Returns true on success, false if skill is built-in or not found.
+   */
+  suspend fun updateSkillInstructionsProgrammatic(
+    skillName: String,
+    newInstructions: String,
+  ): Boolean = withContext(Dispatchers.IO) {
+    val skillState = _uiState.value.skills.firstOrNull { it.skill.name == skillName }
+      ?: run {
+        Log.w(TAG, "updateSkillInstructionsProgrammatic: skill '$skillName' not found")
+        return@withContext false
+      }
+    val skill = skillState.skill
+    if (skill.builtIn) {
+      Log.w(TAG, "updateSkillInstructionsProgrammatic: cannot update built-in skill '$skillName'")
+      return@withContext false
+    }
+
+    // Update SKILL.md on disk.
+    if (skill.importDirName.isNotEmpty()) {
+      val skillDir = context.filesDir.resolve(skill.importDirName)
+      val skillMdFile = File(skillDir, "SKILL.md")
+      if (skillMdFile.exists()) {
+        writeSkillMd(skillMdFile, skill.name, skill.description, newInstructions)
+        Log.d(TAG, "Updated SKILL.md on disk for '$skillName'")
+      }
+    }
+
+    // Update proto in memory.
+    val updatedSkill = skill.toBuilder()
+      .setInstructions(newInstructions)
+      .build()
+
+    _uiState.update { currentState ->
+      val updatedList = currentState.skills.map {
+        if (it.skill.name == skillName) SkillState(skill = updatedSkill) else it
+      }
+      currentState.copy(skills = updatedList)
+    }
+
+    // Persist to DataStore.
+    updateSkillInDataStore(skill.name, updatedSkill)
+    Log.d(TAG, "Persisted updated instructions for skill '$skillName'")
+    true
+  }
+
   private fun writeSkillMd(
     skillMdFile: File,
     name: String,

@@ -242,6 +242,13 @@ class ToolExecutorImpl(
     }
   }
 
+  override suspend fun updateSkillInstructions(
+    skillName: String,
+    newInstructions: String,
+  ): Boolean {
+    return skillManagerViewModel.updateSkillInstructionsProgrammatic(skillName, newInstructions)
+  }
+
   override fun getAvailableSkills(): List<SkillSummary> {
     val skills = skillManagerViewModel.getSelectedSkills().map { skill ->
       SkillSummary(name = skill.name, description = skill.description, instructions = skill.instructions)

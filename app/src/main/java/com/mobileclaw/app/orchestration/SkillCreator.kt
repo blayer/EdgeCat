@@ -102,19 +102,23 @@ Analyze the failure and respond with ONLY valid JSON:
 ```json
 {
   "diagnosis": "brief explanation of why the step failed",
-  "fixType": "retry_with_different_args" or "use_alternative_skill" or "skip" or "unfixable",
+  "fixType": "retry_with_different_args" or "update_instructions" or "use_alternative_skill" or "skip" or "unfixable",
   "alternativeSkillName": "skill-name or null",
   "alternativeArgs": {"key": "value"},
-  "updatedInstructions": "if the skill instructions should be updated, provide the new instructions here, otherwise null"
+  "updatedInstructions": "if fixType is update_instructions, provide the corrected full skill instructions here, otherwise null"
 }
 ```
 
 Rules:
-- If the error is a missing app (e.g., no clock app for set-alarm), suggest an alternative skill
-- If the error is bad arguments (e.g., malformed date), suggest corrected args
-- If the error is a permission issue, the fix is "unfixable" (permissions are handled separately)
-- For calendar errors, consider using set-reminder as an alternative
-- For alarm/timer errors on Samsung, suggest set-reminder instead
+- "retry_with_different_args": The skill works but was called with wrong args (e.g., malformed date). Provide corrected args.
+- "update_instructions": The skill's instructions themselves are wrong or incomplete for this device (e.g., wrong content provider, missing format hints). Provide the full corrected instructions. The system will persist the fix for future use.
+- "use_alternative_skill": The skill cannot work on this device (e.g., no clock app for set-alarm). Suggest an alternative.
+- "skip": This step is redundant or unnecessary.
+- "unfixable": Cannot be fixed automatically (e.g., permission denied).
+- If the error is a missing app, suggest an alternative skill
+- If the error is bad arguments, use retry_with_different_args
+- If the skill instructions are incomplete or wrong for this device, use update_instructions
+- If the error is a permission issue, the fix is "unfixable"
 - Keep the diagnosis concise
 """.trimIndent()
   }

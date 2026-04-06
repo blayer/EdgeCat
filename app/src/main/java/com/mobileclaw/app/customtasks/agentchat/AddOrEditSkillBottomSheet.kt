@@ -139,7 +139,7 @@ fun AddOrEditSkillBottomSheet(
   val snackbarHostState = remember { SnackbarHostState() }
 
   val curSkill = skill
-  val viewingMode = true
+  val viewingMode = curSkill?.builtIn ?: (skillIndex <= uiState.skills.size - 1)
 
   var llmPromptGeneratorRequirements by remember { mutableStateOf(skill?.description ?: "") }
   var llmPromptGeneratorInputData by remember { mutableStateOf(INPUT_DATA_PLACEHOLDER) }
