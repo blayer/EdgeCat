@@ -583,6 +583,48 @@ constructor(
     _uiState.update { currentState -> currentState.copy(importDirectoryUri = uri) }
   }
 
+  /**
+   * Create a new skill from a completed orchestration run.
+   * Uses the LLM to generate a SKILL.md, then saves it as a custom skill.
+   */
+  fun createSkillFromOrchestration(
+    skillMdContent: String,
+    onSuccess: (String) -> Unit,
+    onError: (String) -> Unit,
+  ) {
+    viewModelScope.launch(Dispatchers.IO) {
+      try {
+        val (skillProto, errors) = convertSkillMdToProto(
+          skillMdContent,
+          builtIn = false,
+          selected = true,
+        )
+
+        if (errors.isNotEmpty() || skillProto == null) {
+          val error = "Failed to parse generated skill: ${errors.joinToString(", ")}"
+          Log.e(TAG, error)
+          withContext(Dispatchers.Main) { onError(error) }
+          return@launch
+        }
+
+        // Check if skill name already exists.
+        if (_uiState.value.skills.any { it.skill.name == skillProto.name }) {
+          val error = "A skill with the name '${skillProto.name}' already exists."
+          Log.e(TAG, error)
+          withContext(Dispatchers.Main) { onError(error) }
+          return@launch
+        }
+
+        addSkill(skill = skillProto, addToDataStore = true)
+        Log.d(TAG, "Created skill from orchestration: ${skillProto.name}")
+        withContext(Dispatchers.Main) { onSuccess(skillProto.name) }
+      } catch (e: Exception) {
+        Log.e(TAG, "Failed to create skill from orchestration", e)
+        withContext(Dispatchers.Main) { onError(e.message ?: "Unknown error") }
+      }
+    }
+  }
+
   fun addSkill(skill: Skill, addToDataStore: Boolean) {
     Log.d(TAG, "Adding skill: $skill")
 

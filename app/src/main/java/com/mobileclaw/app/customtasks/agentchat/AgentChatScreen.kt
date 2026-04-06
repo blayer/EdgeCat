@@ -85,8 +85,11 @@ import com.mobileclaw.app.firebaseAnalytics
 import com.mobileclaw.app.ui.common.BaseMobileClawWebViewClient
 import com.mobileclaw.app.ui.common.MobileClawWebView
 import com.mobileclaw.app.ui.common.buildTrackableUrlAnnotatedString
+import com.mobileclaw.app.orchestration.ExecutionPlan
 import com.mobileclaw.app.orchestration.OrchestrationController
 import com.mobileclaw.app.orchestration.OrchestrationStatus
+import com.mobileclaw.app.orchestration.SkillCreator
+import com.mobileclaw.app.orchestration.StepResult
 import com.mobileclaw.app.orchestration.StepStatus
 import com.mobileclaw.app.ui.common.chat.ChatMessage
 import com.mobileclaw.app.ui.common.chat.ChatMessageCollapsableProgressPanel
@@ -143,6 +146,15 @@ fun AgentChatScreen(
   var disabledSkillName by remember { mutableStateOf("") }
   var orchestrationEnabled by remember { mutableStateOf(true) }
   val coroutineScope = androidx.compose.runtime.rememberCoroutineScope()
+
+  // Save-as-skill state.
+  var showSaveAsSkillDialog by remember { mutableStateOf(false) }
+  var saveAsSkillName by remember { mutableStateOf("") }
+  var lastOrchestrationUserMessage by remember { mutableStateOf("") }
+  var lastOrchestrationPlan by remember { mutableStateOf<ExecutionPlan?>(null) }
+  var lastOrchestrationResults by remember { mutableStateOf<Map<String, StepResult>>(emptyMap()) }
+  var saveAsSkillLoading by remember { mutableStateOf(false) }
+  val skillCreator = remember { SkillCreator() }
 
   // Permission request handling for device skills.
   var pendingPermissionAction by remember { mutableStateOf<RequestPermissionAgentAction?>(null) }
@@ -497,6 +509,59 @@ fun AgentChatScreen(
         if (text.isBlank()) {
           android.util.Log.d("AGOrchOverride", "Text is blank, returning false")
           false // Nothing to orchestrate.
+        } else if (text.lowercase().startsWith("save as skill") || text.lowercase().startsWith("save skill")) {
+          // Handle "save as skill <name>" command.
+          for (message in messages) {
+            viewModel.addMessage(model = model, message = message)
+          }
+          val plan = lastOrchestrationPlan
+          val results = lastOrchestrationResults
+          val userMsg = lastOrchestrationUserMessage
+          if (plan == null || plan.steps.isEmpty()) {
+            viewModel.addMessage(model = model, message = ChatMessageInfo(content = "No completed workflow to save. Run a multi-step command first."))
+          } else {
+            // Extract skill name from the message.
+            val nameFromMsg = text
+              .replace(Regex("^save\\s+(as\\s+)?skill\\s*", RegexOption.IGNORE_CASE), "")
+              .trim()
+              .replace("\\s+".toRegex(), "-")
+              .replace(Regex("[^a-zA-Z0-9-]"), "")
+              .lowercase()
+              .ifEmpty { "my-workflow" }
+
+            viewModel.addMessage(model = model, message = ChatMessageInfo(content = "Generating skill \"$nameFromMsg\"..."))
+
+            coroutineScope.launch(kotlinx.coroutines.Dispatchers.Default) {
+              try {
+                val llmProvider = LlmInferenceProviderImpl(viewModel) { model }
+                val prompt = skillCreator.buildSkillCreationPrompt(nameFromMsg, userMsg, plan, results)
+                val llmOutput = llmProvider.generateResponse(prompt)
+                val skillMd = skillCreator.parseSkillMd(llmOutput)
+                android.util.Log.d(TAG, "Generated SKILL.md:\n$skillMd")
+
+                kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
+                  skillManagerViewModel.createSkillFromOrchestration(
+                    skillMdContent = skillMd,
+                    onSuccess = { name ->
+                      viewModel.addMessage(model = model, message = ChatMessageText(
+                        content = "Skill \"$name\" saved! You can now use it by saying: \"run $name\" or reference it in future requests.",
+                        side = ChatSide.AGENT,
+                      ))
+                    },
+                    onError = { error ->
+                      viewModel.addMessage(model = model, message = ChatMessageInfo(content = "Failed to save skill: $error"))
+                    },
+                  )
+                }
+              } catch (e: Exception) {
+                android.util.Log.e(TAG, "Failed to generate skill", e)
+                kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
+                  viewModel.addMessage(model = model, message = ChatMessageInfo(content = "Failed to generate skill: ${e.message}"))
+                }
+              }
+            }
+          }
+          true // Handled.
         } else {
           android.util.Log.d("AGOrchOverride", "Starting orchestration for: '$text'")
           // Add user message to chat.
@@ -609,9 +674,13 @@ fun AgentChatScreen(
                 viewModel.appendOrchestrationLogLine(model, "\u270D\uFE0F Formatting response...")
               }
 
-              // Completed — finalize log, send final output.
+              // Completed — finalize log, send final output, capture for save-as-skill.
               if (state.status == OrchestrationStatus.COMPLETED && lastStatus != OrchestrationStatus.COMPLETED) {
                 viewModel.finalizeOrchestrationLog(model)
+                // Capture orchestration data for "Save as Skill".
+                lastOrchestrationUserMessage = text
+                lastOrchestrationPlan = state.plan
+                lastOrchestrationResults = state.stepResults
                 if (state.finalOutput != null) {
                   if (state.finalOutputIsHtml) {
                     // Wrap HTML in a full document for proper rendering.
@@ -644,6 +713,13 @@ fun AgentChatScreen(
                       ),
                     )
                   }
+                }
+                // Hint about saving as skill if multi-step plan.
+                if ((state.plan?.steps?.size ?: 0) >= 2) {
+                  viewModel.addMessage(
+                    model = model,
+                    message = ChatMessageInfo(content = "You can say \"save as skill <name>\" to reuse this workflow."),
+                  )
                 }
               }
 
