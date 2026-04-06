@@ -62,6 +62,31 @@ private const val TAG = "AGSkillManagerVM"
 
 private const val SKILL_ALLOWLIST_URL = ""
 
+/**
+ * Base skills: always enabled, not visible in the skill manager UI.
+ * These are native device skills that work on any device without app dependencies.
+ */
+val BASE_SKILLS = setOf(
+  "calculator",
+  "summarize",
+  "search-web",
+  "fetch-web-content",
+  "read-contacts",
+  "send-sms",
+  "phone-call",
+  "get-location",
+  "list-photos",
+  "list-downloads",
+  "clipboard",
+  "device-info",
+  "list-apps",
+  "volume-control",
+  "flashlight",
+  "do-not-disturb",
+  "set-reminder",
+  "share-content",
+)
+
 val TRYOUT_CHIPS: List<SkillTryOutChip> =
   listOf(
     SkillTryOutChip(
@@ -189,11 +214,16 @@ constructor(
                   Log.w(TAG, "Error parsing asset skill $dirName: ${errors.joinToString(", ")}")
                 } else {
                   skillProto?.let {
-                    // Apply the previous selection state if it exists, otherwise default to
-                    // true.
-                    val selectedState = builtInSelectionMap[it.name] ?: true
-                    builtInSkills.add(it.toBuilder().setSelected(selectedState).build())
-                    Log.d(TAG, "Added built-in skill: ${it.name}")
+                    val isBase = it.name in BASE_SKILLS
+                    // Base skills are always selected. Regular built-in skills use stored state.
+                    val selectedState = if (isBase) true else (builtInSelectionMap[it.name] ?: true)
+                    builtInSkills.add(
+                      it.toBuilder()
+                        .setSelected(selectedState)
+                        .setBaseSkill(isBase)
+                        .build()
+                    )
+                    Log.d(TAG, "Added built-in skill: ${it.name} (base=$isBase)")
                   }
                 }
               }
@@ -220,9 +250,13 @@ constructor(
         // 5. Update the DataStore with the combined list of skills.
         dataStoreRepository.setSkills(finalSkills)
 
-        // 6. Update UI State with the final set of skills.
+        // 6. Store base skills separately, then update UI with only non-base skills.
+        baseSkills = finalSkills.filter { it.baseSkill }
+        val visibleSkills = finalSkills.filter { !it.baseSkill }
+        Log.d(TAG, "Base skills (${baseSkills.size}): ${baseSkills.map { it.name }}")
+        Log.d(TAG, "Visible skills (${visibleSkills.size}): ${visibleSkills.map { it.name }}")
         _uiState.update { currentState ->
-          currentState.copy(skills = finalSkills.map { SkillState(skill = it) })
+          currentState.copy(skills = visibleSkills.map { SkillState(skill = it) })
         }
 
         setLoading(false)
@@ -667,8 +701,13 @@ constructor(
   }
 
   fun getSelectedSkills(): List<Skill> {
-    return _uiState.value.skills.filter { it.skill.selected }.map { it.skill }
+    // Include base skills (always active) + user-selected regular skills.
+    val userSelected = _uiState.value.skills.filter { it.skill.selected }.map { it.skill }
+    return baseSkills + userSelected
   }
+
+  /** Base skills loaded from assets — always active, not in UI. */
+  private var baseSkills: List<Skill> = emptyList()
 
   fun getSystemPrompt(baseSystemPrompt: String): Contents {
     // Replace ___SKILLS___ with the following skills list:
@@ -689,7 +728,9 @@ constructor(
   }
 
   fun getSkill(name: String): Skill? {
-    return _uiState.value.skills.firstOrNull { it.skill.name == name }?.skill
+    // Search base skills first, then visible skills.
+    return baseSkills.firstOrNull { it.name == name }
+      ?: _uiState.value.skills.firstOrNull { it.skill.name == name }?.skill
   }
 
   fun getJsSkillUrl(skillName: String, scriptName: String): String? {

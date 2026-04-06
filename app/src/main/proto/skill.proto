@@ -52,4 +52,7 @@ message Skill {
 
   // The homepage of the skill (source, doc).
   string homepage = 9;
+
+  // Whether this is a base skill (always enabled, not shown in skill manager UI).
+  bool base_skill = 11;
 }
