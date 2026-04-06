@@ -561,14 +561,24 @@ fun AgentChatScreen(
                     val step = state.plan!!.steps.find { it.id == stepId }
                     val desc = step?.description ?: stepId
                     when (result.status) {
-                      com.mobileclaw.app.orchestration.StepStatus.RUNNING ->
-                        viewModel.appendOrchestrationLogLine(model, "\u25B6\uFE0F $desc")
+                      com.mobileclaw.app.orchestration.StepStatus.RUNNING -> {
+                        // Only show RUNNING if no terminal state logged yet for this step.
+                        // This avoids duplicate "running" + "completed" lines.
+                        val hasTerminal = loggedSteps.contains("$stepId:${com.mobileclaw.app.orchestration.StepStatus.COMPLETED}") ||
+                          loggedSteps.contains("$stepId:${com.mobileclaw.app.orchestration.StepStatus.FAILED}")
+                        if (!hasTerminal) {
+                          viewModel.appendOrchestrationLogLine(model, "\u25B6\uFE0F $desc")
+                        }
+                      }
                       com.mobileclaw.app.orchestration.StepStatus.COMPLETED -> {
                         val dur = if (result.durationMs > 0) " (${String.format("%.1f", result.durationMs / 1000.0)}s)" else ""
-                        viewModel.appendOrchestrationLogLine(model, "\u2705 $desc$dur")
+                        // Replace the RUNNING line with COMPLETED.
+                        viewModel.replaceOrchestrationLogLine(model, "\u25B6\uFE0F $desc", "\u2705 $desc$dur")
                       }
-                      com.mobileclaw.app.orchestration.StepStatus.FAILED ->
-                        viewModel.appendOrchestrationLogLine(model, "\u274C $desc — ${result.error ?: "unknown error"}")
+                      com.mobileclaw.app.orchestration.StepStatus.FAILED -> {
+                        // Replace the RUNNING line with FAILED.
+                        viewModel.replaceOrchestrationLogLine(model, "\u25B6\uFE0F $desc", "\u274C $desc — ${result.error?.take(80) ?: "unknown error"}")
+                      }
                       com.mobileclaw.app.orchestration.StepStatus.SKIPPED ->
                         viewModel.appendOrchestrationLogLine(model, "\u23ED\uFE0F $desc")
                       else -> {}

@@ -223,6 +223,28 @@ abstract class ChatViewModel() : ViewModel() {
     _uiState.update { _uiState.value.copy(messagesByModel = newMessagesByModel) }
   }
 
+  fun replaceOrchestrationLogLine(model: Model, oldLine: String, newLine: String) {
+    val newMessagesByModel = _uiState.value.messagesByModel.toMutableMap()
+    val newMessages = newMessagesByModel[model.name]?.toMutableList() ?: mutableListOf()
+    val index = newMessages.indexOfLast { it.type == ChatMessageType.ORCHESTRATION_LOG }
+    if (index >= 0) {
+      val msg = newMessages[index] as ChatMessageOrchestrationLog
+      val updatedLines = msg.logLines.toMutableList()
+      val lineIndex = updatedLines.indexOfLast { it == oldLine }
+      if (lineIndex >= 0) {
+        updatedLines[lineIndex] = newLine
+      } else {
+        updatedLines.add(newLine)
+      }
+      newMessages[index] = ChatMessageOrchestrationLog(
+        logLines = updatedLines,
+        inProgress = msg.inProgress,
+      )
+    }
+    newMessagesByModel[model.name] = newMessages
+    _uiState.update { _uiState.value.copy(messagesByModel = newMessagesByModel) }
+  }
+
   fun finalizeOrchestrationLog(model: Model) {
     val newMessagesByModel = _uiState.value.messagesByModel.toMutableMap()
     val newMessages = newMessagesByModel[model.name]?.toMutableList() ?: mutableListOf()
