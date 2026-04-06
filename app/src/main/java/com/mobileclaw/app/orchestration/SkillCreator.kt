@@ -70,6 +70,100 @@ Respond with ONLY the SKILL.md content, starting with --- and ending after the i
   }
 
   /**
+   * Build a prompt for diagnosing and fixing a failed skill step.
+   *
+   * Given a failed step with its error, device info, and the skill's current instructions,
+   * asks the LLM to diagnose the failure and suggest an alternative approach that the
+   * planner should use on the next attempt.
+   */
+  fun buildDiagnosticPrompt(
+    failedStep: PlanStep,
+    error: String,
+    deviceInfo: String,
+    skillInstructions: String,
+  ): String {
+    val args = if (failedStep.toolArgs.isNotEmpty()) failedStep.toolArgs.toString() else "{}"
+
+    return """
+You are a diagnostic assistant. A skill step failed during execution on an Android device. Analyze the error and suggest a fix.
+
+Failed step: ${failedStep.description}
+Skill name: ${failedStep.skillName ?: "unknown"}
+Tool args: $args
+Error: $error
+
+Device info:
+$deviceInfo
+
+Current skill instructions:
+$skillInstructions
+
+Analyze the failure and respond with ONLY valid JSON:
+```json
+{
+  "diagnosis": "brief explanation of why the step failed",
+  "fixType": "retry_with_different_args" or "use_alternative_skill" or "skip" or "unfixable",
+  "alternativeSkillName": "skill-name or null",
+  "alternativeArgs": {"key": "value"},
+  "updatedInstructions": "if the skill instructions should be updated, provide the new instructions here, otherwise null"
+}
+```
+
+Rules:
+- If the error is a missing app (e.g., no clock app for set-alarm), suggest an alternative skill
+- If the error is bad arguments (e.g., malformed date), suggest corrected args
+- If the error is a permission issue, the fix is "unfixable" (permissions are handled separately)
+- For calendar errors, consider using set-reminder as an alternative
+- For alarm/timer errors on Samsung, suggest set-reminder instead
+- Keep the diagnosis concise
+""".trimIndent()
+  }
+
+  /**
+   * Parse the LLM diagnostic output into a [DiagnosticResult].
+   */
+  fun parseDiagnostic(llmOutput: String): DiagnosticResult {
+    val jsonStr = extractJson(llmOutput)
+    if (jsonStr != null) {
+      try {
+        val json = org.json.JSONObject(jsonStr)
+        val altArgs = mutableMapOf<String, String>()
+        val argsJson = json.optJSONObject("alternativeArgs")
+        if (argsJson != null) {
+          for (key in argsJson.keys()) {
+            altArgs[key] = argsJson.optString(key, "")
+          }
+        }
+        return DiagnosticResult(
+          diagnosis = json.optString("diagnosis", ""),
+          fixType = json.optString("fixType", "unfixable"),
+          alternativeSkillName = json.optString("alternativeSkillName").takeIf { it.isNotEmpty() && it != "null" },
+          alternativeArgs = altArgs,
+          updatedInstructions = json.optString("updatedInstructions").takeIf { it.isNotEmpty() && it != "null" },
+        )
+      } catch (e: Exception) {
+        Log.w(TAG, "Failed to parse diagnostic JSON: ${e.message}")
+      }
+    }
+
+    // Fallback: unfixable.
+    return DiagnosticResult(
+      diagnosis = llmOutput.take(200),
+      fixType = "unfixable",
+    )
+  }
+
+  private fun extractJson(text: String): String? {
+    val codeBlockRegex = Regex("```(?:json)?\\s*\\n?(\\{.*?\\})\\s*```", RegexOption.DOT_MATCHES_ALL)
+    codeBlockRegex.find(text)?.let { return it.groupValues[1].trim() }
+
+    val jsonRegex = Regex("(\\{\\s*\"diagnosis\".*\\})", RegexOption.DOT_MATCHES_ALL)
+    jsonRegex.find(text)?.let { return it.groupValues[1].trim() }
+
+    return null
+  }
+
+  /**
    * Parse the LLM output to extract clean SKILL.md content.
    * Handles markdown code blocks and extra text around the content.
    */

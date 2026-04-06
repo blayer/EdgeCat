@@ -57,6 +57,7 @@ enum class OrchestrationStatus {
   PLANNING,
   EXECUTING,
   EVALUATING,
+  REPAIRING,
   REPLANNING,
   FORMATTING,
   COMPLETED,
@@ -90,4 +91,13 @@ data class SkillSummary(
   val name: String,
   val description: String,
   val instructions: String = "",
+)
+
+/** Result of diagnosing a failed skill step. */
+data class DiagnosticResult(
+  val diagnosis: String,
+  val fixType: String, // "retry_with_different_args", "use_alternative_skill", "skip", "unfixable"
+  val alternativeSkillName: String? = null,
+  val alternativeArgs: Map<String, String> = emptyMap(),
+  val updatedInstructions: String? = null,
 )

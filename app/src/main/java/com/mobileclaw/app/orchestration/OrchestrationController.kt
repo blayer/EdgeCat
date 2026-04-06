@@ -46,6 +46,7 @@ class OrchestrationController(
   private val planner = Planner()
   private val orchestrator = ExecutionOrchestrator(llmProvider, toolExecutor)
   private val evaluator = SelfEvaluator()
+  private val skillCreator = SkillCreator()
 
   private val _state = MutableStateFlow(OrchestrationState())
   val state: StateFlow<OrchestrationState> = _state.asStateFlow()
@@ -156,18 +157,77 @@ class OrchestrationController(
           return
         }
 
-        // Replan.
+        // Repair: diagnose failed steps before replanning.
         if (cancelled.get()) {
           _state.value = _state.value.copy(status = OrchestrationStatus.CANCELLED)
           return
         }
 
+        val failedSteps = currentPlan.steps.filter { step ->
+          results[step.id]?.status == StepStatus.FAILED
+        }
+
+        var diagnosticNotes = ""
+        if (failedSteps.isNotEmpty()) {
+          Log.d(TAG, "Diagnosing ${failedSteps.size} failed steps")
+          _state.value = _state.value.copy(status = OrchestrationStatus.REPAIRING)
+
+          for (failedStep in failedSteps) {
+            val stepResult = results[failedStep.id] ?: continue
+            val error = stepResult.error ?: stepResult.output
+            val skillInstructions = failedStep.skillName?.let { name ->
+              skills.find { it.name == name }?.instructions ?: ""
+            } ?: ""
+
+            try {
+              val diagPrompt = skillCreator.buildDiagnosticPrompt(
+                failedStep = failedStep,
+                error = error,
+                deviceInfo = getDeviceInfo(),
+                skillInstructions = skillInstructions,
+              )
+              val diagResponse = llmProvider.generateResponse(diagPrompt)
+              val diagnostic = skillCreator.parseDiagnostic(diagResponse)
+
+              Log.d(TAG, "Diagnostic for ${failedStep.id}: type=${diagnostic.fixType}, diagnosis=${diagnostic.diagnosis}")
+
+              diagnosticNotes += "\n\nDiagnostic for failed step '${failedStep.id}' (${failedStep.skillName}):"
+              diagnosticNotes += "\n- Diagnosis: ${diagnostic.diagnosis}"
+              when (diagnostic.fixType) {
+                "use_alternative_skill" -> {
+                  diagnosticNotes += "\n- Suggested fix: Use skill '${diagnostic.alternativeSkillName}' instead"
+                  if (diagnostic.alternativeArgs.isNotEmpty()) {
+                    diagnosticNotes += " with args: ${diagnostic.alternativeArgs}"
+                  }
+                }
+                "retry_with_different_args" -> {
+                  diagnosticNotes += "\n- Suggested fix: Retry with different args: ${diagnostic.alternativeArgs}"
+                }
+                "skip" -> {
+                  diagnosticNotes += "\n- Suggested fix: Skip this step, it is not needed"
+                }
+                else -> {
+                  diagnosticNotes += "\n- This step cannot be fixed automatically"
+                }
+              }
+            } catch (e: Exception) {
+              Log.w(TAG, "Failed to diagnose step ${failedStep.id}", e)
+            }
+          }
+        }
+
+        // Replan with diagnostic notes.
         Log.d(TAG, "Re-planning for iteration ${iteration + 1}")
         _state.value = _state.value.copy(status = OrchestrationStatus.REPLANNING)
 
         val replanPrompt =
           planner.buildReplanPrompt(userMessage, currentPlan, results, evaluation, skills)
-        val replanResponse = llmProvider.generateResponse(replanPrompt)
+        val fullReplanPrompt = if (diagnosticNotes.isNotEmpty()) {
+          "$replanPrompt\n\nAuto-diagnostic notes (use these to fix the plan):$diagnosticNotes"
+        } else {
+          replanPrompt
+        }
+        val replanResponse = llmProvider.generateResponse(fullReplanPrompt)
         currentPlan = planner.parsePlan(replanResponse, userMessage)
 
         Log.d(TAG, "Revised plan has ${currentPlan.steps.size} steps")
@@ -260,5 +320,11 @@ Rewrite this into a clear, friendly response for the user. Follow these rules:
     val response = llmProvider.generateResponse(prompt)
     Log.d(TAG, "Formatted result length=${response.length}")
     return response.trim()
+  }
+
+  /** Get basic device info for diagnostic context. */
+  private fun getDeviceInfo(): String {
+    return "Android ${android.os.Build.VERSION.RELEASE} (SDK ${android.os.Build.VERSION.SDK_INT}), " +
+      "${android.os.Build.MANUFACTURER} ${android.os.Build.MODEL}"
   }
 }

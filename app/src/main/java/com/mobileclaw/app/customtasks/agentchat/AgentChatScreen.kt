@@ -669,6 +669,11 @@ fun AgentChatScreen(
                 }
               }
 
+              // Repairing.
+              if (state.status == OrchestrationStatus.REPAIRING && lastStatus != OrchestrationStatus.REPAIRING) {
+                viewModel.appendOrchestrationLogLine(model, "\uD83D\uDD27 Diagnosing failed steps...")
+              }
+
               // Formatting.
               if (state.status == OrchestrationStatus.FORMATTING && lastStatus != OrchestrationStatus.FORMATTING) {
                 viewModel.appendOrchestrationLogLine(model, "\u270D\uFE0F Formatting response...")
