@@ -339,7 +339,7 @@ class DownloadWorker(context: Context, params: WorkerParameters) :
     val content = "Downloading in progress: $progress%"
 
     val intent =
-      Intent(applicationContext, Class.forName("com.mobileclaw.app.MainActivity")).apply {
+      Intent(applicationContext, Class.forName("com.mobileclaw.app.MobileClawActivity")).apply {
         flags = Intent.FLAG_ACTIVITY_SINGLE_TOP
       }
     val pendingIntent =

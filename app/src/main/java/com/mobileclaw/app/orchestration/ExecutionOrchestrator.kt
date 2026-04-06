@@ -29,6 +29,36 @@ private const val TAG = "AGExecutionOrchestrator"
 /** Skills that are executed by the LLM rather than by running JS in a WebView. */
 private val LLM_ONLY_SKILLS = setOf("summarize")
 
+/** Native app skills — map skill name to the native tool name. */
+private val NATIVE_SKILL_TOOLS = mapOf(
+  "calculator" to "calculate",
+  "search-web" to "searchWeb",
+  "fetch-web-content" to "fetchWebContent",
+  "send-sms" to "sendSms",
+  "send-email" to "sendEmail",
+  "access-calendar" to "readCalendarEvents",
+  "create-calendar-event" to "createCalendarEvent",
+  "read-contacts" to "readContacts",
+  "list-photos" to "listPhotos",
+  "list-apps" to "listApps",
+  "launch-app" to "launchApp",
+  "phone-call" to "makePhoneCall",
+  "set-alarm" to "setAlarm",
+  "set-timer" to "setTimer",
+  "get-location" to "getLocation",
+  "open-url" to "openUrl",
+  "clipboard" to "getClipboard",
+  "device-info" to "getDeviceInfo",
+  "share-content" to "shareContent",
+  "flashlight" to "toggleFlashlight",
+  "volume-control" to "setVolume",
+  "do-not-disturb" to "setDoNotDisturb",
+  "take-photo" to "takePhoto",
+  "list-downloads" to "listDownloads",
+  "open-settings" to "openSettings",
+  "set-reminder" to "setReminder",
+)
+
 /**
  * Module 2: Execution Orchestrator.
  *
@@ -122,22 +152,28 @@ class ExecutionOrchestrator(
     val startTime = System.currentTimeMillis()
 
     return try {
-      // If toolName is null but skillName is set, treat as a runJs tool step —
-      // unless the skill is LLM-only (e.g. "summarize"), in which case keep it as an LLM step.
+      // Determine the effective tool name:
+      // 1. If toolName is already set, use it.
+      // 2. If skillName maps to a native app skill, use the native tool.
+      // 3. If skillName is LLM-only (e.g. "summarize"), treat as LLM step.
+      // 4. Otherwise, treat as a JS skill (runJs).
+      val nativeTool = step.skillName?.let { NATIVE_SKILL_TOOLS[it] }
       val effectiveToolName = step.toolName
+        ?: nativeTool
         ?: if (!step.skillName.isNullOrEmpty() && step.skillName !in LLM_ONLY_SKILLS) "runJs" else null
 
-      Log.d(TAG, "Step ${step.id}: toolName=${step.toolName}, skillName=${step.skillName}, effectiveToolName=$effectiveToolName")
+      Log.d(TAG, "Step ${step.id}: toolName=${step.toolName}, skillName=${step.skillName}, nativeTool=$nativeTool, effectiveToolName=$effectiveToolName")
 
       val result =
-        when (effectiveToolName) {
-          "loadSkill",
-          "runJs",
-          "runIntent" -> executeToolStep(step.copy(toolName = effectiveToolName), previousResults)
-          null -> executeLlmStep(step, previousResults)
+        when {
+          effectiveToolName == null -> executeLlmStep(step, previousResults)
+          effectiveToolName in listOf("loadSkill", "runJs", "runIntent") ->
+            executeToolStep(step.copy(toolName = effectiveToolName), previousResults)
+          nativeTool != null ->
+            executeNativeToolStep(step, nativeTool, previousResults)
           else -> {
-            Log.w(TAG, "Unknown tool: $effectiveToolName, treating as LLM step")
-            executeLlmStep(step, previousResults)
+            // Try as a direct tool call (covers any registered native tool).
+            executeNativeToolStep(step, effectiveToolName, previousResults)
           }
         }
 
@@ -277,6 +313,41 @@ class ExecutionOrchestrator(
    * Execute an LLM-based step. Serialized through [llmMutex] because the underlying Conversation
    * is single-threaded.
    */
+
+  /** Execute a native app skill step (calculator, web search, device skills, etc.). */
+  private suspend fun executeNativeToolStep(
+    step: PlanStep,
+    toolName: String,
+    previousResults: Map<String, StepResult>,
+  ): StepResult {
+    Log.d(TAG, "Executing native tool step: ${step.id} (tool=$toolName, skill=${step.skillName})")
+
+    val args = step.toolArgs.toMutableMap()
+
+    // Include dependency outputs in args if available.
+    for (depId in step.dependsOn) {
+      val depResult = previousResults[depId]
+      if (depResult != null && depResult.status == StepStatus.COMPLETED) {
+        args["_dep_${depId}"] = depResult.output.take(500)
+      }
+    }
+
+    // For calculator, ensure the expression is in args.
+    if (toolName == "calculate" && !args.containsKey("expression")) {
+      // Try to extract expression from the step description.
+      val desc = step.description
+      args["expression"] = desc
+    }
+
+    val result = toolExecutor.executeTool(toolName, args)
+    return StepResult(
+      stepId = step.id,
+      status = if (result.success) StepStatus.COMPLETED else StepStatus.FAILED,
+      output = result.output,
+      error = result.error,
+    )
+  }
+
   private suspend fun executeLlmStep(
     step: PlanStep,
     previousResults: Map<String, StepResult>,

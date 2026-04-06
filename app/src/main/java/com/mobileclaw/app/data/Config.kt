@@ -271,9 +271,10 @@ fun createLlmChatConfigs(
       )
       .toMutableList()
 
-  if (supportThinking) {
-    configs.add(BooleanSwitchConfig(key = ConfigKeys.ENABLE_THINKING, defaultValue = false))
-  }
+  // Thinking mode disabled for Mobile-Claw — on-device models work better without it.
+  // if (supportThinking) {
+  //   configs.add(BooleanSwitchConfig(key = ConfigKeys.ENABLE_THINKING, defaultValue = false))
+  // }
   return configs
 }
 
