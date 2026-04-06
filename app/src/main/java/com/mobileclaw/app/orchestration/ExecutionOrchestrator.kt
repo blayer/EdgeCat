@@ -315,7 +315,7 @@ class ExecutionOrchestrator(
    * Fix date-time args that the LLM may have garbled.
    * Tries to ensure the value is in yyyy-MM-ddTHH:mm format.
    */
-  private fun fixDateTimeArgs(args: MutableMap<String, String>, key: String) {
+  internal fun fixDateTimeArgs(args: MutableMap<String, String>, key: String) {
     val value = args[key] ?: return
     // Already valid format.
     if (value.matches(Regex("""\d{4}-\d{2}-\d{2}T\d{2}:\d{2}"""))) return
@@ -373,7 +373,7 @@ class ExecutionOrchestrator(
    * Normalize calendar event arg keys to match what DeviceSkills expects.
    * LLM may use startdatetime vs startDateTime, etc.
    */
-  private fun normalizeCalendarArgs(args: MutableMap<String, String>) {
+  internal fun normalizeCalendarArgs(args: MutableMap<String, String>) {
     val keyMap = mapOf(
       "startdatetime" to "startDateTime",
       "enddatetime" to "endDateTime",

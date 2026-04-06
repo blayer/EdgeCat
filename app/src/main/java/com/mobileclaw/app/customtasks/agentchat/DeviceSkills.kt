@@ -1098,7 +1098,7 @@ class DeviceSkills(
    * Attempts multiple strategies to extract a valid date from garbled input.
    * Returns epoch millis or null.
    */
-  private fun parseDateTimeLenient(input: String): Long? {
+  internal fun parseDateTimeLenient(input: String): Long? {
     val trimmed = input.trim()
     Log.d(TAG, "parseDateTimeLenient input: '$trimmed'")
 
