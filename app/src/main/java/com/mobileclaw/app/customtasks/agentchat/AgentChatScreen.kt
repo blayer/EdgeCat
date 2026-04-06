@@ -604,6 +604,11 @@ fun AgentChatScreen(
                 }
               }
 
+              // Formatting.
+              if (state.status == OrchestrationStatus.FORMATTING && lastStatus != OrchestrationStatus.FORMATTING) {
+                viewModel.appendOrchestrationLogLine(model, "\u270D\uFE0F Formatting response...")
+              }
+
               // Completed — finalize log, send final output.
               if (state.status == OrchestrationStatus.COMPLETED && lastStatus != OrchestrationStatus.COMPLETED) {
                 viewModel.finalizeOrchestrationLog(model)

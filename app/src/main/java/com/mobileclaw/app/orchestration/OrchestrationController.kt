@@ -132,7 +132,8 @@ class OrchestrationController(
 
         if (evaluation.goalAchieved) {
           Log.d(TAG, "Goal achieved on iteration $iteration")
-          val (finalOutput, isHtml) = buildFinalOutput(currentPlan, results, evaluation)
+          _state.value = _state.value.copy(status = OrchestrationStatus.FORMATTING)
+          val (finalOutput, isHtml) = buildFinalOutput(userMessage, currentPlan, results, evaluation)
           _state.value =
             _state.value.copy(
               status = OrchestrationStatus.COMPLETED,
@@ -144,7 +145,8 @@ class OrchestrationController(
 
         if (!evaluation.shouldReplan || iteration == maxIterations) {
           Log.d(TAG, "Stopping: shouldReplan=${evaluation.shouldReplan}, iteration=$iteration/$maxIterations")
-          val (finalOutput, isHtml) = buildFinalOutput(currentPlan, results, evaluation)
+          _state.value = _state.value.copy(status = OrchestrationStatus.FORMATTING)
+          val (finalOutput, isHtml) = buildFinalOutput(userMessage, currentPlan, results, evaluation)
           _state.value =
             _state.value.copy(
               status = OrchestrationStatus.COMPLETED,
@@ -197,22 +199,66 @@ class OrchestrationController(
   }
 
   /** Build a summary of the final output from all step results. Returns (output, isHtml). */
-  private fun buildFinalOutput(
+  private suspend fun buildFinalOutput(
+    userMessage: String,
     plan: ExecutionPlan,
     results: Map<String, StepResult>,
     evaluation: EvaluationResult,
   ): Pair<String, Boolean> {
-    // Use the last completed step's output as the final result.
-    val lastOutput = plan.steps
-      .mapNotNull { step -> results[step.id] }
-      .lastOrNull { it.status == StepStatus.COMPLETED && it.output.isNotBlank() }
+    // Collect all completed step outputs.
+    val completedOutputs = plan.steps
+      .mapNotNull { step -> results[step.id]?.takeIf { it.status == StepStatus.COMPLETED && it.output.isNotBlank() } }
 
-    val raw = lastOutput?.output?.take(2000) ?: "No output produced."
-    val isHtml = raw.contains("<") && raw.contains(">") && raw.contains("</")
-    return if (isHtml) {
-      raw.trim() to true
-    } else {
-      raw.trim() to false
+    if (completedOutputs.isEmpty()) {
+      return "No output produced." to false
     }
+
+    // Use the last completed output as the primary raw data.
+    val rawOutput = completedOutputs.last().output.take(2000)
+
+    // If the output is HTML, return as-is.
+    val isHtml = rawOutput.contains("<") && rawOutput.contains(">") && rawOutput.contains("</")
+    if (isHtml) {
+      return rawOutput.trim() to true
+    }
+
+    // Format raw output through LLM for a human-friendly response.
+    try {
+      val formatted = formatResultWithLlm(userMessage, rawOutput)
+      if (formatted.isNotBlank()) {
+        return formatted to false
+      }
+    } catch (e: Exception) {
+      Log.w(TAG, "Result formatting failed, using raw output", e)
+    }
+
+    return rawOutput.trim() to false
+  }
+
+  /**
+   * Use the LLM to rephrase raw tool output into a human-friendly response.
+   */
+  private suspend fun formatResultWithLlm(userMessage: String, rawOutput: String): String {
+    val prompt = """
+You are a helpful assistant. The user asked: "$userMessage"
+
+The system executed tools and produced this raw result:
+$rawOutput
+
+Rewrite this into a clear, friendly response for the user. Follow these rules:
+- For simple values (e.g. a number, a short answer), write a brief natural sentence.
+- For lists of items (e.g. apps, contacts, files), use a clean markdown table or bullet list.
+- For device info or status data, summarize the key details in a readable way.
+- For search results, present them as a numbered list with titles and brief descriptions.
+- For errors or failures, explain what went wrong simply.
+- Do NOT include raw JSON, map syntax like {key=value}, or technical formatting.
+- Do NOT add disclaimers, caveats, or extra commentary. Just present the result clearly.
+- Keep it concise. No preamble like "Here is..." or "Based on...".
+""".trimIndent()
+
+    Log.d(TAG, "Formatting result with LLM, raw output length=${rawOutput.length}")
+    val response = llmProvider.generateResponse(prompt)
+    Log.d(TAG, "Formatted result length=${response.length}")
+    return response.trim()
   }
 }

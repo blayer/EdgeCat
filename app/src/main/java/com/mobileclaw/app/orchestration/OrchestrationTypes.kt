@@ -58,6 +58,7 @@ enum class OrchestrationStatus {
   EXECUTING,
   EVALUATING,
   REPLANNING,
+  FORMATTING,
   COMPLETED,
   CANCELLED,
   ERROR,
