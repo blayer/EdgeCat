@@ -157,10 +157,12 @@ class ExecutionOrchestrator(
       // 2. If skillName maps to a native app skill, use the native tool.
       // 3. If skillName is LLM-only (e.g. "summarize"), treat as LLM step.
       // 4. Otherwise, treat as a JS skill (runJs).
-      val nativeTool = step.skillName?.let { NATIVE_SKILL_TOOLS[it] }
+      // Normalize skill name: LLMs often use underscores instead of hyphens.
+      val normalizedSkillName = step.skillName?.replace('_', '-')
+      val nativeTool = normalizedSkillName?.let { NATIVE_SKILL_TOOLS[it] }
       val effectiveToolName = step.toolName
         ?: nativeTool
-        ?: if (!step.skillName.isNullOrEmpty() && step.skillName !in LLM_ONLY_SKILLS) "runJs" else null
+        ?: if (!normalizedSkillName.isNullOrEmpty() && normalizedSkillName !in LLM_ONLY_SKILLS) "runJs" else null
 
       Log.d(TAG, "Step ${step.id}: toolName=${step.toolName}, skillName=${step.skillName}, nativeTool=$nativeTool, effectiveToolName=$effectiveToolName")
 
@@ -324,17 +326,49 @@ class ExecutionOrchestrator(
 
     val args = step.toolArgs.toMutableMap()
 
-    // Include dependency outputs in args if available.
+    // Collect dependency outputs.
+    val depOutputs = mutableMapOf<String, String>()
     for (depId in step.dependsOn) {
       val depResult = previousResults[depId]
       if (depResult != null && depResult.status == StepStatus.COMPLETED) {
-        args["_dep_${depId}"] = depResult.output.take(500)
+        depOutputs[depId] = depResult.output.take(2000)
+      }
+    }
+
+    // Resolve placeholder args that reference dependency outputs.
+    // The LLM often generates values like "The URL from the result of step_1".
+    for ((key, value) in args.toMap()) {
+      for ((depId, output) in depOutputs) {
+        if (value.contains(depId, ignoreCase = true) ||
+            value.startsWith("Output from", ignoreCase = true) ||
+            value.startsWith("The ", ignoreCase = true) && value.contains("result", ignoreCase = true)) {
+          // For URL args, try to extract an actual URL from the output.
+          if (key == "url") {
+            Log.d(TAG, "Trying URL extraction from dep output (${output.length} chars): ${output.take(300)}")
+            val urlMatch = Regex("https?://[^\\s,\"'\\]}>]+").find(output)
+            if (urlMatch != null) {
+              Log.d(TAG, "Extracted URL: ${urlMatch.value}")
+              args[key] = urlMatch.value
+              break
+            }
+            Log.d(TAG, "No URL found in dep output, using raw output")
+          }
+          // Otherwise, replace with the raw output.
+          args[key] = output
+          break
+        }
+      }
+    }
+
+    // Add remaining dep outputs as _dep_ keys for tools that may need them.
+    for ((depId, output) in depOutputs) {
+      if (!args.values.contains(output)) {
+        args["_dep_${depId}"] = output
       }
     }
 
     // For calculator, ensure the expression is in args.
     if (toolName == "calculate" && !args.containsKey("expression")) {
-      // Try to extract expression from the step description.
       val desc = step.description
       args["expression"] = desc
     }

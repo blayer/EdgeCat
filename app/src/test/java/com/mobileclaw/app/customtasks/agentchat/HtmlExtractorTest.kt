@@ -82,15 +82,27 @@ class HtmlExtractorTest {
   // ─── extractSearchResults ───
 
   @Test
-  fun `parses DuckDuckGo result links`() {
+  fun `parses DuckDuckGo result links with single quotes`() {
+    // DuckDuckGo lite uses single quotes for class attributes and href before class.
     val html = """
-      <a class="result-link" href="https://example.com">Example Title</a>
-      <td class="result-snippet">This is a snippet.</td>
+      <a rel="nofollow" href="https://example.com" class='result-link'>Example Title</a>
+      <td class='result-snippet'>This is a snippet.</td>
     """.trimIndent()
     val results = skills.extractSearchResults(html)
     assertTrue(results.contains("Example Title"))
     assertTrue(results.contains("https://example.com"))
     assertTrue(results.contains("This is a snippet."))
+  }
+
+  @Test
+  fun `parses DuckDuckGo result links with double quotes`() {
+    val html = """
+      <a href="https://example.com" class="result-link">Example Title</a>
+      <td class="result-snippet">This is a snippet.</td>
+    """.trimIndent()
+    val results = skills.extractSearchResults(html)
+    assertTrue(results.contains("Example Title"))
+    assertTrue(results.contains("https://example.com"))
   }
 
   @Test
@@ -105,8 +117,8 @@ class HtmlExtractorTest {
   fun `limits to 8 results`() {
     val sb = StringBuilder()
     for (i in 1..15) {
-      sb.append("""<a class="result-link" href="https://ex.com/$i">Result $i</a>""")
-      sb.append("""<td class="result-snippet">Snippet $i</td>""")
+      sb.append("""<a rel="nofollow" href="https://ex.com/$i" class='result-link'>Result $i</a>""")
+      sb.append("""<td class='result-snippet'>Snippet $i</td>""")
     }
     val results = skills.extractSearchResults(sb.toString())
     // Should have results 1-8 but not 9+

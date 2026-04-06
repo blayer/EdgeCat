@@ -961,7 +961,8 @@ class DeviceSkills(
     return try {
       val connection = java.net.URL(url).openConnection() as java.net.HttpURLConnection
       connection.requestMethod = "GET"
-      connection.setRequestProperty("User-Agent", "MobileClaw/1.0")
+      connection.setRequestProperty("User-Agent", "Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Mobile Safari/537.36")
+      connection.setRequestProperty("Accept", "text/html,application/xhtml+xml,*/*")
       connection.connectTimeout = 10_000
       connection.readTimeout = 15_000
       connection.instanceFollowRedirects = true
@@ -1023,16 +1024,24 @@ class DeviceSkills(
     sendProgress("Searching: $query", inProgress = true, title = "Web Search", desc = query)
 
     return try {
-      // Use DuckDuckGo HTML lite — no API key needed, returns search results as text.
+      // Use DuckDuckGo HTML lite with POST — avoids CAPTCHA that blocks GET requests.
       val encodedQuery = java.net.URLEncoder.encode(query, "UTF-8")
-      val url = "https://lite.duckduckgo.com/lite/?q=$encodedQuery"
+      val url = "https://lite.duckduckgo.com/lite/"
 
       val connection = java.net.URL(url).openConnection() as java.net.HttpURLConnection
-      connection.requestMethod = "GET"
-      connection.setRequestProperty("User-Agent", "MobileClaw/1.0")
+      connection.requestMethod = "POST"
+      connection.doOutput = true
+      connection.setRequestProperty("User-Agent", "Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Mobile Safari/537.36")
+      connection.setRequestProperty("Content-Type", "application/x-www-form-urlencoded")
+      connection.setRequestProperty("Accept", "text/html")
       connection.connectTimeout = 10_000
       connection.readTimeout = 15_000
       connection.instanceFollowRedirects = true
+
+      // Write POST body
+      connection.outputStream.use { os ->
+        os.write("q=$encodedQuery".toByteArray(Charsets.UTF_8))
+      }
 
       val responseCode = connection.responseCode
       if (responseCode !in 200..299) {
@@ -1041,6 +1050,8 @@ class DeviceSkills(
 
       val html = connection.inputStream.bufferedReader().use { it.readText() }
       connection.disconnect()
+
+      Log.d(TAG, "Search HTML length: ${html.length}, has result-link: ${html.contains("result-link")}, has anomaly: ${html.contains("anomaly")}")
 
       // Extract search result snippets from DuckDuckGo lite HTML.
       val results = extractSearchResults(html)
@@ -1062,9 +1073,9 @@ class DeviceSkills(
    */
   internal fun extractSearchResults(html: String): String {
     val results = StringBuilder()
-    // DuckDuckGo lite wraps results in <a> tags with class "result-link" and snippets in <td> with class "result-snippet".
-    val linkPattern = Regex("<a[^>]*class=\"result-link\"[^>]*href=\"([^\"]+)\"[^>]*>([^<]+)</a>")
-    val snippetPattern = Regex("<td[^>]*class=\"result-snippet\"[^>]*>([^<]+)</td>")
+    // DuckDuckGo lite wraps results in <a> tags with class 'result-link' (single quotes) and snippets in <td> with class 'result-snippet'.
+    val linkPattern = Regex("""<a[^>]*href=["']([^"']+)["'][^>]*class=['"]result-link['"][^>]*>([^<]+)</a>""")
+    val snippetPattern = Regex("""<td[^>]*class=['"]result-snippet['"][^>]*>(.*?)</td>""", RegexOption.DOT_MATCHES_ALL)
 
     val links = linkPattern.findAll(html).toList()
     val snippets = snippetPattern.findAll(html).toList()
