@@ -43,8 +43,20 @@ class Planner {
         } else base
       }
 
+    val now = java.time.LocalDateTime.now()
+    val dateStr = now.format(java.time.format.DateTimeFormatter.ofPattern("yyyy-MM-dd"))
+    val timeStr = now.format(java.time.format.DateTimeFormatter.ofPattern("HH:mm"))
+    val dayOfWeek = now.dayOfWeek.name.lowercase().replaceFirstChar { it.uppercase() }
+    val tomorrowDate = now.plusDays(1).format(java.time.format.DateTimeFormatter.ofPattern("yyyy-MM-dd"))
+
     return """
 You are a task planner. Given a user request and available skills, produce an execution plan as JSON.
+
+Current date and time: $dayOfWeek, $dateStr $timeStr.
+Today's date: $dateStr
+Tomorrow's date: $tomorrowDate
+
+IMPORTANT: When generating date-time values for toolArgs, use EXACTLY the format yyyy-MM-ddTHH:mm (e.g., ${tomorrowDate}T15:00). Copy the date string exactly — do NOT try to compute or concatenate dates yourself.
 
 Available skills:
 $skillList
@@ -111,8 +123,15 @@ Respond with ONLY valid JSON:
           } else base
         } + "\n"
 
+    val now = java.time.LocalDateTime.now()
+    val dateStr = now.format(java.time.format.DateTimeFormatter.ofPattern("yyyy-MM-dd"))
+    val tomorrowDate = now.plusDays(1).format(java.time.format.DateTimeFormatter.ofPattern("yyyy-MM-dd"))
+
     return """
 You are a task planner. A previous plan did not fully achieve the user's goal. Create a revised plan.
+
+Today's date: $dateStr. Tomorrow's date: $tomorrowDate.
+IMPORTANT: For date-time values in toolArgs, use EXACTLY the format yyyy-MM-ddTHH:mm (e.g., ${tomorrowDate}T15:00). Copy the date string exactly.
 
 User request: "$userMessage"
 $skillList

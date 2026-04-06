@@ -225,7 +225,7 @@ class ExecutionOrchestrator(
       // Parse existing data or start fresh.
       val dataJson = try {
         if (!args["data"].isNullOrEmpty() && args["data"] != "{}") {
-          org.json.JSONObject(args["data"])
+          org.json.JSONObject(args["data"]!!)
         } else {
           org.json.JSONObject()
         }
@@ -312,9 +312,93 @@ class ExecutionOrchestrator(
   }
 
   /**
-   * Execute an LLM-based step. Serialized through [llmMutex] because the underlying Conversation
-   * is single-threaded.
+   * Fix date-time args that the LLM may have garbled.
+   * Tries to ensure the value is in yyyy-MM-ddTHH:mm format.
    */
+  private fun fixDateTimeArgs(args: MutableMap<String, String>, key: String) {
+    val value = args[key] ?: return
+    // Already valid format.
+    if (value.matches(Regex("""\d{4}-\d{2}-\d{2}T\d{2}:\d{2}"""))) return
+
+    Log.d(TAG, "Fixing date-time arg '$key': '$value'")
+
+    // Try to extract date and time components from garbled input.
+    // Handle patterns like "2066406T15:00" -> should be "2026-04-06T15:00"
+    val timeMatch = Regex("""(\d{1,2}):(\d{2})""").find(value)
+    if (timeMatch != null) {
+      val hour = timeMatch.groupValues[1].padStart(2, '0')
+      val minute = timeMatch.groupValues[2]
+      val beforeTime = value.substring(0, timeMatch.range.first).replace(Regex("[^0-9]"), "")
+
+      if (beforeTime.length >= 8) {
+        // 8+ digits: yyyyMMdd
+        val year = beforeTime.substring(0, 4)
+        val month = beforeTime.substring(4, 6)
+        val day = beforeTime.substring(6, 8)
+        args[key] = "$year-$month-${day}T$hour:$minute"
+        Log.d(TAG, "Fixed date-time to: ${args[key]}")
+        return
+      } else if (beforeTime.length >= 6) {
+        // 6-7 digits: might be garbled. Try yyyy + M + dd or yyyyMd.
+        val year = beforeTime.substring(0, 4)
+        val remaining = beforeTime.substring(4)
+        if (remaining.length == 2) {
+          // Could be Md (e.g., "46" for April 6th).
+          val month = remaining.substring(0, 1).padStart(2, '0')
+          val day = remaining.substring(1, 2).padStart(2, '0')
+          args[key] = "$year-$month-${day}T$hour:$minute"
+          Log.d(TAG, "Fixed short date-time to: ${args[key]}")
+          return
+        } else if (remaining.length == 3) {
+          // Could be MMd or Mdd.
+          val month = remaining.substring(0, 2)
+          val day = remaining.substring(2, 3).padStart(2, '0')
+          if (month.toIntOrNull() in 1..12) {
+            args[key] = "$year-$month-${day}T$hour:$minute"
+            Log.d(TAG, "Fixed 3-digit date-time to: ${args[key]}")
+            return
+          }
+          // Try M + dd.
+          val month2 = remaining.substring(0, 1).padStart(2, '0')
+          val day2 = remaining.substring(1, 3)
+          args[key] = "$year-$month2-${day2}T$hour:$minute"
+          Log.d(TAG, "Fixed M+dd date-time to: ${args[key]}")
+          return
+        }
+      }
+    }
+  }
+
+  /**
+   * Normalize calendar event arg keys to match what DeviceSkills expects.
+   * LLM may use startdatetime vs startDateTime, etc.
+   */
+  private fun normalizeCalendarArgs(args: MutableMap<String, String>) {
+    val keyMap = mapOf(
+      "startdatetime" to "startDateTime",
+      "enddatetime" to "endDateTime",
+      "start_date_time" to "startDateTime",
+      "end_date_time" to "endDateTime",
+      "start" to "startDateTime",
+      "end" to "endDateTime",
+    )
+    for ((from, to) in keyMap) {
+      if (args.containsKey(from) && !args.containsKey(to)) {
+        args[to] = args.remove(from)!!
+      }
+    }
+
+    // If endDateTime is missing, default to startDateTime + 1 hour.
+    if (args.containsKey("startDateTime") && !args.containsKey("endDateTime")) {
+      val start = args["startDateTime"]!!
+      val hourMatch = Regex("""T(\d{2}):(\d{2})""").find(start)
+      if (hourMatch != null) {
+        val hour = hourMatch.groupValues[1].toIntOrNull() ?: 0
+        val newHour = ((hour + 1) % 24).toString().padStart(2, '0')
+        args["endDateTime"] = start.replace(hourMatch.value, "T$newHour:${hourMatch.groupValues[2]}")
+      }
+    }
+  }
 
   /** Execute a native app skill step (calculator, web search, device skills, etc.). */
   private suspend fun executeNativeToolStep(
@@ -371,6 +455,16 @@ class ExecutionOrchestrator(
     if (toolName == "calculate" && !args.containsKey("expression")) {
       val desc = step.description
       args["expression"] = desc
+    }
+
+    // For calendar event creation, fix common date-time arg issues.
+    if (toolName == "createCalendarEvent") {
+      fixDateTimeArgs(args, "startdatetime")
+      fixDateTimeArgs(args, "startDateTime")
+      fixDateTimeArgs(args, "enddatetime")
+      fixDateTimeArgs(args, "endDateTime")
+      // Normalize arg keys to what DeviceSkills expects.
+      normalizeCalendarArgs(args)
     }
 
     val result = toolExecutor.executeTool(toolName, args)

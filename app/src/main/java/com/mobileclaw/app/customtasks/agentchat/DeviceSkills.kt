@@ -193,10 +193,8 @@ class DeviceSkills(
     }
 
     return try {
-      val sdf = SimpleDateFormat("yyyy-MM-dd'T'HH:mm", Locale.US)
-      sdf.timeZone = TimeZone.getDefault()
-      val startMillis = sdf.parse(startDateTime)?.time ?: return mapOf("status" to "failed", "error" to "Invalid start date")
-      val endMillis = sdf.parse(endDateTime)?.time ?: return mapOf("status" to "failed", "error" to "Invalid end date")
+      val startMillis = parseDateTimeLenient(startDateTime) ?: return mapOf("status" to "failed", "error" to "Invalid start date: $startDateTime")
+      val endMillis = parseDateTimeLenient(endDateTime) ?: return mapOf("status" to "failed", "error" to "Invalid end date: $endDateTime")
 
       // Get default calendar ID.
       val calCursor = context.contentResolver.query(
@@ -1093,5 +1091,94 @@ class DeviceSkills(
     }
 
     return results.toString().trim()
+  }
+
+  /**
+   * Lenient date-time parser that handles common LLM malformations.
+   * Attempts multiple strategies to extract a valid date from garbled input.
+   * Returns epoch millis or null.
+   */
+  private fun parseDateTimeLenient(input: String): Long? {
+    val trimmed = input.trim()
+    Log.d(TAG, "parseDateTimeLenient input: '$trimmed'")
+
+    // Strategy 1: Try exact ISO format first.
+    val exactFormats = listOf(
+      "yyyy-MM-dd'T'HH:mm",
+      "yyyy-MM-dd'T'HH:mm:ss",
+      "yyyy-MM-dd HH:mm",
+      "yyyy-MM-dd HH:mm:ss",
+      "yyyy/MM/dd'T'HH:mm",
+      "yyyy/MM/dd HH:mm",
+      "MM/dd/yyyy HH:mm",
+      "MM-dd-yyyy HH:mm",
+    )
+    for (fmt in exactFormats) {
+      try {
+        val sdf = SimpleDateFormat(fmt, Locale.US)
+        sdf.timeZone = TimeZone.getDefault()
+        sdf.isLenient = false
+        val result = sdf.parse(trimmed)?.time
+        if (result != null) {
+          Log.d(TAG, "Parsed with format '$fmt': $result")
+          return result
+        }
+      } catch (_: Exception) {}
+    }
+
+    // Strategy 2: Extract digits and reconstruct. Handle garbled outputs like "2066406T15:00".
+    // Try to find a pattern: 4-digit year, 1-2 digit month, 1-2 digit day, then time.
+    val digitTimeRegex = Regex("""(\d{4})-?(\d{1,2})-?(\d{1,2})[T\s]+(\d{1,2}):(\d{2})(?::(\d{2}))?""")
+    digitTimeRegex.find(trimmed)?.let { match ->
+      try {
+        val year = match.groupValues[1].toInt()
+        val month = match.groupValues[2].toInt()
+        val day = match.groupValues[3].toInt()
+        val hour = match.groupValues[4].toInt()
+        val minute = match.groupValues[5].toInt()
+        if (month in 1..12 && day in 1..31 && hour in 0..23 && minute in 0..59) {
+          val cal = java.util.Calendar.getInstance()
+          cal.set(year, month - 1, day, hour, minute, 0)
+          cal.set(java.util.Calendar.MILLISECOND, 0)
+          Log.d(TAG, "Parsed via digit extraction: ${cal.time}")
+          return cal.timeInMillis
+        }
+      } catch (_: Exception) {}
+    }
+
+    // Strategy 3: Handle concatenated date digits like "20260406" + time.
+    val concatRegex = Regex("""(\d{8})[T\s]+(\d{1,2}):(\d{2})""")
+    concatRegex.find(trimmed)?.let { match ->
+      try {
+        val dateStr = match.groupValues[1]
+        val year = dateStr.substring(0, 4).toInt()
+        val month = dateStr.substring(4, 6).toInt()
+        val day = dateStr.substring(6, 8).toInt()
+        val hour = match.groupValues[2].toInt()
+        val minute = match.groupValues[3].toInt()
+        if (month in 1..12 && day in 1..31 && hour in 0..23 && minute in 0..59) {
+          val cal = java.util.Calendar.getInstance()
+          cal.set(year, month - 1, day, hour, minute, 0)
+          cal.set(java.util.Calendar.MILLISECOND, 0)
+          Log.d(TAG, "Parsed via concat extraction: ${cal.time}")
+          return cal.timeInMillis
+        }
+      } catch (_: Exception) {}
+    }
+
+    // Strategy 4: Just try lenient parsing as last resort.
+    try {
+      val sdf = SimpleDateFormat("yyyy-MM-dd'T'HH:mm", Locale.US)
+      sdf.timeZone = TimeZone.getDefault()
+      sdf.isLenient = true
+      val result = sdf.parse(trimmed)?.time
+      if (result != null) {
+        Log.d(TAG, "Parsed with lenient mode: $result")
+        return result
+      }
+    } catch (_: Exception) {}
+
+    Log.w(TAG, "Failed to parse date-time: '$trimmed'")
+    return null
   }
 }
