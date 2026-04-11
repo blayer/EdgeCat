@@ -109,6 +109,14 @@ interface DataStoreRepository {
 
   /** Returns whether a promo with the specified ID has been viewed. */
   fun hasViewedPromo(promoId: String): Boolean
+
+  fun isAgenticModeEnabled(): Boolean
+
+  fun setAgenticModeEnabled(enabled: Boolean)
+
+  fun isAgentTracesEnabled(): Boolean
+
+  fun setAgentTracesEnabled(enabled: Boolean)
 }
 
 /** Repository for managing data using Proto DataStore. */
@@ -431,6 +439,32 @@ class DefaultDataStoreRepository(
     return runBlocking {
       val settings = dataStore.data.first()
       settings.viewedPromoIdList.contains(promoId)
+    }
+  }
+
+  override fun isAgenticModeEnabled(): Boolean {
+    return runBlocking {
+      val settings = dataStore.data.first()
+      !settings.agenticModeDisabled
+    }
+  }
+
+  override fun setAgenticModeEnabled(enabled: Boolean) {
+    runBlocking {
+      dataStore.updateData { settings -> settings.toBuilder().setAgenticModeDisabled(!enabled).build() }
+    }
+  }
+
+  override fun isAgentTracesEnabled(): Boolean {
+    return runBlocking {
+      val settings = dataStore.data.first()
+      !settings.agentTracesDisabled
+    }
+  }
+
+  override fun setAgentTracesEnabled(enabled: Boolean) {
+    runBlocking {
+      dataStore.updateData { settings -> settings.toBuilder().setAgentTracesDisabled(!enabled).build() }
     }
   }
 }

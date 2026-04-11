@@ -109,6 +109,11 @@ fun ChatView(
   curSystemPrompt: String = "",
   onSystemPromptChanged: (String) -> Unit = {},
   sendMessageTrigger: SendMessageTrigger? = null,
+  showAgentSettingsTab: Boolean = false,
+  agenticModeEnabled: Boolean = true,
+  agentTracesEnabled: Boolean = true,
+  onAgenticModeChanged: (Boolean) -> Unit = {},
+  onAgentTracesChanged: (Boolean) -> Unit = {},
 ) {
   val uiState by viewModel.uiState.collectAsState()
   val modelManagerUiState by modelManagerViewModel.uiState.collectAsState()
@@ -199,6 +204,11 @@ fun ChatView(
         allowEditingSystemPrompt = allowEditingSystemPrompt,
         curSystemPrompt = curSystemPrompt,
         onSystemPromptChanged = onSystemPromptChanged,
+        showAgentSettingsTab = showAgentSettingsTab,
+        agenticModeEnabled = agenticModeEnabled,
+        agentTracesEnabled = agentTracesEnabled,
+        onAgenticModeChanged = onAgenticModeChanged,
+        onAgentTracesChanged = onAgentTracesChanged,
       )
     },
   ) { innerPadding ->

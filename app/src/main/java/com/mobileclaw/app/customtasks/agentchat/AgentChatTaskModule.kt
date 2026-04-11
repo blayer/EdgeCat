@@ -23,17 +23,26 @@ import com.mobileclaw.app.customtasks.common.CustomTask
 import com.mobileclaw.app.customtasks.common.CustomTaskDataForBuiltinTask
 import com.mobileclaw.app.data.BuiltInTaskId
 import com.mobileclaw.app.data.Category
+import com.mobileclaw.app.data.DataStoreRepository
 import com.mobileclaw.app.data.Model
 import com.mobileclaw.app.data.Task
 import com.mobileclaw.app.ui.llmchat.LlmChatModelHelper
 import com.google.ai.edge.litertlm.tool
 import dagger.Module
 import dagger.Provides
+import dagger.hilt.EntryPoint
 import dagger.hilt.InstallIn
+import dagger.hilt.android.EntryPointAccessors
 import dagger.hilt.components.SingletonComponent
 import dagger.multibindings.IntoSet
 import javax.inject.Inject
 import kotlinx.coroutines.CoroutineScope
+
+@EntryPoint
+@InstallIn(SingletonComponent::class)
+interface DataStoreEntryPoint {
+  fun dataStoreRepository(): DataStoreRepository
+}
 
 class AgentChatTask @Inject constructor() : CustomTask {
   private val agentTools = AgentTools()
@@ -77,6 +86,11 @@ class AgentChatTask @Inject constructor() : CustomTask {
     model: Model,
     onDone: (String) -> Unit,
   ) {
+    val agenticModeEnabled = try {
+      EntryPointAccessors.fromApplication(context, DataStoreEntryPoint::class.java)
+        .dataStoreRepository().isAgenticModeEnabled()
+    } catch (e: Exception) { true }
+
     agentTools.skillManagerViewModel.loadSkills {
       LlmChatModelHelper.initialize(
         context = context,
@@ -85,13 +99,13 @@ class AgentChatTask @Inject constructor() : CustomTask {
         supportAudio = true,
         onDone = onDone,
         systemInstruction =
-          if (agentTools.skillManagerViewModel.getSelectedSkills().isEmpty()) {
+          if (!agenticModeEnabled || agentTools.skillManagerViewModel.getSelectedSkills().isEmpty()) {
             null
           } else {
             agentTools.skillManagerViewModel.getSystemPrompt(task.defaultSystemPrompt)
           },
-        tools = listOf(tool(agentTools)),
-        enableConversationConstrainedDecoding = true,
+        tools = if (agenticModeEnabled) listOf(tool(agentTools)) else emptyList(),
+        enableConversationConstrainedDecoding = agenticModeEnabled,
       )
     }
   }

@@ -78,6 +78,10 @@ message Settings {
   // copybara:strip_end
 
   repeated string viewed_promo_id = 10;
+
+  // Agent settings (inverted: false=enabled by default, true=disabled).
+  bool agentic_mode_disabled = 11;
+  bool agent_traces_disabled = 12;
 }
 
 message UserData {

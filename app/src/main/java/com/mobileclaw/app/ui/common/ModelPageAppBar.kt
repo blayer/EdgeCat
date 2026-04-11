@@ -82,6 +82,11 @@ fun ModelPageAppBar(
   allowEditingSystemPrompt: Boolean = false,
   curSystemPrompt: String = "",
   onSystemPromptChanged: (String) -> Unit = {},
+  showAgentSettingsTab: Boolean = false,
+  agenticModeEnabled: Boolean = true,
+  agentTracesEnabled: Boolean = true,
+  onAgenticModeChanged: (Boolean) -> Unit = {},
+  onAgentTracesChanged: (Boolean) -> Unit = {},
 ) {
   var showConfigDialog by remember { mutableStateOf(false) }
   val modelManagerUiState by modelManagerViewModel.uiState.collectAsState()
@@ -284,6 +289,11 @@ fun ModelPageAppBar(
       showSystemPromptEditorTab = allowEditingSystemPrompt,
       defaultSystemPrompt = task.defaultSystemPrompt,
       curSystemPrompt = curSystemPrompt,
+      showAgentSettingsTab = showAgentSettingsTab,
+      agenticModeEnabled = agenticModeEnabled,
+      agentTracesEnabled = agentTracesEnabled,
+      onAgenticModeChanged = onAgenticModeChanged,
+      onAgentTracesChanged = onAgentTracesChanged,
     )
   }
 }

@@ -73,6 +73,7 @@
   <string name="color" translatable="false">Color</string>
   <string name="config_dialog_tab_model_configs" translatable="false">Model configs</string>
   <string name="config_dialog_tab_system_prompt" translatable="false">System prompt</string>
+  <string name="config_dialog_tab_agent" translatable="false">Agent</string>
   <string name="continue_button_label" translatable="false">Continue</string>
   <string name="conversation_history" translatable="false">Conversation History</string>
   <string name="copy" translatable="false">Copy</string>

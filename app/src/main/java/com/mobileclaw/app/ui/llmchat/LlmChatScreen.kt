@@ -73,6 +73,11 @@ fun LlmChatScreen(
   showImagePicker: Boolean = false,
   showAudioPicker: Boolean = false,
   onSendMessageOverride: ((Model, List<ChatMessage>) -> Boolean)? = null,
+  showAgentSettingsTab: Boolean = false,
+  agenticModeEnabled: Boolean = true,
+  agentTracesEnabled: Boolean = true,
+  onAgenticModeChanged: (Boolean) -> Unit = {},
+  onAgentTracesChanged: (Boolean) -> Unit = {},
 ) {
   ChatViewWrapper(
     viewModel = viewModel,
@@ -93,6 +98,11 @@ fun LlmChatScreen(
     showImagePicker = showImagePicker,
     showAudioPicker = showAudioPicker,
     onSendMessageOverride = onSendMessageOverride,
+    showAgentSettingsTab = showAgentSettingsTab,
+    agenticModeEnabled = agenticModeEnabled,
+    agentTracesEnabled = agentTracesEnabled,
+    onAgenticModeChanged = onAgenticModeChanged,
+    onAgentTracesChanged = onAgentTracesChanged,
   )
 }
 
@@ -189,6 +199,11 @@ fun ChatViewWrapper(
   showImagePicker: Boolean = false,
   showAudioPicker: Boolean = false,
   onSendMessageOverride: ((Model, List<ChatMessage>) -> Boolean)? = null,
+  showAgentSettingsTab: Boolean = false,
+  agenticModeEnabled: Boolean = true,
+  agentTracesEnabled: Boolean = true,
+  onAgenticModeChanged: (Boolean) -> Unit = {},
+  onAgentTracesChanged: (Boolean) -> Unit = {},
 ) {
   val context = LocalContext.current
   val task = modelManagerViewModel.getTaskById(id = taskId)!!
@@ -295,5 +310,10 @@ fun ChatViewWrapper(
     onSystemPromptChanged = onSystemPromptChanged,
     sendMessageTrigger = sendMessageTrigger,
     showAudioPicker = showAudioPicker,
+    showAgentSettingsTab = showAgentSettingsTab,
+    agenticModeEnabled = agenticModeEnabled,
+    agentTracesEnabled = agentTracesEnabled,
+    onAgenticModeChanged = onAgenticModeChanged,
+    onAgentTracesChanged = onAgentTracesChanged,
   )
 }

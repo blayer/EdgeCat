@@ -109,11 +109,13 @@ private const val TAG = "AGConfigDialog"
 
 private data class Tab(@StringRes val labelResId: Int)
 
-private val TABS =
+private val TABS_BASE =
   listOf(
     Tab(labelResId = R.string.config_dialog_tab_model_configs),
     Tab(labelResId = R.string.config_dialog_tab_system_prompt),
   )
+
+private val TAB_AGENT = Tab(labelResId = R.string.config_dialog_tab_agent)
 
 /**
  * Displays a configuration dialog allowing users to modify settings through various input controls.
@@ -131,6 +133,11 @@ fun ConfigDialog(
   showSystemPromptEditorTab: Boolean = false,
   defaultSystemPrompt: String = "",
   curSystemPrompt: String = "",
+  showAgentSettingsTab: Boolean = false,
+  agenticModeEnabled: Boolean = true,
+  agentTracesEnabled: Boolean = true,
+  onAgenticModeChanged: (Boolean) -> Unit = {},
+  onAgentTracesChanged: (Boolean) -> Unit = {},
 ) {
   val values: SnapshotStateMap<String, Any> = remember {
     mutableStateMapOf<String, Any>().apply { putAll(initialValues) }
@@ -139,6 +146,16 @@ fun ConfigDialog(
   var selectedTabIndex by remember { mutableIntStateOf(0) }
   val savedSystemPrompt = remember { curSystemPrompt }
   var systemPrompt by remember { mutableStateOf(curSystemPrompt) }
+  var localAgenticMode by remember { mutableStateOf(agenticModeEnabled) }
+  var localAgentTraces by remember { mutableStateOf(agentTracesEnabled) }
+  val tabs = remember(showSystemPromptEditorTab, showAgentSettingsTab) {
+    buildList {
+      addAll(TABS_BASE.take(1)) // Model configs always shown
+      if (showSystemPromptEditorTab) add(TABS_BASE[1])
+      if (showAgentSettingsTab) add(TAB_AGENT)
+    }
+  }
+  val showTabs = tabs.size > 1
 
   Dialog(onDismissRequest = onDismissed) {
     val focusManager = LocalFocusManager.current
@@ -177,9 +194,9 @@ fun ConfigDialog(
         }
 
         // Tab.
-        if (showSystemPromptEditorTab) {
+        if (showTabs) {
           PrimaryTabRow(selectedTabIndex = selectedTabIndex, containerColor = Color.Transparent) {
-            TABS.forEachIndexed { index, tab ->
+            tabs.forEachIndexed { index, tab ->
               Tab(
                 selected = selectedTabIndex == index,
                 onClick = { selectedTabIndex = index },
@@ -199,27 +216,92 @@ fun ConfigDialog(
           }
         }
 
-        if (selectedTabIndex == 0) {
-          // List of config rows.
-          Column(
-            modifier = Modifier.verticalScroll(rememberScrollState()).weight(1f, fill = false),
-            verticalArrangement = Arrangement.spacedBy(16.dp),
-          ) {
-            ConfigEditorsPanel(configs = configs, values = values)
+        val selectedTab = tabs.getOrNull(selectedTabIndex)
+        when (selectedTab?.labelResId) {
+          R.string.config_dialog_tab_model_configs -> {
+            // List of config rows.
+            Column(
+              modifier = Modifier.verticalScroll(rememberScrollState()).weight(1f, fill = false),
+              verticalArrangement = Arrangement.spacedBy(16.dp),
+            ) {
+              ConfigEditorsPanel(configs = configs, values = values)
+            }
           }
-        } else if (selectedTabIndex == 1) {
-          OutlinedTextField(
-            value = systemPrompt,
-            modifier = Modifier.weight(1f, fill = false),
-            textStyle = MaterialTheme.typography.bodySmall,
-            onValueChange = { systemPrompt = it },
-          )
+          R.string.config_dialog_tab_system_prompt -> {
+            OutlinedTextField(
+              value = systemPrompt,
+              modifier = Modifier.weight(1f, fill = false),
+              textStyle = MaterialTheme.typography.bodySmall,
+              onValueChange = { systemPrompt = it },
+            )
+          }
+          R.string.config_dialog_tab_agent -> {
+            Column(
+              modifier = Modifier.verticalScroll(rememberScrollState()).weight(1f, fill = false),
+              verticalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+              // Agentic Mode toggle.
+              Row(
+                modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
+                verticalAlignment = Alignment.CenterVertically,
+              ) {
+                Column(modifier = Modifier.weight(1f)) {
+                  Text("Agentic Mode", style = MaterialTheme.typography.bodyLarge)
+                  Text(
+                    "Enable orchestration and skills",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                  )
+                }
+                Switch(
+                  checked = localAgenticMode,
+                  onCheckedChange = { enabled ->
+                    localAgenticMode = enabled
+                    onAgenticModeChanged(enabled)
+                    if (!enabled) {
+                      localAgentTraces = false
+                      onAgentTracesChanged(false)
+                    }
+                  },
+                )
+              }
+              // Agent Traces toggle.
+              Row(
+                modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
+                verticalAlignment = Alignment.CenterVertically,
+              ) {
+                Column(modifier = Modifier.weight(1f)) {
+                  Text(
+                    "Agent Traces",
+                    style = MaterialTheme.typography.bodyLarge,
+                    color = if (localAgenticMode) MaterialTheme.colorScheme.onSurface
+                      else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.38f),
+                  )
+                  Text(
+                    "Show detailed execution steps",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = if (localAgenticMode) MaterialTheme.colorScheme.onSurfaceVariant
+                      else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.38f),
+                  )
+                }
+                Switch(
+                  checked = localAgentTraces,
+                  enabled = localAgenticMode,
+                  onCheckedChange = { enabled ->
+                    localAgentTraces = enabled
+                    onAgentTracesChanged(enabled)
+                  },
+                )
+              }
+            }
+          }
         }
 
         // Button row.
+        val isSystemPromptTab = selectedTab?.labelResId == R.string.config_dialog_tab_system_prompt
         Row(
           horizontalArrangement =
-            if (showSystemPromptEditorTab && selectedTabIndex == 1) {
+            if (isSystemPromptTab) {
               Arrangement.SpaceBetween
             } else {
               Arrangement.End
@@ -228,7 +310,7 @@ fun ConfigDialog(
           modifier = Modifier.padding(top = 8.dp),
         ) {
           // Restore default button to restore system prompt.
-          if (showSystemPromptEditorTab && selectedTabIndex == 1) {
+          if (isSystemPromptTab) {
             OutlinedButton(
               onClick = { systemPrompt = defaultSystemPrompt },
               contentPadding = SMALL_BUTTON_CONTENT_PADDING,

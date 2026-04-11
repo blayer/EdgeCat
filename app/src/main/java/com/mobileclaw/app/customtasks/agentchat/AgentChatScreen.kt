@@ -153,7 +153,9 @@ fun AgentChatScreen(
   var curSystemPrompt by remember { mutableStateOf(task.defaultSystemPrompt) }
   val systemPromptUpdatedMessage = stringResource(R.string.system_prompt_updated)
   var sendMessageTrigger by remember { mutableStateOf<SendMessageTrigger?>(null) }
-  var orchestrationEnabled by remember { mutableStateOf(true) }
+  val dataStoreRepo = skillManagerViewModel.dataStoreRepository
+  var orchestrationEnabled by remember { mutableStateOf(dataStoreRepo.isAgenticModeEnabled()) }
+  var agentTracesEnabled by remember { mutableStateOf(dataStoreRepo.isAgentTracesEnabled()) }
   val coroutineScope = androidx.compose.runtime.rememberCoroutineScope()
 
   // Save-as-skill state.
@@ -246,6 +248,7 @@ fun AgentChatScreen(
         task,
         curSystemPrompt,
         agentTools,
+        agenticModeEnabled = orchestrationEnabled,
       )
     },
     onSkillClicked = { showSkillManagerBottomSheet = true },
@@ -405,6 +408,7 @@ fun AgentChatScreen(
             message = ChatMessageInfo(content = systemPromptUpdatedMessage),
           )
         },
+        agenticModeEnabled = orchestrationEnabled,
       )
     },
     emptyStateComposable = { model ->
@@ -570,49 +574,55 @@ fun AgentChatScreen(
               )
 
               controller.state.collect { state ->
+              val showTraces = agentTracesEnabled
+
               // Plan ready — log the plan steps.
               if (state.plan != null && state.iteration != lastPlanIteration) {
                 lastPlanIteration = state.iteration
                 loggedSteps.clear()
                 val plan = state.plan!!
-                val iterLabel = if (state.iteration > 1) " (iteration ${state.iteration})" else ""
-                viewModel.appendOrchestrationLogLine(model, "\uD83D\uDCCB Plan: ${plan.goal}$iterLabel")
-                for ((i, step) in plan.steps.withIndex()) {
-                  val skill = if (step.skillName != null) " [${step.skillName}]" else ""
-                  viewModel.appendOrchestrationLogLine(model, "   ${i + 1}. ${step.description}$skill")
+                if (showTraces) {
+                  val iterLabel = if (state.iteration > 1) " (iteration ${state.iteration})" else ""
+                  viewModel.appendOrchestrationLogLine(model, "\uD83D\uDCCB Plan: ${plan.goal}$iterLabel")
+                  for ((i, step) in plan.steps.withIndex()) {
+                    val skill = if (step.skillName != null) " [${step.skillName}]" else ""
+                    viewModel.appendOrchestrationLogLine(model, "   \uD83D\uDD39 ${step.description}$skill")
+                  }
                 }
               }
 
               // Step status updates.
               if (state.status == OrchestrationStatus.EXECUTING && state.plan != null) {
-                for ((stepId, result) in state.stepResults) {
-                  val key = "$stepId:${result.status}"
-                  if (key !in loggedSteps) {
-                    loggedSteps.add(key)
-                    val step = state.plan!!.steps.find { it.id == stepId }
-                    val desc = step?.description ?: stepId
-                    when (result.status) {
-                      com.mobileclaw.app.orchestration.StepStatus.RUNNING -> {
-                        // Only show RUNNING if no terminal state logged yet for this step.
-                        // This avoids duplicate "running" + "completed" lines.
-                        val hasTerminal = loggedSteps.contains("$stepId:${com.mobileclaw.app.orchestration.StepStatus.COMPLETED}") ||
-                          loggedSteps.contains("$stepId:${com.mobileclaw.app.orchestration.StepStatus.FAILED}")
-                        if (!hasTerminal) {
-                          viewModel.appendOrchestrationLogLine(model, "\u25B6\uFE0F $desc")
+                // High-level "Executing..." log when traces are off.
+                if (!showTraces && lastStatus != OrchestrationStatus.EXECUTING) {
+                  viewModel.appendOrchestrationLogLine(model, "\u25B6\uFE0F Executing...")
+                }
+                if (showTraces) {
+                  for ((stepId, result) in state.stepResults) {
+                    val key = "$stepId:${result.status}"
+                    if (key !in loggedSteps) {
+                      loggedSteps.add(key)
+                      val step = state.plan!!.steps.find { it.id == stepId }
+                      val desc = step?.description ?: stepId
+                      when (result.status) {
+                        com.mobileclaw.app.orchestration.StepStatus.RUNNING -> {
+                          val hasTerminal = loggedSteps.contains("$stepId:${com.mobileclaw.app.orchestration.StepStatus.COMPLETED}") ||
+                            loggedSteps.contains("$stepId:${com.mobileclaw.app.orchestration.StepStatus.FAILED}")
+                          if (!hasTerminal) {
+                            viewModel.appendOrchestrationLogLine(model, "\u25B6\uFE0F $desc")
+                          }
                         }
+                        com.mobileclaw.app.orchestration.StepStatus.COMPLETED -> {
+                          val dur = if (result.durationMs > 0) " (${String.format("%.1f", result.durationMs / 1000.0)}s)" else ""
+                          viewModel.replaceOrchestrationLogLine(model, "\u25B6\uFE0F $desc", "\u2705 $desc$dur")
+                        }
+                        com.mobileclaw.app.orchestration.StepStatus.FAILED -> {
+                          viewModel.replaceOrchestrationLogLine(model, "\u25B6\uFE0F $desc", "\u274C $desc — ${result.error?.take(80) ?: "unknown error"}")
+                        }
+                        com.mobileclaw.app.orchestration.StepStatus.SKIPPED ->
+                          viewModel.appendOrchestrationLogLine(model, "\u23ED\uFE0F $desc")
+                        else -> {}
                       }
-                      com.mobileclaw.app.orchestration.StepStatus.COMPLETED -> {
-                        val dur = if (result.durationMs > 0) " (${String.format("%.1f", result.durationMs / 1000.0)}s)" else ""
-                        // Replace the RUNNING line with COMPLETED.
-                        viewModel.replaceOrchestrationLogLine(model, "\u25B6\uFE0F $desc", "\u2705 $desc$dur")
-                      }
-                      com.mobileclaw.app.orchestration.StepStatus.FAILED -> {
-                        // Replace the RUNNING line with FAILED.
-                        viewModel.replaceOrchestrationLogLine(model, "\u25B6\uFE0F $desc", "\u274C $desc — ${result.error?.take(80) ?: "unknown error"}")
-                      }
-                      com.mobileclaw.app.orchestration.StepStatus.SKIPPED ->
-                        viewModel.appendOrchestrationLogLine(model, "\u23ED\uFE0F $desc")
-                      else -> {}
                     }
                   }
                 }
@@ -621,32 +631,41 @@ fun AgentChatScreen(
               // Evaluation.
               if (state.evaluation != null && state.iteration != lastEvalIteration) {
                 lastEvalIteration = state.iteration
-                if (state.status == OrchestrationStatus.EVALUATING || lastStatus == OrchestrationStatus.EVALUATING) {
-                  viewModel.appendOrchestrationLogLine(model, "\uD83D\uDD0D Evaluating results...")
-                }
-                val eval = state.evaluation!!
-                if (eval.goalAchieved) {
-                  viewModel.appendOrchestrationLogLine(model, "\u2705 Goal achieved!")
-                } else {
-                  viewModel.appendOrchestrationLogLine(model, "\u26A0\uFE0F Not yet achieved: ${eval.assessment.take(100)}")
-                  if (eval.shouldReplan) {
-                    viewModel.appendOrchestrationLogLine(model, "\uD83D\uDD04 Re-planning...")
+                if (showTraces) {
+                  if (state.status == OrchestrationStatus.EVALUATING || lastStatus == OrchestrationStatus.EVALUATING) {
+                    viewModel.appendOrchestrationLogLine(model, "\uD83D\uDD0D Evaluating results...")
+                  }
+                  val eval = state.evaluation!!
+                  if (eval.goalAchieved) {
+                    viewModel.appendOrchestrationLogLine(model, "\u2705 Goal achieved!")
+                  } else {
+                    viewModel.appendOrchestrationLogLine(model, "\u26A0\uFE0F Not yet achieved: ${eval.assessment.take(100)}")
+                    if (eval.shouldReplan) {
+                      viewModel.appendOrchestrationLogLine(model, "\uD83D\uDD04 Re-planning...")
+                    }
                   }
                 }
               }
 
               // Repairing.
               if (state.status == OrchestrationStatus.REPAIRING && lastStatus != OrchestrationStatus.REPAIRING) {
-                viewModel.appendOrchestrationLogLine(model, "\uD83D\uDD27 Diagnosing failed steps...")
+                if (showTraces) {
+                  viewModel.appendOrchestrationLogLine(model, "\uD83D\uDD27 Diagnosing failed steps...")
+                }
               }
 
               // Formatting.
               if (state.status == OrchestrationStatus.FORMATTING && lastStatus != OrchestrationStatus.FORMATTING) {
-                viewModel.appendOrchestrationLogLine(model, "\u270D\uFE0F Formatting response...")
+                if (showTraces) {
+                  viewModel.appendOrchestrationLogLine(model, "\u270D\uFE0F Formatting response...")
+                } else {
+                  viewModel.appendOrchestrationLogLine(model, "\u270D\uFE0F Summarizing...")
+                }
               }
 
               // Completed — finalize log, send final output, capture for save-as-skill.
               if (state.status == OrchestrationStatus.COMPLETED && lastStatus != OrchestrationStatus.COMPLETED) {
+                viewModel.appendOrchestrationLogLine(model, "\uD83C\uDF89 Task complete")
                 viewModel.finalizeOrchestrationLog(model)
                 // Capture orchestration data for "Save as Skill".
                 lastOrchestrationUserMessage = text
@@ -726,6 +745,27 @@ fun AgentChatScreen(
         }
       }
     },
+    showAgentSettingsTab = true,
+    agenticModeEnabled = orchestrationEnabled,
+    agentTracesEnabled = agentTracesEnabled,
+    onAgenticModeChanged = { enabled ->
+      orchestrationEnabled = enabled
+      dataStoreRepo.setAgenticModeEnabled(enabled)
+      if (!enabled) {
+        agentTracesEnabled = false
+        dataStoreRepo.setAgentTracesEnabled(false)
+      }
+      // Reset session to add/remove tools based on agentic mode.
+      resetSessionWithCurrentSkills(
+        viewModel, modelManagerViewModel, skillManagerViewModel,
+        task, curSystemPrompt, agentTools,
+        agenticModeEnabled = enabled,
+      )
+    },
+    onAgentTracesChanged = { enabled ->
+      agentTracesEnabled = enabled
+      dataStoreRepo.setAgentTracesEnabled(enabled)
+    },
   )
 
   if (showAskInfoDialog && currentAskInfoAction != null) {
@@ -766,6 +806,7 @@ fun AgentChatScreen(
             task,
             curSystemPrompt,
             agentTools,
+            agenticModeEnabled = orchestrationEnabled,
           )
         }
       },
@@ -818,6 +859,7 @@ private fun resetSessionWithCurrentSkills(
   curSystemPrompt: String,
   agentTools: AgentTools,
   onDone: (Model) -> Unit = {},
+  agenticModeEnabled: Boolean = true,
 ) {
   val model = modelManagerViewModel.uiState.value.selectedModel
   val newSelectedSkills = skillManagerViewModel.getSelectedSkills()
@@ -825,13 +867,13 @@ private fun resetSessionWithCurrentSkills(
     task = task,
     model = model,
     systemInstruction =
-      if (newSelectedSkills.isEmpty()) null
+      if (!agenticModeEnabled || newSelectedSkills.isEmpty()) null
       else skillManagerViewModel.getSystemPrompt(curSystemPrompt),
-    tools = listOf(tool(agentTools)),
+    tools = if (agenticModeEnabled) listOf(tool(agentTools)) else emptyList(),
     supportImage = true,
     supportAudio = true,
     onDone = { onDone(model) },
-    enableConversationConstrainedDecoding = true,
+    enableConversationConstrainedDecoding = agenticModeEnabled,
   )
 }
 
