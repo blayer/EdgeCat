@@ -305,8 +305,8 @@ class PlannerTest {
   @Test
   fun `buildPlanningPrompt includes date information`() {
     val prompt = planner.buildPlanningPrompt("reminder for tomorrow", emptyList())
-    assertTrue(prompt.contains("Today's date:"))
-    assertTrue(prompt.contains("Tomorrow's date:"))
+    assertTrue(prompt.contains("Today:"))
+    assertTrue(prompt.contains("Tomorrow:"))
     assertTrue(prompt.contains("yyyy-MM-ddTHH:mm"))
   }
 
@@ -354,6 +354,6 @@ class PlannerTest {
     assertTrue(prompt.contains("FAILED"))
     assertTrue(prompt.contains("timeout"))
     assertTrue(prompt.contains("search results"))
-    assertTrue(prompt.contains("Today's date:"))
+    assertTrue(prompt.contains("Today:"))
   }
 }

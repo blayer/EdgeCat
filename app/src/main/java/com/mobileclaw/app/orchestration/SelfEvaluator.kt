@@ -66,7 +66,7 @@ Evaluate the results and respond with ONLY valid JSON:
 
 Rules:
 - goalAchieved = true if the user's request is fully satisfied
-- If most steps succeeded and the output is useful, be generous — mark goalAchieved = true
+- If the core request is satisfied, mark goalAchieved = true even if formatting isn't perfect
 - missingItems should be empty if goalAchieved is true
 - shouldReplan = true only if there is a clear path to improvement with a revised plan
 - shouldReplan = false if the failure is unrecoverable (e.g., skill not available)

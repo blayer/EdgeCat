@@ -70,6 +70,8 @@ class Planner {
       "flashlight", "location", "contacts", "apps", "launch", "share",
       "fetch", "browse", "navigate", "check", "device", "battery",
       "bluetooth", "wifi", "settings", "do not disturb",
+      "summarize", "show", "get", "tell me", "what is", "what are",
+      "how much", "how many",
     )
     for (keyword in taskKeywords) {
       if (lower.contains(keyword)) {
@@ -84,9 +86,9 @@ class Planner {
       return "task"
     }
 
-    // Default: if short (<= 10 words) and no task keywords, likely chat.
+    // Default: if very short and no task keywords, likely chat.
     val wordCount = lower.split("\\s+".toRegex()).size
-    if (wordCount <= 5) {
+    if (wordCount <= 3) {
       Log.d(TAG, "classifyIntent: '$lower' is short ($wordCount words), treating as chat")
       return "chat"
     }
@@ -118,28 +120,20 @@ class Planner {
     return """
 You are a task planner. Given a user request and available skills, produce an execution plan as JSON.
 
-Current date and time: $dayOfWeek, $dateStr $timeStr.
-Today's date: $dateStr
-Tomorrow's date: $tomorrowDate
-
-IMPORTANT: When generating date-time values for toolArgs, use EXACTLY the format yyyy-MM-ddTHH:mm (e.g., ${tomorrowDate}T15:00). Copy the date string exactly — do NOT try to compute or concatenate dates yourself.
+Today: $dayOfWeek $dateStr $timeStr. Tomorrow: $tomorrowDate.
+Date-time format for toolArgs: yyyy-MM-ddTHH:mm (e.g., ${tomorrowDate}T15:00).
 
 Available skills:
 $skillList
 ${if (memoryContext.isNotEmpty()) "\n$memoryContext\n" else ""}
-How to use skills:
-- For ANY skill listed above, set "skillName" to the skill name and "toolName" to null. The system will automatically execute it using the correct method (native app tool or JS script).
-- Put the skill's input parameters in "toolArgs" as key-value pairs. For example: {"query":"weather in Tokyo"} or {"expression":"2+2"} or {"url":"https://example.com"}
-- If a skill has no special input, use an empty toolArgs: {}
-- For LLM-only reasoning steps (like summarize), set toolName to null and skillName to "summarize".
+Set "skillName" to the skill name and put input parameters in "toolArgs" as key-value pairs.
+For LLM-only steps (like summarize), set skillName to "summarize".
 
 Rules:
-- Each step must have: id, description, skillName, toolName, toolArgs, dependsOn
-- toolName should be null for all skill-based steps (the system routes automatically)
-- dependsOn is a list of step IDs that must complete before this step runs
-- Steps with no dependencies can run in parallel
-- Keep the plan minimal — use the fewest steps needed
-- ALWAYS use available skills to fulfill the request. Do NOT skip skills and try to answer from knowledge alone.
+- Each step has: id, description, skillName, toolArgs, dependsOn
+- dependsOn lists step IDs that must complete first (empty = can run in parallel)
+- Keep the plan minimal — fewest steps needed
+- Use available skills. Do NOT answer from knowledge alone.
 
 User request: "$userMessage"
 
@@ -153,7 +147,6 @@ Respond with ONLY valid JSON:
       "id": "step_1",
       "description": "what this step does",
       "skillName": "skill-name or null",
-      "toolName": null,
       "toolArgs": {"key":"value"},
       "dependsOn": []
     }
@@ -197,12 +190,12 @@ Respond with ONLY valid JSON:
     return """
 You are a task planner. A previous plan did not fully achieve the user's goal. Create a revised plan.
 
-Today's date: $dateStr. Tomorrow's date: $tomorrowDate.
-IMPORTANT: For date-time values in toolArgs, use EXACTLY the format yyyy-MM-ddTHH:mm (e.g., ${tomorrowDate}T15:00). Copy the date string exactly.
+Today: $dateStr. Tomorrow: $tomorrowDate.
+Date-time format for toolArgs: yyyy-MM-ddTHH:mm (e.g., ${tomorrowDate}T15:00).
 
 User request: "$userMessage"
 $skillList${if (memoryContext.isNotEmpty()) "\n$memoryContext\n" else ""}
-Previous plan reasoning: ${prevPlan.reasoning}
+Previous plan: ${prevPlan.reasoning}
 
 Previous results:
 $resultsStr
@@ -212,12 +205,10 @@ Evaluation: ${evaluation.assessment}
 Missing items:
 $missingStr
 
-IMPORTANT: Use ONLY the skill names from the available skills list above. Do not invent new skill names.
-Fix the errors from the previous attempt. Set toolName to null for all skill-based steps — the system routes automatically.
-Put skill input parameters directly in toolArgs as key-value pairs.
-ALWAYS use available skills to fulfill the request. Do NOT try to answer from knowledge alone.
+Fix the errors from the previous attempt. Use ONLY skill names from the list above.
+Put input parameters in toolArgs as key-value pairs.
 
-Create a NEW plan. Respond with ONLY valid JSON:
+Respond with ONLY valid JSON:
 ```json
 {
   "goal": "the user's goal",
@@ -227,7 +218,6 @@ Create a NEW plan. Respond with ONLY valid JSON:
       "id": "step_1",
       "description": "what this step does",
       "skillName": "skill-name or null",
-      "toolName": null,
       "toolArgs": {"key":"value"},
       "dependsOn": []
     }

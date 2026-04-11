@@ -120,6 +120,7 @@ Rules:
 - If the error is bad arguments, use retry_with_different_args
 - If the skill instructions are incomplete or wrong for this device, use update_instructions
 - If the error is a permission issue, the fix is "unfixable"
+- Common patterns: ActivityNotFoundException → use_alternative_skill. DateTimeParseException → retry_with_different_args with yyyy-MM-ddTHH:mm format.
 - Keep the diagnosis concise
 """.trimIndent()
   }

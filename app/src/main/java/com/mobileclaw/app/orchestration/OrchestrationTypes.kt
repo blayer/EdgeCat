@@ -76,6 +76,7 @@ data class OrchestrationState(
   val finalOutput: String? = null,
   val finalOutputIsHtml: Boolean = false,
   val error: String? = null,
+  val memoryRecalled: Boolean? = null,
 )
 
 /** Result of the self-evaluation module. */

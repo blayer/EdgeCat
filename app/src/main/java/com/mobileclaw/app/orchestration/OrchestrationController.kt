@@ -81,8 +81,12 @@ class OrchestrationController(
         Log.w(TAG, "Memory recall failed, continuing without memory", e)
         ""
       }
-      if (memoryContext.isNotEmpty()) {
+      val memoryFound = memoryContext.isNotEmpty()
+      _state.value = _state.value.copy(memoryRecalled = memoryFound)
+      if (memoryFound) {
         Log.d(TAG, "Memory context (${memoryContext.length} chars): ${memoryContext.take(200)}...")
+      } else {
+        Log.d(TAG, "No memory found for: $userMessage")
       }
 
       // ---- Phase 1: Plan ----
@@ -497,20 +501,18 @@ class OrchestrationController(
    */
   private suspend fun formatResultWithLlm(userMessage: String, rawOutput: String): String {
     val prompt = """
-You are a helpful assistant. The user asked: "$userMessage"
+The user asked: "$userMessage"
 
-The system executed tools and produced this raw result:
+Raw result from tools:
 $rawOutput
 
-Rewrite this into a clear, friendly response for the user. Follow these rules:
-- For simple values (e.g. a number, a short answer), write a brief natural sentence.
-- For lists of items (e.g. apps, contacts, files), use a clean markdown table or bullet list.
-- For device info or status data, summarize the key details in a readable way.
-- For search results, present them as a numbered list with titles and brief descriptions.
-- For errors or failures, explain what went wrong simply.
-- Do NOT include raw JSON, map syntax like {key=value}, or technical formatting.
-- Do NOT add disclaimers, caveats, or extra commentary. Just present the result clearly.
-- Keep it concise. No preamble like "Here is..." or "Based on...".
+Rewrite into a clear, friendly response. Rules:
+- Simple values: brief natural sentence
+- Lists: bullet list or table
+- Search results: numbered list with titles
+- Errors: explain simply
+- No raw JSON, no {key=value} syntax, no preamble, no disclaimers
+- Be concise and direct
 """.trimIndent()
 
     Log.d(TAG, "Formatting result with LLM, raw output length=${rawOutput.length}")

@@ -562,6 +562,7 @@ fun AgentChatScreen(
               var lastStatus: OrchestrationStatus? = null
               var lastPlanIteration = -1
               var lastEvalIteration = -1
+              var memoryLogged = false
               val loggedSteps = mutableSetOf<String>()
 
               // Create the log bubble.
@@ -575,6 +576,16 @@ fun AgentChatScreen(
 
               controller.state.collect { state ->
               val showTraces = agentTracesEnabled
+
+              // Memory recall status.
+              if (!memoryLogged && state.memoryRecalled != null) {
+                memoryLogged = true
+                if (state.memoryRecalled) {
+                  viewModel.appendOrchestrationLogLine(model, "\uD83E\uDDE0 Memory recalled")
+                } else {
+                  viewModel.appendOrchestrationLogLine(model, "\uD83E\uDDE0 No memory found")
+                }
+              }
 
               // Plan ready — log the plan steps.
               if (state.plan != null && state.iteration != lastPlanIteration) {
