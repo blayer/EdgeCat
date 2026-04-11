@@ -85,12 +85,17 @@ import com.mobileclaw.app.firebaseAnalytics
 import com.mobileclaw.app.ui.common.BaseMobileClawWebViewClient
 import com.mobileclaw.app.ui.common.MobileClawWebView
 import com.mobileclaw.app.ui.common.buildTrackableUrlAnnotatedString
+import com.mobileclaw.app.memory.MemoryRepository
 import com.mobileclaw.app.orchestration.ExecutionPlan
 import com.mobileclaw.app.orchestration.OrchestrationController
 import com.mobileclaw.app.orchestration.OrchestrationStatus
 import com.mobileclaw.app.orchestration.SkillCreator
 import com.mobileclaw.app.orchestration.StepResult
 import com.mobileclaw.app.orchestration.StepStatus
+import dagger.hilt.EntryPoint
+import dagger.hilt.InstallIn
+import dagger.hilt.android.EntryPointAccessors
+import dagger.hilt.components.SingletonComponent
 import com.mobileclaw.app.ui.common.chat.ChatMessage
 import com.mobileclaw.app.ui.common.chat.ChatMessageCollapsableProgressPanel
 import com.mobileclaw.app.ui.common.chat.ChatMessageImage
@@ -117,6 +122,12 @@ import kotlinx.coroutines.suspendCancellableCoroutine
 private const val TAG = "AGAgentChatScreen"
 private val chatViewJavascriptInterface = ChatWebViewJavascriptInterface()
 
+@EntryPoint
+@InstallIn(SingletonComponent::class)
+interface MemoryEntryPoint {
+  fun memoryRepository(): MemoryRepository
+}
+
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun AgentChatScreen(
@@ -142,8 +153,6 @@ fun AgentChatScreen(
   var curSystemPrompt by remember { mutableStateOf(task.defaultSystemPrompt) }
   val systemPromptUpdatedMessage = stringResource(R.string.system_prompt_updated)
   var sendMessageTrigger by remember { mutableStateOf<SendMessageTrigger?>(null) }
-  var showAlertForDisabledSkill by remember { mutableStateOf(false) }
-  var disabledSkillName by remember { mutableStateOf("") }
   var orchestrationEnabled by remember { mutableStateOf(true) }
   val coroutineScope = androidx.compose.runtime.rememberCoroutineScope()
 
@@ -450,50 +459,6 @@ fun AgentChatScreen(
           }
         }
 
-        Row(
-          modifier =
-            Modifier.align(Alignment.BottomCenter)
-              .horizontalScroll(rememberScrollState())
-              .padding(horizontal = 12.dp),
-          verticalAlignment = Alignment.CenterVertically,
-          horizontalArrangement = Arrangement.spacedBy(8.dp),
-        ) {
-          for (promptChip in TRYOUT_CHIPS) {
-            FilledTonalButton(
-              enabled =
-                modelInitializationStatus?.status == ModelInitializationStatusType.INITIALIZED &&
-                  !uiState.isResettingSession,
-              onClick = {
-                // Skill is selected, trigger sending the message.
-                if (skillManagerViewModel.isSkillSelected(promptChip.skillName)) {
-                  sendMessageTrigger =
-                    SendMessageTrigger(
-                      model = model,
-                      messages =
-                        listOf(ChatMessageText(content = promptChip.prompt, side = ChatSide.USER)),
-                    )
-                  firebaseAnalytics?.logEvent(
-                    MobileClawEvent.BUTTON_CLICKED.id,
-                    Bundle().apply {
-                      putString("event_type", "agent_skills_prompt_chip")
-                      putString("button_id", promptChip.label)
-                    },
-                  )
-                }
-                // Skill is not selected, show alert dialog.
-                else {
-                  disabledSkillName = promptChip.skillName
-                  showAlertForDisabledSkill = true
-                }
-              },
-              contentPadding = PaddingValues(horizontal = 12.dp),
-            ) {
-              Icon(promptChip.icon, contentDescription = null, modifier = Modifier.size(20.dp))
-              Spacer(modifier = Modifier.width(4.dp))
-              Text(promptChip.label)
-            }
-          }
-        }
       }
     },
     sendMessageTrigger = sendMessageTrigger,
@@ -563,47 +528,48 @@ fun AgentChatScreen(
           }
           true // Handled.
         } else {
-          android.util.Log.d("AGOrchOverride", "Starting orchestration for: '$text'")
+          // Classify intent: is this a task or casual chat?
+          val planner = com.mobileclaw.app.orchestration.Planner()
+          val intentResult = planner.classifyIntent(text)
+          android.util.Log.d("AGOrchOverride", "Intent classification: '$intentResult' for: '$text'")
+
+          if (intentResult == "chat") {
+            // Casual conversation — let the default handler respond directly.
+            android.util.Log.d("AGOrchOverride", "Chat intent, passing to default handler")
+            false
+          } else {
+          android.util.Log.d("AGOrchOverride", "Task intent, starting orchestration for: '$text'")
           // Add user message to chat.
           for (message in messages) {
             viewModel.addMessage(model = model, message = message)
           }
 
-          // Create or reuse controller.
+          // Create controller.
           val llmProvider = LlmInferenceProviderImpl(viewModel) { model }
           val toolExec = ToolExecutorImpl(agentTools, skillManagerViewModel)
-          val controller = OrchestrationController(llmProvider, toolExec)
+          val memoryRepo = try {
+            EntryPointAccessors.fromApplication(context, MemoryEntryPoint::class.java).memoryRepository()
+          } catch (e: Exception) { null }
+          val controller = OrchestrationController(llmProvider, toolExec, memoryRepo)
           orchestrationController.value = controller
-
-          // Launch orchestration on Default dispatcher to avoid blocking UI thread
-          // (tool execution like runJs needs the main thread for WebView).
-          coroutineScope.launch(kotlinx.coroutines.Dispatchers.Default) {
-            android.util.Log.d("AGOrchOverride", "Launching controller.run()")
-            try {
-              controller.run(text)
-              android.util.Log.d("AGOrchOverride", "controller.run() completed")
-            } catch (e: Exception) {
-              android.util.Log.e("AGOrchOverride", "controller.run() failed", e)
-            }
-          }
 
           // Observe state changes — single consolidated log bubble.
           coroutineScope.launch {
-            var lastStatus: OrchestrationStatus? = null
-            var lastPlanIteration = -1
-            var lastEvalIteration = -1
-            val loggedSteps = mutableSetOf<String>()
+              var lastStatus: OrchestrationStatus? = null
+              var lastPlanIteration = -1
+              var lastEvalIteration = -1
+              val loggedSteps = mutableSetOf<String>()
 
-            // Create the log bubble.
-            viewModel.addMessage(
-              model = model,
-              message = ChatMessageOrchestrationLog(
-                logLines = listOf("\uD83D\uDCA1 Planning..."),
-                inProgress = true,
-              ),
-            )
+              // Create the log bubble.
+              viewModel.addMessage(
+                model = model,
+                message = ChatMessageOrchestrationLog(
+                  logLines = listOf("\uD83D\uDCA1 Planning..."),
+                  inProgress = true,
+                ),
+              )
 
-            controller.state.collect { state ->
+              controller.state.collect { state ->
               // Plan ready — log the plan steps.
               if (state.plan != null && state.iteration != lastPlanIteration) {
                 lastPlanIteration = state.iteration
@@ -744,7 +710,19 @@ fun AgentChatScreen(
             }
           }
 
+          // Run orchestration (blocks until complete).
+          coroutineScope.launch(kotlinx.coroutines.Dispatchers.Default) {
+            android.util.Log.d("AGOrchOverride", "Launching controller.run()")
+            try {
+              controller.run(text)
+              android.util.Log.d("AGOrchOverride", "controller.run() completed")
+            } catch (e: Exception) {
+              android.util.Log.e("AGOrchOverride", "controller.run() failed", e)
+            }
+          }
+
           true // Message handled by orchestration.
+          }
         }
       }
     },
@@ -794,18 +772,6 @@ fun AgentChatScreen(
     )
   }
 
-  if (showAlertForDisabledSkill) {
-    AlertDialog(
-      onDismissRequest = { showAlertForDisabledSkill = false },
-      title = { Text("The \"$disabledSkillName\" skill is currently disabled") },
-      text = { Text(stringResource(R.string.enable_skill_dialog_content)) },
-      confirmButton = {
-        Button(onClick = { showAlertForDisabledSkill = false }) {
-          Text(stringResource(R.string.ok))
-        }
-      },
-    )
-  }
 }
 
 private fun updateProgressPanel(viewModel: LlmChatViewModel, model: Model, agentTools: AgentTools) {

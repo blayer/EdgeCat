@@ -17,6 +17,10 @@
 package com.mobileclaw.app.orchestration
 
 import android.util.Log
+import com.mobileclaw.app.memory.Episode
+import com.mobileclaw.app.memory.MemoryRepository
+import com.mobileclaw.app.memory.RepairRecord
+import java.util.UUID
 import java.util.concurrent.atomic.AtomicBoolean
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -41,6 +45,7 @@ private const val TAG = "AGOrchestrationController"
 class OrchestrationController(
   private val llmProvider: LlmInferenceProvider,
   private val toolExecutor: ToolExecutor,
+  private val memoryRepository: MemoryRepository? = null,
   private val maxIterations: Int = 3,
   private val maxRepairAttempts: Int = 2,
 ) {
@@ -69,10 +74,21 @@ class OrchestrationController(
       )
 
     try {
+      // ---- Phase 0: Recall memory ----
+      val memoryContext = try {
+        memoryRepository?.recallForPlanning(userMessage) ?: ""
+      } catch (e: Exception) {
+        Log.w(TAG, "Memory recall failed, continuing without memory", e)
+        ""
+      }
+      if (memoryContext.isNotEmpty()) {
+        Log.d(TAG, "Memory context (${memoryContext.length} chars): ${memoryContext.take(200)}...")
+      }
+
       // ---- Phase 1: Plan ----
       Log.d(TAG, "Phase 1: Planning for: $userMessage")
       val skills = toolExecutor.getAvailableSkills()
-      val planPrompt = planner.buildPlanningPrompt(userMessage, skills)
+      val planPrompt = planner.buildPlanningPrompt(userMessage, skills, memoryContext)
       val planResponse = llmProvider.generateResponse(planPrompt)
       val plan = planner.parsePlan(planResponse, userMessage)
 
@@ -145,6 +161,7 @@ class OrchestrationController(
               finalOutput = finalOutput,
               finalOutputIsHtml = isHtml,
             )
+          saveEpisodeToMemory(userMessage, currentPlan, repairedResults, "success")
           return
         }
 
@@ -158,6 +175,8 @@ class OrchestrationController(
               finalOutput = finalOutput,
               finalOutputIsHtml = isHtml,
             )
+          val hasAnySuccess = repairedResults.values.any { it.status == StepStatus.COMPLETED }
+          saveEpisodeToMemory(userMessage, currentPlan, repairedResults, if (hasAnySuccess) "partial" else "failure")
           return
         }
 
@@ -177,7 +196,7 @@ class OrchestrationController(
         _state.value = _state.value.copy(status = OrchestrationStatus.REPLANNING)
 
         val replanPrompt =
-          planner.buildReplanPrompt(userMessage, currentPlan, repairedResults, evaluation, skills)
+          planner.buildReplanPrompt(userMessage, currentPlan, repairedResults, evaluation, skills, memoryContext)
         val fullReplanPrompt = if (diagnosticNotes.isNotEmpty()) {
           "$replanPrompt\n\nAuto-diagnostic notes (use these to fix the plan):$diagnosticNotes"
         } else {
@@ -268,6 +287,15 @@ class OrchestrationController(
       val error = currentResult.error ?: currentResult.output
       val skillInstructions = skillSummary?.instructions ?: ""
 
+      // Recall past repairs for this skill from memory
+      val pastRepairsStr = try {
+        val pastRepairs = memoryRepository?.recallRepairs(step.skillName ?: "", error)
+        pastRepairs?.joinToString("\n") { r ->
+          val successStr = if (r.success) "worked" else "did not work"
+          "- ${r.fixType}: ${r.fixDescription} ($successStr)"
+        } ?: ""
+      } catch (e: Exception) { "" }
+
       val diagnostic: DiagnosticResult
       try {
         val diagPrompt = skillCreator.buildDiagnosticPrompt(
@@ -275,6 +303,7 @@ class OrchestrationController(
           error = error,
           deviceInfo = getDeviceInfo(),
           skillInstructions = skillInstructions,
+          pastRepairs = pastRepairsStr,
         )
         val diagResponse = llmProvider.generateResponse(diagPrompt)
         diagnostic = skillCreator.parseDiagnostic(diagResponse)
@@ -308,8 +337,20 @@ class OrchestrationController(
             retryStep = step.copy(toolArgs = step.toolArgs + diagnostic.alternativeArgs)
           }
         }
-        "use_alternative_skill", "unfixable", "skip" -> {
-          // These can't be fixed by retrying the same step — leave for replan.
+        "use_alternative_skill" -> {
+          // Save device fact about skill swap for future runs
+          if (step.skillName != null && diagnostic.alternativeSkillName != null) {
+            saveDeviceFactSafe(
+              "alt_skill_${step.skillName}",
+              "Skill '${step.skillName}' does not work on this device; use '${diagnostic.alternativeSkillName}' instead",
+            )
+          }
+          saveRepairToMemory(step, error, diagnostic, false)
+          Log.d(TAG, "Fix type '${diagnostic.fixType}' not retriable, skipping repair")
+          break
+        }
+        "unfixable", "skip" -> {
+          saveRepairToMemory(step, error, diagnostic, false)
           Log.d(TAG, "Fix type '${diagnostic.fixType}' not retriable, skipping repair")
           break
         }
@@ -333,11 +374,13 @@ class OrchestrationController(
         val retryResult = retryResults[step.id]
         if (retryResult != null && retryResult.status == StepStatus.COMPLETED) {
           Log.d(TAG, "Repair succeeded for step ${step.id} on attempt $attempt")
+          saveRepairToMemory(step, error, diagnostic, true)
           return retryResult
         }
         if (retryResult != null) {
           currentResult = retryResult
         }
+        saveRepairToMemory(step, error, diagnostic, false)
         Log.d(TAG, "Repair attempt $attempt failed for step ${step.id}: ${currentResult.error}")
       } catch (e: Exception) {
         Log.w(TAG, "Repair retry execution failed for step ${step.id}", e)
@@ -410,16 +453,25 @@ class OrchestrationController(
     results: Map<String, StepResult>,
     evaluation: EvaluationResult,
   ): Pair<String, Boolean> {
-    // Collect all completed step outputs.
-    val completedOutputs = plan.steps
-      .mapNotNull { step -> results[step.id]?.takeIf { it.status == StepStatus.COMPLETED && it.output.isNotBlank() } }
+    // Collect all completed step outputs with their descriptions.
+    val completedSteps = plan.steps
+      .mapNotNull { step ->
+        val result = results[step.id]?.takeIf { it.status == StepStatus.COMPLETED && it.output.isNotBlank() }
+        if (result != null) step to result else null
+      }
 
-    if (completedOutputs.isEmpty()) {
+    if (completedSteps.isEmpty()) {
       return "No output produced." to false
     }
 
-    // Use the last completed output as the primary raw data.
-    val rawOutput = completedOutputs.last().output.take(2000)
+    // Build context from all steps so the LLM can produce a coherent response.
+    val rawOutput = if (completedSteps.size == 1) {
+      completedSteps.first().second.output.take(2000)
+    } else {
+      completedSteps.joinToString("\n\n") { (step, result) ->
+        "Step: ${step.description}\nResult: ${result.output.take(800)}"
+      }.take(2000)
+    }
 
     // If the output is HTML, return as-is.
     val isHtml = rawOutput.contains("<") && rawOutput.contains(">") && rawOutput.contains("</")
@@ -471,5 +523,68 @@ Rewrite this into a clear, friendly response for the user. Follow these rules:
   private fun getDeviceInfo(): String {
     return "Android ${android.os.Build.VERSION.RELEASE} (SDK ${android.os.Build.VERSION.SDK_INT}), " +
       "${android.os.Build.MANUFACTURER} ${android.os.Build.MODEL}"
+  }
+
+  /** Save an episode to memory after orchestration completes. */
+  private suspend fun saveEpisodeToMemory(
+    userMessage: String,
+    plan: ExecutionPlan,
+    results: Map<String, StepResult>,
+    outcome: String,
+  ) {
+    try {
+      val skillsUsed = plan.steps.mapNotNull { it.skillName }.distinct()
+      val lastOutput = plan.steps
+        .mapNotNull { results[it.id]?.takeIf { r -> r.status == StepStatus.COMPLETED } }
+        .lastOrNull()?.output ?: ""
+      memoryRepository?.saveEpisode(
+        Episode(
+          id = UUID.randomUUID().toString(),
+          userMessage = userMessage,
+          goal = plan.goal,
+          skillsUsed = skillsUsed,
+          outcome = outcome,
+          stepCount = plan.steps.size,
+          finalOutput = lastOutput.take(500),
+        )
+      )
+      memoryRepository?.evictIfNeeded()
+    } catch (e: Exception) {
+      Log.w(TAG, "Failed to save episode to memory", e)
+    }
+  }
+
+  /** Save a repair record to memory. */
+  private suspend fun saveRepairToMemory(
+    step: PlanStep,
+    error: String,
+    diagnostic: DiagnosticResult,
+    success: Boolean,
+  ) {
+    try {
+      memoryRepository?.saveRepair(
+        RepairRecord(
+          id = UUID.randomUUID().toString(),
+          skillName = step.skillName ?: "unknown",
+          errorSummary = error.take(200),
+          fixType = diagnostic.fixType,
+          fixDescription = diagnostic.diagnosis,
+          alternativeSkill = diagnostic.alternativeSkillName,
+          alternativeArgs = diagnostic.alternativeArgs,
+          success = success,
+        )
+      )
+    } catch (e: Exception) {
+      Log.w(TAG, "Failed to save repair to memory", e)
+    }
+  }
+
+  /** Save a device fact to memory, ignoring failures. */
+  private suspend fun saveDeviceFactSafe(key: String, value: String) {
+    try {
+      memoryRepository?.saveDeviceFact(key, value)
+    } catch (e: Exception) {
+      Log.w(TAG, "Failed to save device fact to memory", e)
+    }
   }
 }

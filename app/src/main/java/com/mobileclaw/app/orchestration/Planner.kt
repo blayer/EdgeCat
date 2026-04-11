@@ -30,8 +30,74 @@ private const val TAG = "AGPlanner"
  */
 class Planner {
 
+  /**
+   * Classify whether the user message is an actionable task (requiring device skills/tools)
+   * or casual conversation (greeting, chitchat).
+   *
+   * Uses keyword heuristics to avoid consuming an LLM inference call and corrupting
+   * the conversation state.
+   *
+   * Returns "task" or "chat".
+   */
+  fun classifyIntent(userMessage: String): String {
+    val lower = userMessage.lowercase().trim()
+
+    // Short greetings / small talk patterns.
+    val chatPatterns = listOf(
+      "^(hi|hey|hello|howdy|yo|sup)\\b",
+      "^(good\\s+(morning|afternoon|evening|night))\\b",
+      "^how\\s+are\\s+you",
+      "^what'?s\\s+up",
+      "^thank(s| you)",
+      "^(bye|goodbye|see you|later)\\b",
+      "^(ok|okay|sure|great|nice|cool|awesome)$",
+      "^who\\s+are\\s+you",
+      "^what\\s+is\\s+your\\s+name",
+      "^tell\\s+me\\s+(about\\s+yourself|a\\s+joke)",
+    )
+    for (pattern in chatPatterns) {
+      if (Regex(pattern).containsMatchIn(lower)) {
+        Log.d(TAG, "classifyIntent: '$lower' matched chat pattern '$pattern'")
+        return "chat"
+      }
+    }
+
+    // Task-indicating keywords — actions, device features, skill names.
+    val taskKeywords = listOf(
+      "search", "find", "look up", "set", "create", "send", "call", "open",
+      "calculate", "remind", "alarm", "timer", "weather", "calendar", "email",
+      "sms", "message", "photo", "download", "clipboard", "copy", "volume",
+      "flashlight", "location", "contacts", "apps", "launch", "share",
+      "fetch", "browse", "navigate", "check", "device", "battery",
+      "bluetooth", "wifi", "settings", "do not disturb",
+    )
+    for (keyword in taskKeywords) {
+      if (lower.contains(keyword)) {
+        Log.d(TAG, "classifyIntent: '$lower' matched task keyword '$keyword'")
+        return "task"
+      }
+    }
+
+    // If the message is a question (contains ?) and longer than a greeting, treat as task.
+    if (lower.contains("?") && lower.length > 20) {
+      Log.d(TAG, "classifyIntent: '$lower' looks like a substantive question, treating as task")
+      return "task"
+    }
+
+    // Default: if short (<= 10 words) and no task keywords, likely chat.
+    val wordCount = lower.split("\\s+".toRegex()).size
+    if (wordCount <= 5) {
+      Log.d(TAG, "classifyIntent: '$lower' is short ($wordCount words), treating as chat")
+      return "chat"
+    }
+
+    // Default to task for anything else — better to plan unnecessarily than miss a request.
+    Log.d(TAG, "classifyIntent: '$lower' defaulting to task")
+    return "task"
+  }
+
   /** Build a prompt that instructs the LLM to output a JSON execution plan. */
-  fun buildPlanningPrompt(userMessage: String, skills: List<SkillSummary>): String {
+  fun buildPlanningPrompt(userMessage: String, skills: List<SkillSummary>, memoryContext: String = ""): String {
     val skillList =
       if (skills.isEmpty()) "No skills available."
       else skills.joinToString("\n") { skill ->
@@ -60,7 +126,7 @@ IMPORTANT: When generating date-time values for toolArgs, use EXACTLY the format
 
 Available skills:
 $skillList
-
+${if (memoryContext.isNotEmpty()) "\n$memoryContext\n" else ""}
 How to use skills:
 - For ANY skill listed above, set "skillName" to the skill name and "toolName" to null. The system will automatically execute it using the correct method (native app tool or JS script).
 - Put the skill's input parameters in "toolArgs" as key-value pairs. For example: {"query":"weather in Tokyo"} or {"expression":"2+2"} or {"url":"https://example.com"}
@@ -104,6 +170,7 @@ Respond with ONLY valid JSON:
     results: Map<String, StepResult>,
     evaluation: EvaluationResult,
     skills: List<SkillSummary> = emptyList(),
+    memoryContext: String = "",
   ): String {
     val resultsStr =
       results.entries.joinToString("\n") { (id, r) ->
@@ -134,7 +201,7 @@ Today's date: $dateStr. Tomorrow's date: $tomorrowDate.
 IMPORTANT: For date-time values in toolArgs, use EXACTLY the format yyyy-MM-ddTHH:mm (e.g., ${tomorrowDate}T15:00). Copy the date string exactly.
 
 User request: "$userMessage"
-$skillList
+$skillList${if (memoryContext.isNotEmpty()) "\n$memoryContext\n" else ""}
 Previous plan reasoning: ${prevPlan.reasoning}
 
 Previous results:

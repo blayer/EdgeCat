@@ -476,6 +476,11 @@ class AgentTools() : ToolSet {
       deviceSkills.setReminder(title, dateTime, minutesBefore.toIntOrNull() ?: 10)
     }
   }
+
+  @Tool(description = "Check if the device has an active internet connection and what type (WiFi, cellular, etc)")
+  fun checkInternet(): Map<String, String> {
+    return runBlocking(Dispatchers.Default) { deviceSkills.checkInternet() }
+  }
 }
 
 fun getSkillSecretKey(skillName: String): String {

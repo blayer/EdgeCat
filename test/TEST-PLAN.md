@@ -99,13 +99,15 @@ Test workflow:
 | 2 | two-skill-chain | (none) | Get my device info and calculate the hash of the manufacturer name | Goal achieved | 180 |
 | 3 | web-and-summarize | (none) | Search the web for latest Android news and summarize it | Goal achieved | 240 |
 | 4 | reminder-test | (none) | Set a reminder for tomorrow at 9am to buy groceries | Goal achieved | 120 |
-| 5 | multi-step-plan | (none) | Look up the weather in Tokyo and copy the summary to clipboard | Goal achieved | 240 |
 
 ### Auto-Repair Scenarios
 
 | # | Scenario | Skills | Test Prompt | Pass Pattern | Timeout |
 |---|----------|--------|-------------|-------------|---------|
-| 6 | repair-fallback | (none) | Create a calendar event for tomorrow at 3pm called Team Meeting | Goal achieved | 300 |
+| 5 | repair-fallback | (none) | Create a calendar event for tomorrow at 3pm called Team Meeting | Goal achieved | 300 |
+| 6 | weather-reminder | (none) | Search Tokyo weather tomorrow, if it is raining set a reminder tomorrow morning to bring umbrella | Goal achieved | 300 |
+| 7 | local-search | (none) | What is the best food around? | Goal achieved | 240 |
+| 8 | chat-no-skill | (none) | Hello, how are you today? | Model | 60 |
 
 ---
 

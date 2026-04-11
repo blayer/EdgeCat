@@ -79,7 +79,7 @@ class HtmlExtractorTest {
     assertEquals("", skills.extractTextFromHtml(""))
   }
 
-  // ─── extractSearchResults ───
+  // ─── extractDuckDuckGoResults ───
 
   @Test
   fun `parses DuckDuckGo result links with single quotes`() {
@@ -88,7 +88,7 @@ class HtmlExtractorTest {
       <a rel="nofollow" href="https://example.com" class='result-link'>Example Title</a>
       <td class='result-snippet'>This is a snippet.</td>
     """.trimIndent()
-    val results = skills.extractSearchResults(html)
+    val results = skills.extractDuckDuckGoResults(html)
     assertTrue(results.contains("Example Title"))
     assertTrue(results.contains("https://example.com"))
     assertTrue(results.contains("This is a snippet."))
@@ -100,7 +100,7 @@ class HtmlExtractorTest {
       <a href="https://example.com" class="result-link">Example Title</a>
       <td class="result-snippet">This is a snippet.</td>
     """.trimIndent()
-    val results = skills.extractSearchResults(html)
+    val results = skills.extractDuckDuckGoResults(html)
     assertTrue(results.contains("Example Title"))
     assertTrue(results.contains("https://example.com"))
   }
@@ -108,7 +108,7 @@ class HtmlExtractorTest {
   @Test
   fun `handles no results gracefully`() {
     val html = "<html><body>No results found</body></html>"
-    val results = skills.extractSearchResults(html)
+    val results = skills.extractDuckDuckGoResults(html)
     // Should fall back to text extraction
     assertTrue(results.contains("No results found"))
   }
@@ -120,7 +120,7 @@ class HtmlExtractorTest {
       sb.append("""<a rel="nofollow" href="https://ex.com/$i" class='result-link'>Result $i</a>""")
       sb.append("""<td class='result-snippet'>Snippet $i</td>""")
     }
-    val results = skills.extractSearchResults(sb.toString())
+    val results = skills.extractDuckDuckGoResults(sb.toString())
     // Should have results 1-8 but not 9+
     assertTrue(results.contains("Result 1"))
     assertTrue(results.contains("Result 8"))

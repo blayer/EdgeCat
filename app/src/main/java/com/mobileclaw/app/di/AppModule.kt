@@ -21,6 +21,7 @@ import androidx.datastore.core.DataStore
 import androidx.datastore.core.DataStoreFactory
 import androidx.datastore.core.Serializer
 import androidx.datastore.dataStoreFile
+import androidx.room.Room
 import com.mobileclaw.app.AppLifecycleProvider
 import com.mobileclaw.app.BenchmarkResultsSerializer
 import com.mobileclaw.app.CutoutsSerializer
@@ -32,6 +33,10 @@ import com.mobileclaw.app.data.DataStoreRepository
 import com.mobileclaw.app.data.DefaultDataStoreRepository
 import com.mobileclaw.app.data.DefaultDownloadRepository
 import com.mobileclaw.app.data.DownloadRepository
+import com.mobileclaw.app.memory.DefaultMemoryRepository
+import com.mobileclaw.app.memory.MemoryRepository
+import com.mobileclaw.app.memory.db.MemoryDao
+import com.mobileclaw.app.memory.db.MemoryDatabase
 import com.mobileclaw.app.proto.BenchmarkResults
 import com.mobileclaw.app.proto.CutoutCollection
 import com.mobileclaw.app.proto.Settings
@@ -182,5 +187,32 @@ internal object AppModule {
     lifecycleProvider: AppLifecycleProvider,
   ): DownloadRepository {
     return DefaultDownloadRepository(context, lifecycleProvider)
+  }
+
+  // Provides MemoryDatabase
+  @Provides
+  @Singleton
+  fun provideMemoryDatabase(
+    @ApplicationContext context: Context,
+  ): MemoryDatabase {
+    return Room.databaseBuilder(
+      context,
+      MemoryDatabase::class.java,
+      "agent_memory",
+    ).build()
+  }
+
+  // Provides MemoryDao
+  @Provides
+  @Singleton
+  fun provideMemoryDao(database: MemoryDatabase): MemoryDao {
+    return database.memoryDao()
+  }
+
+  // Provides MemoryRepository
+  @Provides
+  @Singleton
+  fun provideMemoryRepository(dao: MemoryDao): MemoryRepository {
+    return DefaultMemoryRepository(dao)
   }
 }

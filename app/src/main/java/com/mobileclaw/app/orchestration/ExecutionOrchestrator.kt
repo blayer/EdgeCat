@@ -32,7 +32,6 @@ private val LLM_ONLY_SKILLS = setOf("summarize")
 /** Native app skills — map skill name to the native tool name. */
 private val NATIVE_SKILL_TOOLS = mapOf(
   "calculator" to "calculate",
-  "search-web" to "searchWeb",
   "fetch-web-content" to "fetchWebContent",
   "send-sms" to "sendSms",
   "send-email" to "sendEmail",
@@ -57,6 +56,8 @@ private val NATIVE_SKILL_TOOLS = mapOf(
   "list-downloads" to "listDownloads",
   "open-settings" to "openSettings",
   "set-reminder" to "setReminder",
+  "check-internet" to "checkInternet",
+  "search-web" to "searchWeb",
 )
 
 /**
@@ -200,8 +201,9 @@ class ExecutionOrchestrator(
 
     val args = step.toolArgs.toMutableMap()
     // Ensure skillName is in args if the tool needs it.
+    // Normalize underscores to hyphens to match asset folder names.
     if (step.skillName != null && !args.containsKey("skillName")) {
-      args["skillName"] = step.skillName
+      args["skillName"] = step.skillName.replace('_', '-')
     }
     // Ensure scriptName defaults to index.html for runJs.
     if (step.toolName == "runJs" && !args.containsKey("scriptName")) {

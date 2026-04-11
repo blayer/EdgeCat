@@ -61,13 +61,16 @@ class ToolExecutorImpl(
 
   override suspend fun executeTool(
     toolName: String,
-    args: Map<String, String>,
+    rawArgs: Map<String, String>,
   ): ToolExecutionResult {
+    // Normalize arg keys to lowercase for case-insensitive lookup —
+    // the on-device LLM often emits lowercase keys (e.g. "datetime" vs "dateTime").
+    val args = rawArgs.mapKeys { it.key.lowercase() }
     return try {
       val result =
         when (toolName) {
           "loadSkill" -> {
-            val skillName = args["skillName"] ?: return ToolExecutionResult(
+            val skillName = args["skillname"] ?: return ToolExecutionResult(
               success = false,
               output = "",
               error = "Missing skillName argument",
@@ -81,12 +84,12 @@ class ToolExecutorImpl(
             )
           }
           "runJs" -> {
-            val skillName = args["skillName"] ?: return ToolExecutionResult(
+            val skillName = args["skillname"] ?: return ToolExecutionResult(
               success = false,
               output = "",
               error = "Missing skillName argument",
             )
-            val scriptName = args["scriptName"] ?: "index.html"
+            val scriptName = args["scriptname"] ?: "index.html"
             val data = args["data"] ?: "{}"
             val map = agentTools.runJs(skillName, scriptName, data)
             val status = map["status"] as? String
@@ -105,6 +108,7 @@ class ToolExecutorImpl(
               error = "Missing intent argument",
             )
             val parameters = args["parameters"] ?: "{}"
+
             val map = agentTools.runIntent(intent, parameters)
             val result = map["result"]
             ToolExecutionResult(
@@ -115,7 +119,7 @@ class ToolExecutorImpl(
           }
           // ── App Skills (native device access) ──
           "sendSms" -> {
-            val map = agentTools.sendSms(args["phoneNumber"] ?: "", args["messageBody"] ?: "")
+            val map = agentTools.sendSms(args["phonenumber"] ?: "", args["messagebody"] ?: "")
             ToolExecutionResult(success = map["status"] == "succeeded", output = map.toString())
           }
           "sendEmail" -> {
@@ -123,22 +127,22 @@ class ToolExecutorImpl(
             ToolExecutionResult(success = map["status"] == "succeeded", output = map.toString())
           }
           "readCalendarEvents" -> {
-            val map = agentTools.readCalendarEvents(args["startDate"] ?: "", args["endDate"] ?: "")
+            val map = agentTools.readCalendarEvents(args["startdate"] ?: "", args["enddate"] ?: "")
             ToolExecutionResult(success = map["status"] == "succeeded", output = map.toString())
           }
           "createCalendarEvent" -> {
             val map = agentTools.createCalendarEvent(
-              args["title"] ?: "", args["startDateTime"] ?: "", args["endDateTime"] ?: "",
+              args["title"] ?: "", args["startdatetime"] ?: "", args["enddatetime"] ?: "",
               args["location"] ?: "", args["description"] ?: "",
             )
             ToolExecutionResult(success = map["status"] == "succeeded", output = map.toString())
           }
           "readContacts" -> {
-            val map = agentTools.readContacts(args["query"] ?: "", args["maxResults"] ?: "20")
+            val map = agentTools.readContacts(args["query"] ?: "", args["maxresults"] ?: "20")
             ToolExecutionResult(success = map["status"] == "succeeded", output = map.toString())
           }
           "listPhotos" -> {
-            val map = agentTools.listPhotos(args["maxResults"] ?: "20")
+            val map = agentTools.listPhotos(args["maxresults"] ?: "20")
             ToolExecutionResult(success = map["status"] == "succeeded", output = map.toString())
           }
           "listApps" -> {
@@ -146,11 +150,11 @@ class ToolExecutorImpl(
             ToolExecutionResult(success = map["status"] == "succeeded", output = map.toString())
           }
           "launchApp" -> {
-            val map = agentTools.launchApp(args["packageName"] ?: "")
+            val map = agentTools.launchApp(args["packagename"] ?: "")
             ToolExecutionResult(success = map["status"] == "succeeded", output = map.toString())
           }
           "makePhoneCall" -> {
-            val map = agentTools.makePhoneCall(args["phoneNumber"] ?: "")
+            val map = agentTools.makePhoneCall(args["phonenumber"] ?: "")
             ToolExecutionResult(success = map["status"] == "succeeded", output = map.toString())
           }
           "setAlarm" -> {
@@ -158,7 +162,7 @@ class ToolExecutorImpl(
             ToolExecutionResult(success = map["status"] == "succeeded", output = map.toString())
           }
           "setTimer" -> {
-            val map = agentTools.setTimer(args["durationSeconds"] ?: "60", args["label"] ?: "")
+            val map = agentTools.setTimer(args["durationseconds"] ?: "60", args["label"] ?: "")
             ToolExecutionResult(success = map["status"] == "succeeded", output = map.toString())
           }
           "getLocation" -> {
@@ -198,15 +202,16 @@ class ToolExecutorImpl(
             ToolExecutionResult(success = map["status"] == "succeeded", output = map.toString())
           }
           "toggleFlashlight" -> {
-            val map = agentTools.toggleFlashlight(args["turnOn"] ?: "true")
+            val map = agentTools.toggleFlashlight(args["turnon"] ?: "true")
             ToolExecutionResult(success = map["status"] == "succeeded", output = map.toString())
           }
           "setVolume" -> {
-            val map = agentTools.setVolume(args["streamType"] ?: "media", args["volumePercent"] ?: "50")
+            val map = agentTools.setVolume(args["streamtype"] ?: "media", args["volumepercent"] ?: "50")
             ToolExecutionResult(success = map["status"] == "succeeded", output = map.toString())
           }
           "setDoNotDisturb" -> {
             val map = agentTools.setDoNotDisturb(args["enable"] ?: "true")
+
             ToolExecutionResult(success = map["status"] == "succeeded", output = map.toString())
           }
           "takePhoto" -> {
@@ -214,15 +219,19 @@ class ToolExecutorImpl(
             ToolExecutionResult(success = map["status"] == "succeeded", output = map.toString())
           }
           "listDownloads" -> {
-            val map = agentTools.listDownloads(args["maxResults"] ?: "20")
+            val map = agentTools.listDownloads(args["maxresults"] ?: "20")
             ToolExecutionResult(success = map["status"] == "succeeded", output = map.toString())
           }
           "openSettings" -> {
-            val map = agentTools.openSettings(args["settingsPage"] ?: "general")
+            val map = agentTools.openSettings(args["settingspage"] ?: "general")
             ToolExecutionResult(success = map["status"] == "succeeded", output = map.toString())
           }
           "setReminder" -> {
-            val map = agentTools.setReminder(args["title"] ?: "", args["dateTime"] ?: "", args["minutesBefore"] ?: "10")
+            val map = agentTools.setReminder(args["title"] ?: "", args["datetime"] ?: "", args["minutesbefore"] ?: "10")
+            ToolExecutionResult(success = map["status"] == "succeeded", output = map.toString())
+          }
+          "checkInternet" -> {
+            val map = agentTools.checkInternet()
             ToolExecutionResult(success = map["status"] == "succeeded", output = map.toString())
           }
           else ->

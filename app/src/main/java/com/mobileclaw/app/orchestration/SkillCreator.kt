@@ -81,6 +81,7 @@ Respond with ONLY the SKILL.md content, starting with --- and ending after the i
     error: String,
     deviceInfo: String,
     skillInstructions: String,
+    pastRepairs: String = "",
   ): String {
     val args = if (failedStep.toolArgs.isNotEmpty()) failedStep.toolArgs.toString() else "{}"
 
@@ -97,7 +98,7 @@ $deviceInfo
 
 Current skill instructions:
 $skillInstructions
-
+${if (pastRepairs.isNotEmpty()) "\nPrevious repair attempts for this skill:\n$pastRepairs\n" else ""}
 Analyze the failure and respond with ONLY valid JSON:
 ```json
 {

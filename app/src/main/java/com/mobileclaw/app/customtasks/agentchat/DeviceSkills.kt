@@ -761,9 +761,7 @@ class DeviceSkills(
     }
 
     return try {
-      val sdf = SimpleDateFormat("yyyy-MM-dd'T'HH:mm", Locale.US)
-      sdf.timeZone = TimeZone.getDefault()
-      val startMillis = sdf.parse(dateTime)?.time ?: return mapOf("status" to "failed", "error" to "Invalid date")
+      val startMillis = parseDateTimeLenient(dateTime) ?: return mapOf("status" to "failed", "error" to "Invalid date format: $dateTime")
 
       // Get default calendar.
       val calCursor = context.contentResolver.query(
@@ -1016,43 +1014,55 @@ class DeviceSkills(
     return text.trim()
   }
 
+  // ─── Check Internet Connection ───
+
+  suspend fun checkInternet(): Map<String, String> {
+    return try {
+      val connectivityManager = context.getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
+      val network = connectivityManager.activeNetwork
+      val capabilities = if (network != null) connectivityManager.getNetworkCapabilities(network) else null
+
+      val connected = capabilities != null
+      val wifi = capabilities?.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) == true
+      val cellular = capabilities?.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR) == true
+      val hasInternet = capabilities?.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET) == true
+      val validated = capabilities?.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED) == true
+
+      val connectionType = when {
+        wifi -> "WiFi"
+        cellular -> "Cellular"
+        connected -> "Other"
+        else -> "None"
+      }
+
+      mapOf(
+        "status" to "succeeded",
+        "connected" to connected.toString(),
+        "connection_type" to connectionType,
+        "has_internet" to hasInternet.toString(),
+        "validated" to validated.toString(),
+        "summary" to if (validated) "Connected to internet via $connectionType" else if (connected) "Connected to $connectionType but no internet access" else "No internet connection",
+      )
+    } catch (e: Exception) {
+      Log.e(TAG, "Failed to check internet", e)
+      mapOf("status" to "failed", "error" to (e.message ?: "Failed to check internet"))
+    }
+  }
+
   // ─── Web Search (returns results) ───
 
   suspend fun webSearch(query: String): Map<String, String> {
     sendProgress("Searching: $query", inProgress = true, title = "Web Search", desc = query)
 
     return try {
-      // Use DuckDuckGo HTML lite with POST — avoids CAPTCHA that blocks GET requests.
       val encodedQuery = java.net.URLEncoder.encode(query, "UTF-8")
-      val url = "https://lite.duckduckgo.com/lite/"
 
-      val connection = java.net.URL(url).openConnection() as java.net.HttpURLConnection
-      connection.requestMethod = "POST"
-      connection.doOutput = true
-      connection.setRequestProperty("User-Agent", "Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Mobile Safari/537.36")
-      connection.setRequestProperty("Content-Type", "application/x-www-form-urlencoded")
-      connection.setRequestProperty("Accept", "text/html")
-      connection.connectTimeout = 10_000
-      connection.readTimeout = 15_000
-      connection.instanceFollowRedirects = true
+      val results = searchGoogle(encodedQuery)
 
-      // Write POST body
-      connection.outputStream.use { os ->
-        os.write("q=$encodedQuery".toByteArray(Charsets.UTF_8))
+      if (results.isBlank()) {
+        return mapOf("status" to "failed", "error" to "No search results found for: $query")
       }
 
-      val responseCode = connection.responseCode
-      if (responseCode !in 200..299) {
-        return mapOf("status" to "failed", "error" to "Search failed: HTTP $responseCode")
-      }
-
-      val html = connection.inputStream.bufferedReader().use { it.readText() }
-      connection.disconnect()
-
-      Log.d(TAG, "Search HTML length: ${html.length}, has result-link: ${html.contains("result-link")}, has anomaly: ${html.contains("anomaly")}")
-
-      // Extract search result snippets from DuckDuckGo lite HTML.
-      val results = extractSearchResults(html)
       val truncated = if (results.length > 3000) results.take(3000) + "\n...[truncated]" else results
 
       mapOf(
@@ -1067,11 +1077,135 @@ class DeviceSkills(
   }
 
   /**
+   * Search via Google HTML and parse results.
+   */
+  private fun searchGoogle(encodedQuery: String): String {
+    return try {
+      val url = "https://www.google.com/search?q=$encodedQuery&hl=en&num=8"
+      val connection = java.net.URL(url).openConnection() as java.net.HttpURLConnection
+      connection.requestMethod = "GET"
+      connection.setRequestProperty("User-Agent", "Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Mobile Safari/537.36")
+      connection.setRequestProperty("Accept", "text/html,application/xhtml+xml,*/*")
+      connection.setRequestProperty("Accept-Language", "en-US,en;q=0.9")
+      connection.connectTimeout = 10_000
+      connection.readTimeout = 15_000
+      connection.instanceFollowRedirects = true
+
+      val responseCode = connection.responseCode
+      if (responseCode !in 200..299) {
+        Log.w(TAG, "Google search HTTP $responseCode")
+        return ""
+      }
+
+      val html = connection.inputStream.bufferedReader().use { it.readText() }
+      connection.disconnect()
+
+      Log.d(TAG, "Google HTML length: ${html.length}")
+      extractGoogleResults(html)
+    } catch (e: Exception) {
+      Log.w(TAG, "Google search failed: ${e.message}")
+      ""
+    }
+  }
+
+  /**
+   * Extract search results from Google HTML.
+   */
+  internal fun extractGoogleResults(html: String): String {
+    val results = StringBuilder()
+
+    // Pattern 1: Match <a href="/url?q=ACTUAL_URL"><h3>Title</h3></a> (Google redirected links)
+    val redirectPattern = Regex("""<a[^>]*href="/url\?q=([^&"]+)[^"]*"[^>]*>.*?<h3[^>]*>(.*?)</h3>""", RegexOption.DOT_MATCHES_ALL)
+    val redirectMatches = redirectPattern.findAll(html).toList()
+
+    if (redirectMatches.isNotEmpty()) {
+      for (i in redirectMatches.indices.take(8)) {
+        val rawUrl = java.net.URLDecoder.decode(redirectMatches[i].groupValues[1], "UTF-8")
+        val title = redirectMatches[i].groupValues[2].replace(Regex("<[^>]+>"), "").trim()
+        if (title.isNotEmpty() && rawUrl.startsWith("http")) {
+          results.append("${results.toString().count { it == '\n' } / 3 + 1}. $title\n   $rawUrl\n\n")
+        }
+      }
+    }
+
+    // Pattern 2: Match direct <a href="https://..."><h3>Title</h3></a>
+    if (results.isEmpty()) {
+      val directPattern = Regex("""<a[^>]*href="(https?://[^"]+)"[^>]*>.*?<h3[^>]*>(.*?)</h3>""", RegexOption.DOT_MATCHES_ALL)
+      val directMatches = directPattern.findAll(html).toList()
+      for (i in directMatches.indices.take(8)) {
+        val url = directMatches[i].groupValues[1]
+        val title = directMatches[i].groupValues[2].replace(Regex("<[^>]+>"), "").trim()
+        if (title.isNotEmpty() && !url.contains("google.com")) {
+          results.append("${i + 1}. $title\n   $url\n\n")
+        }
+      }
+    }
+
+    // Pattern 3: Try extracting from data attributes (Google sometimes uses data-href)
+    if (results.isEmpty()) {
+      val dataPattern = Regex("""data-href="(https?://[^"]+)"[^>]*>.*?<h3[^>]*>(.*?)</h3>""", RegexOption.DOT_MATCHES_ALL)
+      val dataMatches = dataPattern.findAll(html).toList()
+      for (i in dataMatches.indices.take(8)) {
+        val url = dataMatches[i].groupValues[1]
+        val title = dataMatches[i].groupValues[2].replace(Regex("<[^>]+>"), "").trim()
+        if (title.isNotEmpty()) {
+          results.append("${i + 1}. $title\n   $url\n\n")
+        }
+      }
+    }
+
+    if (results.isEmpty()) {
+      // Last resort: extract any readable text from the page
+      val text = extractTextFromHtml(html)
+      if (text.length > 100) {
+        return text.take(2000)
+      }
+    }
+
+    return results.toString().trim()
+  }
+
+  /**
+   * Search via DuckDuckGo HTML Lite (fallback).
+   */
+  private fun searchDuckDuckGo(encodedQuery: String): String {
+    return try {
+      val url = "https://lite.duckduckgo.com/lite/"
+      val connection = java.net.URL(url).openConnection() as java.net.HttpURLConnection
+      connection.requestMethod = "POST"
+      connection.doOutput = true
+      connection.setRequestProperty("User-Agent", "Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Mobile Safari/537.36")
+      connection.setRequestProperty("Content-Type", "application/x-www-form-urlencoded")
+      connection.setRequestProperty("Accept", "text/html")
+      connection.connectTimeout = 10_000
+      connection.readTimeout = 15_000
+      connection.instanceFollowRedirects = true
+
+      connection.outputStream.use { os ->
+        os.write("q=$encodedQuery".toByteArray(Charsets.UTF_8))
+      }
+
+      val responseCode = connection.responseCode
+      if (responseCode !in 200..299) {
+        Log.w(TAG, "DuckDuckGo search HTTP $responseCode")
+        return ""
+      }
+
+      val html = connection.inputStream.bufferedReader().use { it.readText() }
+      connection.disconnect()
+
+      extractDuckDuckGoResults(html)
+    } catch (e: Exception) {
+      Log.w(TAG, "DuckDuckGo search failed: ${e.message}")
+      ""
+    }
+  }
+
+  /**
    * Extract search results from DuckDuckGo lite HTML.
    */
-  internal fun extractSearchResults(html: String): String {
+  internal fun extractDuckDuckGoResults(html: String): String {
     val results = StringBuilder()
-    // DuckDuckGo lite wraps results in <a> tags with class 'result-link' (single quotes) and snippets in <td> with class 'result-snippet'.
     val linkPattern = Regex("""<a[^>]*href=["']([^"']+)["'][^>]*class=['"]result-link['"][^>]*>([^<]+)</a>""")
     val snippetPattern = Regex("""<td[^>]*class=['"]result-snippet['"][^>]*>(.*?)</td>""", RegexOption.DOT_MATCHES_ALL)
 
@@ -1086,7 +1220,6 @@ class DeviceSkills(
     }
 
     if (results.isEmpty()) {
-      // Fallback: just extract text.
       return extractTextFromHtml(html).take(2000)
     }
 
