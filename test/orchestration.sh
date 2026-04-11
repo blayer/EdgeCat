@@ -1,11 +1,11 @@
 #!/bin/bash
 # Mobile-Claw Orchestration On-Device Test — XML-based (device-independent)
-# Usage: ./run-orchestration-test.sh [-d <device-serial>] [scenario-name]
+# Usage: ./orchestration.sh [-d <device-serial>] [scenario-name]
 #
 # Runs orchestration-specific scenarios on a connected device.
-# If no scenario is given, runs all scenarios from ORCHESTRATION-TEST-PLAN.md.
+# If no scenario is given, runs all scenarios from TEST-PLAN.md.
 #
-# Uses lib-device-helpers.sh for ADB/UI helpers (Mobile-Claw package).
+# Uses helpers.sh for ADB/UI helpers (Mobile-Claw package).
 # No hardcoded coordinates — works on any device resolution.
 
 DEVICE_SERIAL=""
@@ -28,15 +28,15 @@ fi
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 SCREENSHOTS_DIR="$SCRIPT_DIR/screenshots/orchestration"
-TEST_PLAN="$SCRIPT_DIR/ORCHESTRATION-TEST-PLAN.md"
+TEST_PLAN="$SCRIPT_DIR/TEST-PLAN.md"
 UI_XML="/tmp/ui_orch_${DEVICE_SERIAL:-default}.xml"
 
-# We need SKILL_NAME and SKILL_PATH set for lib-device-helpers (even if unused)
+# We need SKILL_NAME and SKILL_PATH set for helpers.sh (even if unused)
 SKILL_NAME=""
 SKILL_PATH=""
 
 # Load shared helpers
-source "$SCRIPT_DIR/lib-device-helpers.sh"
+source "$SCRIPT_DIR/helpers.sh"
 
 mkdir -p "$SCREENSHOTS_DIR"
 
@@ -45,7 +45,9 @@ mkdir -p "$SCREENSHOTS_DIR"
 # =============================================
 
 parse_scenarios() {
-  # Parse ORCHESTRATION-TEST-PLAN.md table rows (skip header and separator)
+  # Parse orchestration table rows from TEST-PLAN.md (6-column tables only)
+  # Orchestration tables have: | # | Scenario | Skills | Test Prompt | Pass Pattern | Timeout |
+  # This skips the 5-column Level 1 skill tables.
   python3 -c "
 import sys
 with open('$TEST_PLAN') as f:
@@ -54,7 +56,7 @@ for line in lines:
     line = line.strip()
     if not line.startswith('|'): continue
     cols = [c.strip() for c in line.split('|')]
-    if len(cols) < 7: continue
+    if len(cols) < 8: continue  # 6 data columns + 2 empty = 8
     # Skip header and separator
     if cols[1] == '#' or cols[1].startswith('-'): continue
     try:
@@ -121,30 +123,34 @@ run_scenario() {
   fi
   echo "OK"
 
+  # --- Step 2.5: Reset session for clean state ---
+  reset_session
+  sleep 1
+
   # --- Step 3: Send prompt ---
   echo -n "[3/4] Testing... "
   send_prompt "$prompt"
 
-  # Poll for pass pattern with extended timeout (orchestration has multiple LLM round-trips)
+  # Poll for pass pattern — exits early if UI goes stale (app finished without success)
   local PASSED=false
   if poll_ui "$pass_pattern" "$timeout" 5; then
     PASSED=true
     echo "PASS"
   else
-    echo "FAIL (timeout waiting for \"$pass_pattern\")"
+    echo "FAIL (pattern \"$pass_pattern\" not found)"
   fi
 
   # --- Step 4: Capture results ---
   echo -n "[4/4] Results... "
-  sleep 3
+  sleep 1
   dump_ui
   take_screenshot "$SCREENSHOTS_DIR/${scenario}.png"
 
   # Show UI state
   echo ""
   echo "--- UI State ---"
-  ui_text | grep -v "^Type prompt" | grep -v "^Skills$" | grep -v "^Agent Chat$" \
-    | grep -v "^Model on CPU$" | grep -v "^+Image$" | grep -v "^+Audio$" | head -30
+  ui_text | grep -v "^Type prompt" | grep -v "^Type message" | grep -v "^Skills$" \
+    | grep -v "^Agent Skills$" | grep -v "^+Audio$" | head -30
   echo ""
 
   # Check for orchestration-specific elements

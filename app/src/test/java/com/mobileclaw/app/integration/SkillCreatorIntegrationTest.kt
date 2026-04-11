@@ -1,5 +1,12 @@
-package com.mobileclaw.app.orchestration
+package com.mobileclaw.app.integration
 
+import com.mobileclaw.app.orchestration.ExecutionPlan
+import com.mobileclaw.app.orchestration.PlanStep
+import com.mobileclaw.app.orchestration.Planner
+import com.mobileclaw.app.orchestration.SkillCreator
+import com.mobileclaw.app.orchestration.SkillSummary
+import com.mobileclaw.app.orchestration.StepResult
+import com.mobileclaw.app.orchestration.StepStatus
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
@@ -222,7 +229,7 @@ Parameters:
       "save as skill weather-reminder" to "weather-reminder",
       "save as skill Weather Reminder" to "weather-reminder",
       "save skill my cool workflow!" to "my-cool-workflow",
-      "save as skill   " to "my-workflow", // empty → default
+      "save as skill   " to "my-workflow", // empty -> default
       "save as skill 123test" to "123test",
     )
 

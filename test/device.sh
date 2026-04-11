@@ -1,6 +1,6 @@
 #!/bin/bash
 # Mobile-Claw On-Device Skill Test — XML-based (device-independent)
-# Usage: ./run-device-test.sh [-d <device-serial>] [-s <skills-dir>] <skill-name>
+# Usage: ./device.sh [-d <device-serial>] [-s <skills-dir>] <skill-name>
 #
 # Uses uiautomator XML dumps to find UI elements dynamically.
 # No hardcoded coordinates — works on any device resolution.
@@ -61,7 +61,7 @@ echo "Device: $DEVICE_MODEL (${DEVICE_SERIAL:-default})"
 echo "Prompt: \"$PROMPT1\""
 
 # Load shared helpers
-source "$SCRIPT_DIR/lib-device-helpers.sh"
+source "$SCRIPT_DIR/helpers.sh"
 
 # =============================================
 # Device-test-specific helpers
@@ -86,8 +86,8 @@ for i, node in enumerate(nodes):
 }
 
 filter_response() {
-  echo "$1" | grep -v "^Type prompt" | grep -v "^Skills$" | grep -v "^Agent Chat$" \
-    | grep -v "^Model on CPU$" | grep -v "^+Image$" | grep -v "^+Audio$" | grep -v "^Input history$"
+  echo "$1" | grep -v "^Type prompt" | grep -v "^Type message" | grep -v "^Skills$" \
+    | grep -v "^Agent Skills$" | grep -v "^+Audio$" | grep -v "^Input history$"
 }
 
 # =============================================

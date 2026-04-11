@@ -1,5 +1,14 @@
-package com.mobileclaw.app.orchestration
+package com.mobileclaw.app.integration
 
+import com.mobileclaw.app.orchestration.ExecutionPlan
+import com.mobileclaw.app.orchestration.PlanStep
+import com.mobileclaw.app.orchestration.Planner
+import com.mobileclaw.app.orchestration.SelfEvaluator
+import com.mobileclaw.app.orchestration.SkillCreator
+import com.mobileclaw.app.orchestration.SkillSummary
+import com.mobileclaw.app.orchestration.StepResult
+import com.mobileclaw.app.orchestration.StepStatus
+import com.mobileclaw.app.orchestration.ToolExecutionResult
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
@@ -12,9 +21,9 @@ import org.robolectric.RobolectricTestRunner
 /**
  * Full end-to-end simulation of the save-as-skill flow:
  *
- * 1. User sends "What is the weather in Tokyo" → Planner creates plan → Executor runs → Results
- * 2. User sends "save as skill check-weather" → SkillCreator generates SKILL.md → Saved
- * 3. User sends "Check weather in Osaka" → Planner uses saved skill → Same plan structure
+ * 1. User sends "What is the weather in Tokyo" -> Planner creates plan -> Executor runs -> Results
+ * 2. User sends "save as skill check-weather" -> SkillCreator generates SKILL.md -> Saved
+ * 3. User sends "Check weather in Osaka" -> Planner uses saved skill -> Same plan structure
  *
  * Uses a mock LLM that returns scripted responses for each phase.
  */
@@ -37,9 +46,9 @@ class EndToEndSkillFlowTest {
 
   @Test
   fun `full flow - prompt to save to replay`() = runBlocking {
-    // ══════════════════════════════════════════════════
-    // PHASE 1: Original prompt → plan → execute → result
-    // ══════════════════════════════════════════════════
+    // ======================================================
+    // PHASE 1: Original prompt -> plan -> execute -> result
+    // ======================================================
 
     val userMessage = "What is the weather in Tokyo"
     val availableSkills = listOf(
@@ -95,18 +104,18 @@ class EndToEndSkillFlowTest {
       "step_1" to StepResult(
         stepId = "step_1",
         status = StepStatus.COMPLETED,
-        output = "Tokyo weather: 22°C, partly cloudy. Tomorrow: 18°C, rain expected.",
+        output = "Tokyo weather: 22C, partly cloudy. Tomorrow: 18C, rain expected.",
         durationMs = 2500,
       ),
       "step_2" to StepResult(
         stepId = "step_2",
         status = StepStatus.COMPLETED,
-        output = "Tokyo is currently 22°C and partly cloudy. Rain is expected tomorrow with temperatures dropping to 18°C.",
+        output = "Tokyo is currently 22C and partly cloudy. Rain is expected tomorrow with temperatures dropping to 18C.",
         durationMs = 1200,
       ),
     )
 
-    // Step 1e: Evaluate — should be successful.
+    // Step 1e: Evaluate -- should be successful.
     val evalJson = """
     {
       "goalAchieved": true,
@@ -118,9 +127,9 @@ class EndToEndSkillFlowTest {
     val evaluation = evaluator.parseEvaluation(evalJson)
     assertTrue(evaluation.goalAchieved)
 
-    // ══════════════════════════════════════════════════
+    // ======================================================
     // PHASE 2: Save as skill "check-weather"
-    // ══════════════════════════════════════════════════
+    // ======================================================
 
     val skillName = "check-weather"
 
@@ -173,9 +182,9 @@ Parameters:
     assertTrue(instructions.contains("search-web"))
     assertTrue(instructions.contains("summarize"))
 
-    // ══════════════════════════════════════════════════
-    // PHASE 3: Replay with new input — "Check weather in Osaka"
-    // ══════════════════════════════════════════════════
+    // ======================================================
+    // PHASE 3: Replay with new input -- "Check weather in Osaka"
+    // ======================================================
 
     val replayMessage = "Check weather in Osaka"
     val savedSkill = SkillSummary(
@@ -238,13 +247,13 @@ Parameters:
       "step_1" to StepResult(
         stepId = "step_1",
         status = StepStatus.COMPLETED,
-        output = "Osaka weather: 20°C, sunny. Tomorrow: 15°C, clear skies.",
+        output = "Osaka weather: 20C, sunny. Tomorrow: 15C, clear skies.",
         durationMs = 2800,
       ),
       "step_2" to StepResult(
         stepId = "step_2",
         status = StepStatus.COMPLETED,
-        output = "Osaka is currently 20°C and sunny. Tomorrow will be 15°C with clear skies.",
+        output = "Osaka is currently 20C and sunny. Tomorrow will be 15C with clear skies.",
         durationMs = 1100,
       ),
     )
@@ -258,7 +267,7 @@ Parameters:
 
   @Test
   fun `flow handles multi-skill workflow - weather plus calendar`() = runBlocking {
-    // More complex: search weather → create calendar event.
+    // More complex: search weather -> create calendar event.
     val userMessage = "Check Tokyo weather and add a reminder for tomorrow"
 
     // Phase 1: Original execution.

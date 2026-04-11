@@ -1,6 +1,6 @@
 #!/bin/bash
 # Mobile-Claw: Multi-Device Parallel Skill Test Runner
-# Usage: ./run-multi-device-test.sh [-s <skills-dir>] [skill1 skill2 ...]
+# Usage: ./parallel.sh [-s <skills-dir>] [skill1 skill2 ...]
 #
 # Detects all connected & authorized ADB devices, splits the skill list
 # evenly across them, and runs tests in parallel for maximum speed.
@@ -9,9 +9,9 @@
 #   -s <skills-dir>   Skills directory name (default: "skills", use "new_skills" for new)
 #
 # Examples:
-#   ./run-multi-device-test.sh -s new_skills                    # test all new skills
-#   ./run-multi-device-test.sh -s new_skills astrology-finder trivia-game  # test specific skills
-#   ./run-multi-device-test.sh                                  # test all existing skills
+#   ./parallel.sh -s new_skills                    # test all new skills
+#   ./parallel.sh -s new_skills astrology-finder trivia-game  # test specific skills
+#   ./parallel.sh                                  # test all existing skills
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 SKILLS_SUBDIR="skills"
@@ -134,7 +134,7 @@ for i in "${!DEVICES[@]}"; do
         continue
       fi
 
-      "$SCRIPT_DIR/run-device-test.sh" -d "$serial" -s "$SKILLS_SUBDIR" "$skill" >> "$log_file" 2>&1
+      "$SCRIPT_DIR/device.sh" -d "$serial" -s "$SKILLS_SUBDIR" "$skill" >> "$log_file" 2>&1
       exit_code=$?
 
       if [ $exit_code -eq 0 ]; then

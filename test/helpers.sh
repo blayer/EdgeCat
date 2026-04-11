@@ -2,7 +2,7 @@
 # Shared ADB/UI helpers for Mobile-Claw on-device tests.
 # Ensure ADB is on PATH
 export PATH="$PATH:$HOME/Library/Android/sdk/platform-tools"
-# Sourced by run-device-test.sh, run-orchestration-test.sh, etc.
+# Sourced by device.sh, orchestration.sh, etc.
 #
 # Expects these variables to be set by the caller:
 #   ADB          — "adb" or "adb -s <serial>"
@@ -131,6 +131,19 @@ tap_element() {
   return 0
 }
 
+# Tap a UI element by partial text match
+tap_element_partial() {
+  dump_ui
+  local coords
+  coords=$(find_element_partial "$1")
+  if [ -z "$coords" ]; then
+    return 1
+  fi
+  $ADB shell input tap $coords
+  sleep 0.5
+  return 0
+}
+
 # Tap at raw coordinates
 tap_xy() {
   $ADB shell input tap "$1" "$2"
@@ -176,7 +189,7 @@ fresh_app() {
   local waited=0
   while [ $waited -lt 30 ]; do
     dump_ui
-    if ui_has "Type prompt" || ui_has "Prompt input" || ui_has "Try it" || ui_has "Start" || ui_has "Agent Chat" || ui_has "Choose a model"; then
+    if ui_has "Type prompt" || ui_has "Prompt input" || ui_has "Try it" || ui_has "Start" || ui_has "Agent Skills" || ui_has "Choose a model"; then
       break
     fi
     sleep 3
@@ -326,19 +339,43 @@ send_prompt() {
   sleep 1
 }
 
-# Poll UI for a text pattern with timeout
+# Poll UI for a text pattern with timeout.
+# Detects early completion: if the UI hasn't changed for 3 consecutive
+# polls, the app is done and the pattern won't appear — fail immediately
+# instead of waiting for the full timeout.
+#
 # Usage: poll_ui "pattern" timeout_seconds poll_interval_seconds
 poll_ui() {
   local pattern="$1"
   local timeout="${2:-60}"
   local interval="${3:-3}"
   local elapsed=0
+  local stale_count=0
+  local prev_hash=""
 
   while [ $elapsed -lt $timeout ]; do
     dump_ui
+
+    # Check for success
     if ui_has "$pattern"; then
       return 0
     fi
+
+    # Detect stale UI — hash all visible text. If unchanged for 3 polls
+    # (~15s with default interval), the app has settled without the
+    # success pattern appearing.
+    local cur_hash
+    cur_hash=$(ui_text | md5 2>/dev/null || ui_text | md5sum 2>/dev/null | cut -d' ' -f1)
+    if [ -n "$prev_hash" ] && [ "$cur_hash" = "$prev_hash" ]; then
+      stale_count=$((stale_count + 1))
+      if [ $stale_count -ge 3 ]; then
+        return 1  # UI settled, pattern not found
+      fi
+    else
+      stale_count=0
+      prev_hash="$cur_hash"
+    fi
+
     sleep "$interval"
     elapsed=$((elapsed + interval))
   done
