@@ -16,6 +16,7 @@
 
 package com.mobileclaw.app.ui.llmchat
 
+import android.app.ActivityManager
 import android.content.Context
 import android.graphics.Bitmap
 import android.util.Log
@@ -106,6 +107,16 @@ object LlmChatModelHelper : LlmModelHelper {
     Log.d(TAG, "Preferred backend: $preferredBackend")
 
     val modelPath = model.getPath(context = context)
+
+    // Pre-flight memory check — avoids a silent LMK SIGKILL when loading a model
+    // that won't fit in device RAM (common with 4B+ weights on mid-range phones).
+    val memCheckError = checkMemoryForModel(context, model.totalBytes)
+    if (memCheckError != null) {
+      Log.w(TAG, "Pre-flight memory check failed: $memCheckError")
+      onDone(memCheckError)
+      return
+    }
+
     val engineConfig =
       EngineConfig(
         modelPath = modelPath,
@@ -149,11 +160,72 @@ object LlmChatModelHelper : LlmModelHelper {
         engine = engine,
         conversation = conversation,
       )
+    } catch (e: OutOfMemoryError) {
+      Log.e(TAG, "OOM while loading model", e)
+      onDone(
+        "Not enough memory to load this model. Close background apps or choose a smaller model."
+      )
+      return
     } catch (e: Exception) {
       onDone(cleanUpMediapipeTaskErrorMessage(e.message ?: "Unknown error"))
       return
     }
     onDone("")
+  }
+
+  /**
+   * Pre-flight check to catch the common "model won't fit in RAM" case before the native engine
+   * starts allocating. Returns null when there is plausibly enough headroom, otherwise a
+   * user-facing error string.
+   *
+   * Memory accounting during model load (observed on Gemma 3n-4B, GPU backend):
+   * - raw weights ≈ modelSizeBytes
+   * - GPU KV cache + activation buffers ≈ 0.5–1.5 GB
+   * - vision/audio sub-models + OS overhead ≈ 0.3–0.5 GB
+   * We also need a cushion above Android's LMK "min2x watermark" — leaving less than ~500 MB
+   * free after load makes the process a prime target for SIGKILL even if the allocation succeeds.
+   *
+   * Empirically, loading fails or gets killed unless: available >= model * 1.7 + 500 MB cushion.
+   * We also reject outright when device totalMem < model * 2.0 (device simply too small).
+   */
+  private fun checkMemoryForModel(context: Context, modelSizeBytes: Long): String? {
+    if (modelSizeBytes <= 0L) return null // unknown size — skip check
+    val am = context.getSystemService(Context.ACTIVITY_SERVICE) as? ActivityManager ?: return null
+    val memInfo = ActivityManager.MemoryInfo()
+    am.getMemoryInfo(memInfo)
+
+    val lmkCushion = 500L * 1024 * 1024
+    val required = (modelSizeBytes * 1.7).toLong() + lmkCushion
+    val deviceMinimum = (modelSizeBytes * 2.0).toLong()
+    val available = memInfo.availMem
+    val total = memInfo.totalMem
+
+    Log.d(
+      TAG,
+      "Memory check: model=${modelSizeBytes / (1024 * 1024)}MB, " +
+        "required=${required / (1024 * 1024)}MB, " +
+        "available=${available / (1024 * 1024)}MB, " +
+        "total=${total / (1024 * 1024)}MB, lowMemory=${memInfo.lowMemory}",
+    )
+
+    val modelGb = modelSizeBytes.toDouble() / (1024 * 1024 * 1024)
+    if (total < deviceMinimum) {
+      val totalGb = total.toDouble() / (1024 * 1024 * 1024)
+      return "This %.1f GB model is too large for this device (%.1f GB RAM). ".format(
+        modelGb,
+        totalGb,
+      ) + "Choose a smaller model."
+    }
+    if (memInfo.lowMemory || available < required) {
+      val availableGb = available.toDouble() / (1024 * 1024 * 1024)
+      return "Not enough free memory to load this %.1f GB model (only %.1f GB available, ".format(
+        modelGb,
+        availableGb,
+      ) + "need ~%.1f GB with headroom). Close background apps or choose a smaller model.".format(
+        required.toDouble() / (1024 * 1024 * 1024)
+      )
+    }
+    return null
   }
 
   @OptIn(ExperimentalApi::class) // opt-in experimental flags
