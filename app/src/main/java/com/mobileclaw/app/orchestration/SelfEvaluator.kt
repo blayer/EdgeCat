@@ -77,18 +77,39 @@ Rules:
    * Parse LLM evaluation output into an [EvaluationResult].
    *
    * Tries JSON parsing first, then falls back to heuristic text analysis.
+   * If [stepOutputs] is provided, applies a hallucination guard that overrides
+   * goalAchieved=true when the step outputs contain refusal language ("I cannot",
+   * "not possible", etc.) — small models sometimes rubber-stamp their own excuses.
    */
-  fun parseEvaluation(llmOutput: String): EvaluationResult {
-    val jsonStr = extractJson(llmOutput)
-    if (jsonStr != null) {
-      try {
-        return parseJsonEvaluation(jsonStr)
-      } catch (e: Exception) {
-        Log.w(TAG, "JSON parsing failed for evaluation, using fallback: ${e.message}")
+  fun parseEvaluation(llmOutput: String, stepOutputs: String = ""): EvaluationResult {
+    val parsed = run {
+      val jsonStr = extractJson(llmOutput)
+      if (jsonStr != null) {
+        try {
+          return@run parseJsonEvaluation(jsonStr)
+        } catch (e: Exception) {
+          Log.w(TAG, "JSON parsing failed for evaluation, using fallback: ${e.message}")
+        }
       }
+      fallbackParseEvaluation(llmOutput)
     }
 
-    return fallbackParseEvaluation(llmOutput)
+    if (parsed.goalAchieved && stepOutputs.isNotEmpty() && REFUSAL_REGEX.containsMatchIn(stepOutputs)) {
+      Log.w(TAG, "Hallucination guard: overriding goalAchieved=true (refusal detected in step outputs)")
+      return parsed.copy(
+        goalAchieved = false,
+        shouldReplan = true,
+        missingItems = parsed.missingItems.ifEmpty { listOf("Model refused the task — replan with different skills") },
+      )
+    }
+    return parsed
+  }
+
+  private companion object {
+    private val REFUSAL_REGEX = Regex(
+      """(?i)(\bi\s+(?:cannot|can'?t|don'?t\s+have|am\s+unable)\b""" +
+        """|\bnot\s+possible\b|\bunable\s+to\b|\bno\s+access\b)"""
+    )
   }
 
   // ---- Private helpers ----

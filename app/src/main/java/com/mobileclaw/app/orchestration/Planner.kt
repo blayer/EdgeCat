@@ -134,6 +134,14 @@ Rules:
 - dependsOn lists step IDs that must complete first (empty = can run in parallel)
 - Keep the plan minimal — fewest steps needed
 - Use available skills. Do NOT answer from knowledge alone.
+- If the request has TWO actions joined by "and", "then", or a comma (e.g. "get X and do Y with X"), produce TWO steps — the second step's dependsOn must include the first.
+
+Example — multi-step with dependency:
+Request: "Get my device info and hash the manufacturer name"
+Steps: [
+  {"id":"step_1","description":"Get device info","skillName":"device-info","toolArgs":{},"dependsOn":[]},
+  {"id":"step_2","description":"Hash the manufacturer from step_1","skillName":"calculate","toolArgs":{"expression":"sha256(step_1.manufacturer)"},"dependsOn":["step_1"]}
+]
 
 User request: "$userMessage"
 

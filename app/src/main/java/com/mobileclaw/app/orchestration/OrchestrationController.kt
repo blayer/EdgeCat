@@ -134,9 +134,7 @@ class OrchestrationController(
               )
           }
 
-        // Repair: attempt to fix and retry failed skill steps before evaluation.
-        val repairedResults = repairFailedSteps(currentPlan, results, skills)
-
+        val repairedResults = results
         _state.value = _state.value.copy(stepResults = repairedResults)
 
         if (cancelled.get()) {
@@ -144,13 +142,20 @@ class OrchestrationController(
           return
         }
 
-        // Evaluate.
+        // Evaluate — skip LLM call when the happy path is obvious (all steps COMPLETED,
+        // no error signals in output). Saves one LLM call per successful turn.
         Log.d(TAG, "Iteration $iteration: Evaluating results")
         _state.value = _state.value.copy(status = OrchestrationStatus.EVALUATING)
 
-        val evalPrompt = evaluator.buildEvaluationPrompt(userMessage, currentPlan, repairedResults)
-        val evalResponse = llmProvider.generateResponse(evalPrompt)
-        val evaluation = evaluator.parseEvaluation(evalResponse)
+        val evaluation = if (canShortCircuitEval(currentPlan, repairedResults)) {
+          Log.d(TAG, "Short-circuit eval: all steps completed cleanly")
+          EvaluationResult(goalAchieved = true, assessment = "All steps completed", missingItems = emptyList(), shouldReplan = false)
+        } else {
+          val evalPrompt = evaluator.buildEvaluationPrompt(userMessage, currentPlan, repairedResults)
+          val evalResponse = llmProvider.generateResponse(evalPrompt)
+          val combinedOutputs = repairedResults.values.joinToString("\n") { it.output }
+          evaluator.parseEvaluation(evalResponse, combinedOutputs)
+        }
 
         Log.d(TAG, "Evaluation: goalAchieved=${evaluation.goalAchieved}, shouldReplan=${evaluation.shouldReplan}")
         _state.value = _state.value.copy(evaluation = evaluation)
@@ -193,7 +198,7 @@ class OrchestrationController(
         val stillFailedSteps = currentPlan.steps.filter { step ->
           repairedResults[step.id]?.status == StepStatus.FAILED
         }
-        val diagnosticNotes = buildDiagnosticNotesForReplan(stillFailedSteps, repairedResults, skills)
+        val diagnosticNotes = buildDiagnosticNotesForReplan(stillFailedSteps, repairedResults)
 
         // Replan with diagnostic notes.
         Log.d(TAG, "Re-planning for iteration ${iteration + 1}")
@@ -238,216 +243,45 @@ class OrchestrationController(
   }
 
   /**
-   * Attempt to repair and retry failed skill steps.
-   *
-   * For each failed step, diagnoses the failure via LLM, applies the fix (update instructions,
-   * adjust args), and retries. Returns the updated results map with repaired steps.
+   * Decide whether evaluation can be skipped. Returns true iff every planned step produced a
+   * COMPLETED result with non-empty output and no obvious error markers. Research across
+   * Claude/Gemini/OpenAI agent patterns recommends skipping eval when the tool output is
+   * self-describing — it cuts one LLM call per turn on the happy path.
    */
-  private suspend fun repairFailedSteps(
-    plan: ExecutionPlan,
-    results: Map<String, StepResult>,
-    skills: List<SkillSummary>,
-  ): Map<String, StepResult> {
-    val failedSteps = plan.steps.filter { step ->
-      results[step.id]?.status == StepStatus.FAILED && step.skillName != null
-    }
-
-    if (failedSteps.isEmpty()) return results
-
-    Log.d(TAG, "Attempting repair for ${failedSteps.size} failed skill steps")
-    val repairedResults = results.toMutableMap()
-
-    for (failedStep in failedSteps) {
-      if (cancelled.get()) break
-
-      val repaired = attemptRepairAndRetry(failedStep, repairedResults, skills)
-      repairedResults[failedStep.id] = repaired
-    }
-
-    return repairedResults
-  }
-
-  /**
-   * Diagnose a failed step, apply fix, and retry up to [maxRepairAttempts] times.
-   */
-  private suspend fun attemptRepairAndRetry(
-    step: PlanStep,
-    allResults: Map<String, StepResult>,
-    skills: List<SkillSummary>,
-  ): StepResult {
-    var currentResult = allResults[step.id] ?: return StepResult(
-      stepId = step.id, status = StepStatus.FAILED, error = "No result found",
+  private fun canShortCircuitEval(plan: ExecutionPlan, results: Map<String, StepResult>): Boolean {
+    if (plan.steps.isEmpty()) return false
+    val errorMarkers = Regex(
+      """(?i)(\b(failed|error|exception|denied|unauthorized|not\s+found|invalid)\b""" +
+        """|\bi\s+(?:cannot|can'?t|don'?t\s+have|am\s+unable)\b""" +
+        """|\bnot\s+possible\b|\bunable\s+to\b|\bno\s+access\b)"""
     )
-
-    val skillSummary = skills.find { it.name == step.skillName }
-
-    for (attempt in 1..maxRepairAttempts) {
-      if (cancelled.get()) break
-
-      Log.d(TAG, "Repair attempt $attempt/$maxRepairAttempts for step ${step.id} (${step.skillName})")
-      _state.value = _state.value.copy(status = OrchestrationStatus.REPAIRING)
-
-      // 1. Diagnose.
-      val error = currentResult.error ?: currentResult.output
-      val skillInstructions = skillSummary?.instructions ?: ""
-
-      // Recall past repairs for this skill from memory
-      val pastRepairsStr = try {
-        val pastRepairs = memoryRepository?.recallRepairs(step.skillName ?: "", error)
-        pastRepairs?.joinToString("\n") { r ->
-          val successStr = if (r.success) "worked" else "did not work"
-          "- ${r.fixType}: ${r.fixDescription} ($successStr)"
-        } ?: ""
-      } catch (e: Exception) { "" }
-
-      val diagnostic: DiagnosticResult
-      try {
-        val diagPrompt = skillCreator.buildDiagnosticPrompt(
-          failedStep = step,
-          error = error,
-          deviceInfo = getDeviceInfo(),
-          skillInstructions = skillInstructions,
-          pastRepairs = pastRepairsStr,
-        )
-        val diagResponse = llmProvider.generateResponse(diagPrompt)
-        diagnostic = skillCreator.parseDiagnostic(diagResponse)
-        Log.d(TAG, "Diagnosis: fixType=${diagnostic.fixType}, diagnosis=${diagnostic.diagnosis}")
-      } catch (e: Exception) {
-        Log.w(TAG, "Failed to diagnose step ${step.id}", e)
-        break
-      }
-
-      // 2. Apply fix based on type.
-      var retryStep = step
-      when (diagnostic.fixType) {
-        "retry_with_different_args" -> {
-          if (diagnostic.alternativeArgs.isNotEmpty()) {
-            retryStep = step.copy(toolArgs = step.toolArgs + diagnostic.alternativeArgs)
-            Log.d(TAG, "Retrying with adjusted args: ${retryStep.toolArgs}")
-          }
-        }
-        "update_instructions" -> {
-          val newInstructions = diagnostic.updatedInstructions
-          if (newInstructions != null && step.skillName != null) {
-            val updated = toolExecutor.updateSkillInstructions(step.skillName, newInstructions)
-            if (updated) {
-              Log.d(TAG, "Updated instructions for skill '${step.skillName}'")
-            } else {
-              Log.w(TAG, "Could not update skill '${step.skillName}' (built-in or not found)")
-            }
-          }
-          // Also apply arg changes if provided.
-          if (diagnostic.alternativeArgs.isNotEmpty()) {
-            retryStep = step.copy(toolArgs = step.toolArgs + diagnostic.alternativeArgs)
-          }
-        }
-        "use_alternative_skill" -> {
-          // Save device fact about skill swap for future runs
-          if (step.skillName != null && diagnostic.alternativeSkillName != null) {
-            saveDeviceFactSafe(
-              "alt_skill_${step.skillName}",
-              "Skill '${step.skillName}' does not work on this device; use '${diagnostic.alternativeSkillName}' instead",
-            )
-          }
-          saveRepairToMemory(step, error, diagnostic, false)
-          Log.d(TAG, "Fix type '${diagnostic.fixType}' not retriable, skipping repair")
-          break
-        }
-        "unfixable", "skip" -> {
-          saveRepairToMemory(step, error, diagnostic, false)
-          Log.d(TAG, "Fix type '${diagnostic.fixType}' not retriable, skipping repair")
-          break
-        }
-      }
-
-      // 3. Retry the step.
-      _state.value = _state.value.copy(status = OrchestrationStatus.EXECUTING)
-      try {
-        val retryPlan = ExecutionPlan(
-          goal = "repair retry",
-          reasoning = "Retrying step ${step.id} after repair attempt $attempt",
-          steps = listOf(retryStep),
-        )
-        val retryBatches = listOf(listOf(retryStep))
-        val retryResults = orchestrator.executePlan(retryPlan, retryBatches) { stepResult ->
-          _state.value = _state.value.copy(
-            stepResults = _state.value.stepResults + (stepResult.stepId to stepResult),
-          )
-        }
-
-        val retryResult = retryResults[step.id]
-        if (retryResult != null && retryResult.status == StepStatus.COMPLETED) {
-          Log.d(TAG, "Repair succeeded for step ${step.id} on attempt $attempt")
-          saveRepairToMemory(step, error, diagnostic, true)
-          return retryResult
-        }
-        if (retryResult != null) {
-          currentResult = retryResult
-        }
-        saveRepairToMemory(step, error, diagnostic, false)
-        Log.d(TAG, "Repair attempt $attempt failed for step ${step.id}: ${currentResult.error}")
-      } catch (e: Exception) {
-        Log.w(TAG, "Repair retry execution failed for step ${step.id}", e)
-        break
-      }
+    for (step in plan.steps) {
+      val r = results[step.id] ?: return false
+      if (r.status != StepStatus.COMPLETED) return false
+      if (r.output.isBlank()) return false
+      if (errorMarkers.containsMatchIn(r.output)) return false
     }
-
-    return currentResult
+    return true
   }
 
   /**
-   * Build diagnostic notes string for steps that are still failed after repair attempts.
-   * These notes are injected into the replan prompt as context.
+   * Build replan notes listing each failed step's raw error text. This replaces the older
+   * per-step diagnostic LLM call, which research (Claude/Gemini/OpenAI agent guides) shows
+   * tends to compound errors on small models. The replan prompt itself is the single place
+   * where the LLM reasons about the failure and picks a new plan.
    */
-  private suspend fun buildDiagnosticNotesForReplan(
+  private fun buildDiagnosticNotesForReplan(
     failedSteps: List<PlanStep>,
     results: Map<String, StepResult>,
-    skills: List<SkillSummary>,
   ): String {
     if (failedSteps.isEmpty()) return ""
-
-    var diagnosticNotes = ""
-    for (failedStep in failedSteps) {
-      val stepResult = results[failedStep.id] ?: continue
-      val error = stepResult.error ?: stepResult.output
-      val skillInstructions = failedStep.skillName?.let { name ->
-        skills.find { it.name == name }?.instructions ?: ""
-      } ?: ""
-
-      try {
-        val diagPrompt = skillCreator.buildDiagnosticPrompt(
-          failedStep = failedStep,
-          error = error,
-          deviceInfo = getDeviceInfo(),
-          skillInstructions = skillInstructions,
-        )
-        val diagResponse = llmProvider.generateResponse(diagPrompt)
-        val diagnostic = skillCreator.parseDiagnostic(diagResponse)
-
-        diagnosticNotes += "\n\nDiagnostic for failed step '${failedStep.id}' (${failedStep.skillName}):"
-        diagnosticNotes += "\n- Diagnosis: ${diagnostic.diagnosis}"
-        when (diagnostic.fixType) {
-          "use_alternative_skill" -> {
-            diagnosticNotes += "\n- Suggested fix: Use skill '${diagnostic.alternativeSkillName}' instead"
-            if (diagnostic.alternativeArgs.isNotEmpty()) {
-              diagnosticNotes += " with args: ${diagnostic.alternativeArgs}"
-            }
-          }
-          "retry_with_different_args", "update_instructions" -> {
-            diagnosticNotes += "\n- Suggested fix: Retry with different args: ${diagnostic.alternativeArgs}"
-          }
-          "skip" -> {
-            diagnosticNotes += "\n- Suggested fix: Skip this step, it is not needed"
-          }
-          else -> {
-            diagnosticNotes += "\n- This step cannot be fixed automatically"
-          }
-        }
-      } catch (e: Exception) {
-        Log.w(TAG, "Failed to diagnose step ${failedStep.id} for replan", e)
+    return buildString {
+      for (failedStep in failedSteps) {
+        val r = results[failedStep.id] ?: continue
+        val err = (r.error ?: r.output).take(300)
+        append("\n- Step '${failedStep.id}' (${failedStep.skillName ?: "llm"}) failed: $err")
       }
     }
-    return diagnosticNotes
   }
 
   /** Build a summary of the final output from all step results. Returns (output, isHtml). */
