@@ -50,7 +50,7 @@ class AgentChatTask @Inject constructor() : CustomTask {
   override val task: Task =
     Task(
       id = BuiltInTaskId.LLM_AGENT_CHAT,
-      label = "Agent Skills",
+      label = "Mobile Agent",
       category = Category.LLM,
       iconVectorResourceId = R.drawable.agent,
       newFeature = true,

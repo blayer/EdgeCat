@@ -430,7 +430,7 @@ fun AgentChatScreen(
               horizontalAlignment = Alignment.CenterHorizontally,
             ) {
               Text(
-                stringResource(R.string.introducing),
+                "Your",
                 style = MaterialTheme.typography.headlineSmall,
               )
               Text(
@@ -444,16 +444,7 @@ fun AgentChatScreen(
                 modifier = Modifier.padding(top = 12.dp, bottom = 16.dp),
               )
               Text(
-                buildAnnotatedString {
-                  append("Use specialized, high-order reasoning by loading different skills or ")
-                  append(
-                    buildTrackableUrlAnnotatedString(
-                      url = "https://github.com/google-ai-edge/gallery/tree/main/skills",
-                      linkText = "creating\u00A0your\u00A0own",
-                    )
-                  )
-                  append(".\n\nTry tapping a sample prompt below to see Agent Skills in action!")
-                },
+                stringResource(R.string.agent_skills_description),
                 style =
                   MaterialTheme.typography.headlineSmall.copy(fontSize = 16.sp, lineHeight = 22.sp),
                 color = MaterialTheme.colorScheme.onSurfaceVariant,

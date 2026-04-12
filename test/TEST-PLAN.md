@@ -77,7 +77,7 @@ Requires ADB + connected device + LLM model loaded. Tests real scenarios on phys
 
 Test workflow:
 1. Push skill to `/sdcard/Download/<skill-name>`
-2. Launch app → Model Select → Tap "Try it" → Agent Skills screen
+2. Launch app → Model Select → Tap "Try it" → Mobile Agent screen
 3. Import skill via Skills panel → Add skill → Import local skill
 4. Send prompt and verify response
 5. Capture screenshot

@@ -87,7 +87,7 @@ for i, node in enumerate(nodes):
 
 filter_response() {
   echo "$1" | grep -v "^Type prompt" | grep -v "^Type message" | grep -v "^Skills$" \
-    | grep -v "^Agent Skills$" | grep -v "^+Audio$" | grep -v "^Input history$"
+    | grep -v "^Mobile Agent$" | grep -v "^+Audio$" | grep -v "^Input history$"
 }
 
 # =============================================

@@ -150,7 +150,7 @@ run_scenario() {
   echo ""
   echo "--- UI State ---"
   ui_text | grep -v "^Type prompt" | grep -v "^Type message" | grep -v "^Skills$" \
-    | grep -v "^Agent Skills$" | grep -v "^+Audio$" | head -30
+    | grep -v "^Mobile Agent$" | grep -v "^+Audio$" | head -30
   echo ""
 
   # Check for orchestration-specific elements

@@ -191,7 +191,7 @@ fresh_app() {
   local waited=0
   while [ $waited -lt 30 ]; do
     dump_ui
-    if ui_has "Type prompt" || ui_has "Prompt input" || ui_has "Try it" || ui_has "Start" || ui_has "Agent Skills" || ui_has "Choose a model"; then
+    if ui_has "Type prompt" || ui_has "Prompt input" || ui_has "Try it" || ui_has "Start" || ui_has "Mobile Agent" || ui_has "Choose a model"; then
       break
     fi
     sleep 3
