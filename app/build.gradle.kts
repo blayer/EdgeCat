@@ -88,6 +88,7 @@ dependencies {
   implementation(libs.moshi.kotlin)
   implementation(libs.room.runtime)
   implementation(libs.room.ktx)
+  implementation(libs.mlkit.barcode.scanning)
   implementation("androidx.documentfile:documentfile:1.0.1")
   kapt(libs.hilt.android.compiler)
   ksp(libs.room.compiler)

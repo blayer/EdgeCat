@@ -76,6 +76,8 @@ val BASE_SKILLS = setOf(
   "phone-call",
   "get-location",
   "list-photos",
+  "search-photos",
+  "scan-barcode",
   "list-downloads",
   "clipboard",
   "device-info",

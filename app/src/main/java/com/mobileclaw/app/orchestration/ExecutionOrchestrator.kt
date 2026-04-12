@@ -39,6 +39,8 @@ private val NATIVE_SKILL_TOOLS = mapOf(
   "timer" to "manageTimer",
   "read-contacts" to "readContacts",
   "list-photos" to "listPhotos",
+  "search-photos" to "searchPhotos",
+  "scan-barcode" to "scanBarcode",
   "list-apps" to "listApps",
   "launch-app" to "launchApp",
   "phone-call" to "makePhoneCall",

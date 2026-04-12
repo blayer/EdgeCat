@@ -108,6 +108,7 @@ Per-skill unit tests live in `test/skill-unit/<skill>/<action>.sh`.
 | 6 | weather-reminder | (none) | Search Tokyo weather tomorrow, if it is raining set a reminder tomorrow morning to bring umbrella | Goal achieved | 300 |
 | 7 | local-search | (none) | What is the best food around? | Goal achieved | 240 |
 | 8 | chat-no-skill | (none) | Hello, how are you today? | Model | 60 |
+| 9 | scan-barcode-qr | (none) | Find the photo named test_qr_claude in my gallery and scan it for QR codes | claude-code | 240 |
 
 ---
 

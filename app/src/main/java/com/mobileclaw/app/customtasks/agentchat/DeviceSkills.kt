@@ -490,6 +490,198 @@ class DeviceSkills(
     }
   }
 
+  /**
+   * Search photos by filename, album/folder, or date range. Any filter can be empty to skip it.
+   *
+   * @param query Substring to match in the photo filename (case-insensitive). Empty = any name.
+   * @param album Album/folder name (BUCKET_DISPLAY_NAME), e.g. "Screenshots", "Camera". Empty = any.
+   * @param dateFrom Inclusive start date as "yyyy-MM-dd". Empty = no lower bound.
+   * @param dateTo Inclusive end date as "yyyy-MM-dd". Empty = no upper bound.
+   * @param maxResults Max rows to return.
+   */
+  suspend fun searchPhotos(
+    query: String,
+    album: String,
+    dateFrom: String,
+    dateTo: String,
+    maxResults: Int,
+  ): Map<String, Any> {
+    sendProgress("Searching photos", inProgress = true, title = "Search Photos",
+      desc = listOf(query, album, dateFrom, dateTo).filter { it.isNotEmpty() }.joinToString(", ").ifEmpty { "all" })
+
+    val photoPermission = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+      Manifest.permission.READ_MEDIA_IMAGES
+    } else {
+      Manifest.permission.READ_EXTERNAL_STORAGE
+    }
+    if (!ensurePermission(photoPermission, rationale = "Access photos")) {
+      return mapOf("status" to "failed", "error" to "Photo permission denied")
+    }
+
+    return try {
+      val selection = mutableListOf<String>()
+      val selectionArgs = mutableListOf<String>()
+
+      if (query.isNotEmpty()) {
+        selection.add("${MediaStore.Images.Media.DISPLAY_NAME} LIKE ?")
+        selectionArgs.add("%${query.replace("%", "").replace("_", "")}%")
+      }
+      if (album.isNotEmpty()) {
+        selection.add("${MediaStore.Images.Media.BUCKET_DISPLAY_NAME} = ?")
+        selectionArgs.add(album)
+      }
+      val dateParser = SimpleDateFormat("yyyy-MM-dd", Locale.US).apply { timeZone = TimeZone.getDefault() }
+      if (dateFrom.isNotEmpty()) {
+        val fromSecs = dateParser.parse(dateFrom)?.time?.div(1000)
+          ?: return mapOf("status" to "failed", "error" to "Invalid dateFrom '$dateFrom' (expected yyyy-MM-dd)")
+        selection.add("${MediaStore.Images.Media.DATE_ADDED} >= ?")
+        selectionArgs.add(fromSecs.toString())
+      }
+      if (dateTo.isNotEmpty()) {
+        // End of day: add 86400s so dateTo is inclusive.
+        val toSecs = dateParser.parse(dateTo)?.time?.div(1000)?.plus(86400)
+          ?: return mapOf("status" to "failed", "error" to "Invalid dateTo '$dateTo' (expected yyyy-MM-dd)")
+        selection.add("${MediaStore.Images.Media.DATE_ADDED} < ?")
+        selectionArgs.add(toSecs.toString())
+      }
+
+      val projection = arrayOf(
+        MediaStore.Images.Media._ID,
+        MediaStore.Images.Media.DISPLAY_NAME,
+        MediaStore.Images.Media.DATE_ADDED,
+        MediaStore.Images.Media.SIZE,
+        MediaStore.Images.Media.BUCKET_DISPLAY_NAME,
+      )
+      val selectionStr = if (selection.isEmpty()) null else selection.joinToString(" AND ")
+      val selectionArgsArr = if (selectionArgs.isEmpty()) null else selectionArgs.toTypedArray()
+      val sortOrder = "${MediaStore.Images.Media.DATE_ADDED} DESC"
+
+      val photos = mutableListOf<Map<String, String>>()
+      val cursor = context.contentResolver.query(
+        MediaStore.Images.Media.EXTERNAL_CONTENT_URI,
+        projection, selectionStr, selectionArgsArr, sortOrder,
+      )
+      cursor?.use {
+        var count = 0
+        val sdf = SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.US)
+        while (it.moveToNext() && count < maxResults) {
+          val id = it.getLong(0)
+          val uri = Uri.withAppendedPath(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, id.toString())
+          photos.add(mapOf(
+            "name" to (it.getString(1) ?: ""),
+            "date" to sdf.format(it.getLong(2) * 1000),
+            "size_bytes" to it.getLong(3).toString(),
+            "album" to (it.getString(4) ?: ""),
+            "uri" to uri.toString(),
+          ))
+          count++
+        }
+      }
+      Log.d(TAG, "searchPhotos found ${photos.size} matches (selection=$selectionStr)")
+      mapOf("status" to "succeeded", "count" to photos.size.toString(), "photos" to photos.toString())
+    } catch (e: Exception) {
+      Log.e(TAG, "Failed to search photos", e)
+      mapOf("status" to "failed", "error" to (e.message ?: "Failed to search photos"))
+    }
+  }
+
+  /**
+   * Scan barcodes/QR codes from a photo using ML Kit (on-device).
+   *
+   * @param photoUri URI of the photo to scan (from listPhotos/searchPhotos).
+   *                 If empty, scans the most recent photo in the gallery.
+   */
+  suspend fun scanBarcode(photoUri: String): Map<String, Any> {
+    sendProgress("Scanning barcode", inProgress = true, title = "Scan Barcode",
+      desc = if (photoUri.isEmpty()) "most recent photo" else photoUri.takeLast(40))
+
+    val photoPermission = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+      Manifest.permission.READ_MEDIA_IMAGES
+    } else {
+      Manifest.permission.READ_EXTERNAL_STORAGE
+    }
+    if (!ensurePermission(photoPermission, rationale = "Access photos")) {
+      return mapOf("status" to "failed", "error" to "Photo permission denied")
+    }
+
+    return try {
+      // Resolve URI — fall back to most recent photo if empty.
+      val uri: Uri = if (photoUri.isNotEmpty()) {
+        Uri.parse(photoUri)
+      } else {
+        val projection = arrayOf(MediaStore.Images.Media._ID)
+        val sortOrder = "${MediaStore.Images.Media.DATE_ADDED} DESC"
+        context.contentResolver.query(
+          MediaStore.Images.Media.EXTERNAL_CONTENT_URI, projection, null, null, sortOrder,
+        )?.use { c ->
+          if (c.moveToFirst()) {
+            Uri.withAppendedPath(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, c.getLong(0).toString())
+          } else null
+        } ?: return mapOf("status" to "failed", "error" to "No photos found on device")
+      }
+
+      val image = com.google.mlkit.vision.common.InputImage.fromFilePath(context, uri)
+      val scanner = com.google.mlkit.vision.barcode.BarcodeScanning.getClient()
+
+      val barcodes = kotlinx.coroutines.suspendCancellableCoroutine<List<com.google.mlkit.vision.barcode.common.Barcode>> { cont ->
+        scanner.process(image)
+          .addOnSuccessListener { cont.resumeWith(Result.success(it)) }
+          .addOnFailureListener { cont.resumeWith(Result.failure(it)) }
+      }
+
+      if (barcodes.isEmpty()) {
+        return mapOf("status" to "succeeded", "count" to "0", "barcodes" to "[]",
+          "message" to "No barcodes or QR codes found in the photo")
+      }
+
+      val results = barcodes.map { barcode ->
+        mapOf(
+          "format" to barcodeFormatName(barcode.format),
+          "type" to barcodeTypeName(barcode.valueType),
+          "value" to (barcode.rawValue ?: ""),
+          "display" to (barcode.displayValue ?: ""),
+        )
+      }
+      Log.d(TAG, "Scanned ${results.size} barcode(s) from $uri")
+      mapOf("status" to "succeeded", "count" to results.size.toString(), "barcodes" to results.toString())
+    } catch (e: Exception) {
+      Log.e(TAG, "Failed to scan barcode", e)
+      mapOf("status" to "failed", "error" to (e.message ?: "Failed to scan barcode"))
+    }
+  }
+
+  private fun barcodeFormatName(format: Int): String = when (format) {
+    com.google.mlkit.vision.barcode.common.Barcode.FORMAT_QR_CODE -> "QR_CODE"
+    com.google.mlkit.vision.barcode.common.Barcode.FORMAT_EAN_13 -> "EAN_13"
+    com.google.mlkit.vision.barcode.common.Barcode.FORMAT_EAN_8 -> "EAN_8"
+    com.google.mlkit.vision.barcode.common.Barcode.FORMAT_UPC_A -> "UPC_A"
+    com.google.mlkit.vision.barcode.common.Barcode.FORMAT_UPC_E -> "UPC_E"
+    com.google.mlkit.vision.barcode.common.Barcode.FORMAT_CODE_39 -> "CODE_39"
+    com.google.mlkit.vision.barcode.common.Barcode.FORMAT_CODE_93 -> "CODE_93"
+    com.google.mlkit.vision.barcode.common.Barcode.FORMAT_CODE_128 -> "CODE_128"
+    com.google.mlkit.vision.barcode.common.Barcode.FORMAT_PDF417 -> "PDF417"
+    com.google.mlkit.vision.barcode.common.Barcode.FORMAT_AZTEC -> "AZTEC"
+    com.google.mlkit.vision.barcode.common.Barcode.FORMAT_DATA_MATRIX -> "DATA_MATRIX"
+    com.google.mlkit.vision.barcode.common.Barcode.FORMAT_ITF -> "ITF"
+    com.google.mlkit.vision.barcode.common.Barcode.FORMAT_CODABAR -> "CODABAR"
+    else -> "UNKNOWN"
+  }
+
+  private fun barcodeTypeName(type: Int): String = when (type) {
+    com.google.mlkit.vision.barcode.common.Barcode.TYPE_URL -> "URL"
+    com.google.mlkit.vision.barcode.common.Barcode.TYPE_EMAIL -> "EMAIL"
+    com.google.mlkit.vision.barcode.common.Barcode.TYPE_PHONE -> "PHONE"
+    com.google.mlkit.vision.barcode.common.Barcode.TYPE_SMS -> "SMS"
+    com.google.mlkit.vision.barcode.common.Barcode.TYPE_WIFI -> "WIFI"
+    com.google.mlkit.vision.barcode.common.Barcode.TYPE_GEO -> "GEO"
+    com.google.mlkit.vision.barcode.common.Barcode.TYPE_CALENDAR_EVENT -> "CALENDAR_EVENT"
+    com.google.mlkit.vision.barcode.common.Barcode.TYPE_CONTACT_INFO -> "CONTACT"
+    com.google.mlkit.vision.barcode.common.Barcode.TYPE_PRODUCT -> "PRODUCT"
+    com.google.mlkit.vision.barcode.common.Barcode.TYPE_TEXT -> "TEXT"
+    com.google.mlkit.vision.barcode.common.Barcode.TYPE_ISBN -> "ISBN"
+    else -> "UNKNOWN"
+  }
+
   // ─── Apps ───
 
   suspend fun listApps(query: String): Map<String, Any> {

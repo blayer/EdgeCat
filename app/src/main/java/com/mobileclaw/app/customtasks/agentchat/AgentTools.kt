@@ -332,6 +332,27 @@ class AgentTools() : ToolSet {
     return runBlocking(Dispatchers.Default) { deviceSkills.listPhotos(max) }
   }
 
+  @Tool(description = "Search photos by filename, album/folder, or date range. Any empty filter is ignored.")
+  fun searchPhotos(
+    @ToolParam(description = "Substring to match in the filename (case-insensitive). Empty = any name.") query: String,
+    @ToolParam(description = "Album/folder name, e.g. 'Screenshots', 'Camera'. Empty = any album.") album: String,
+    @ToolParam(description = "Inclusive start date in yyyy-MM-dd format. Empty = no lower bound.") dateFrom: String,
+    @ToolParam(description = "Inclusive end date in yyyy-MM-dd format. Empty = no upper bound.") dateTo: String,
+    @ToolParam(description = "Maximum number of photos to return") maxResults: String,
+  ): Map<String, Any> {
+    val max = maxResults.toIntOrNull() ?: 20
+    return runBlocking(Dispatchers.Default) {
+      deviceSkills.searchPhotos(query, album, dateFrom, dateTo, max)
+    }
+  }
+
+  @Tool(description = "Scan barcodes or QR codes from a photo in the device gallery. Returns the decoded text values.")
+  fun scanBarcode(
+    @ToolParam(description = "URI of the photo to scan (from listPhotos or searchPhotos). Empty = scan the most recent photo.") photoUri: String,
+  ): Map<String, Any> {
+    return runBlocking(Dispatchers.Default) { deviceSkills.scanBarcode(photoUri) }
+  }
+
   @Tool(description = "List installed apps that can be launched on the device")
   fun listApps(
     @ToolParam(description = "Search query to filter apps by name. Use empty string to list all") query: String,

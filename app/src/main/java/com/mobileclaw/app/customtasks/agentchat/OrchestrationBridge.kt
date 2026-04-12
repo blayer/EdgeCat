@@ -150,6 +150,20 @@ class ToolExecutorImpl(
             val map = agentTools.listPhotos(args["maxresults"] ?: "20")
             ToolExecutionResult(success = map["status"] == "succeeded", output = map.toString())
           }
+          "searchPhotos" -> {
+            val map = agentTools.searchPhotos(
+              args["query"] ?: "",
+              args["album"] ?: "",
+              args["datefrom"] ?: "",
+              args["dateto"] ?: "",
+              args["maxresults"] ?: "20",
+            )
+            ToolExecutionResult(success = map["status"] == "succeeded", output = map.toString())
+          }
+          "scanBarcode" -> {
+            val map = agentTools.scanBarcode(args["photouri"] ?: "")
+            ToolExecutionResult(success = map["status"] == "succeeded", output = map.toString())
+          }
           "listApps" -> {
             val map = agentTools.listApps(args["query"] ?: "")
             ToolExecutionResult(success = map["status"] == "succeeded", output = map.toString())
