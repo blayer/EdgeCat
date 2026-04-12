@@ -87,6 +87,11 @@ message Settings {
   int32 agent_max_loops = 13;          // default 3
   int32 agent_max_repair_attempts = 14; // default 2
   int32 agent_skill_timeout_secs = 15;  // default 60
+
+  // Chain-of-thought policy for orchestration LLM calls.
+  // 0 = AUTO (balanced, default), 1 = OFF, 2 = AGGRESSIVE.
+  // Stored as int so the proto zero-value maps to AUTO.
+  int32 agent_thinking_mode = 16;
 }
 
 message UserData {

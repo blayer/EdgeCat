@@ -159,6 +159,7 @@ fun AgentChatScreen(
   var agentMaxLoops by remember { mutableStateOf(dataStoreRepo.getAgentMaxLoops()) }
   var agentMaxRepairAttempts by remember { mutableStateOf(dataStoreRepo.getAgentMaxRepairAttempts()) }
   var agentSkillTimeoutSecs by remember { mutableStateOf(dataStoreRepo.getAgentSkillTimeoutSecs()) }
+  var agentThinkingMode by remember { mutableStateOf(dataStoreRepo.getAgentThinkingMode()) }
   val coroutineScope = androidx.compose.runtime.rememberCoroutineScope()
 
   // Save-as-skill state.
@@ -498,7 +499,13 @@ fun AgentChatScreen(
               try {
                 val llmProvider = LlmInferenceProviderImpl(viewModel) { model }
                 val prompt = skillCreator.buildSkillCreationPrompt(nameFromMsg, userMsg, plan, results)
-                val llmOutput = llmProvider.generateResponse(prompt)
+                val policy = com.mobileclaw.app.orchestration.ThinkingPolicy(
+                  com.mobileclaw.app.orchestration.ThinkingMode.fromInt(agentThinkingMode)
+                )
+                val llmOutput = llmProvider.generateResponse(
+                  prompt,
+                  enableThinking = policy.saveAsSkill(),
+                )
                 val skillMd = skillCreator.parseSkillMd(llmOutput)
                 android.util.Log.d(TAG, "Generated SKILL.md:\n$skillMd")
 
@@ -548,7 +555,14 @@ fun AgentChatScreen(
           val memoryRepo = try {
             EntryPointAccessors.fromApplication(context, MemoryEntryPoint::class.java).memoryRepository()
           } catch (e: Exception) { null }
-          val controller = OrchestrationController(llmProvider, toolExec, memoryRepo, maxIterations = agentMaxLoops, maxRepairAttempts = agentMaxRepairAttempts)
+          val controller = OrchestrationController(
+            llmProvider,
+            toolExec,
+            memoryRepo,
+            maxIterations = agentMaxLoops,
+            maxRepairAttempts = agentMaxRepairAttempts,
+            thinkingMode = com.mobileclaw.app.orchestration.ThinkingMode.fromInt(agentThinkingMode),
+          )
           orchestrationController.value = controller
 
           // Observe state changes — single consolidated log bubble.
@@ -785,6 +799,11 @@ fun AgentChatScreen(
     onAgentSkillTimeoutSecsChanged = { value ->
       agentSkillTimeoutSecs = value
       dataStoreRepo.setAgentSkillTimeoutSecs(value)
+    },
+    agentThinkingMode = agentThinkingMode,
+    onAgentThinkingModeChanged = { value ->
+      agentThinkingMode = value
+      dataStoreRepo.setAgentThinkingMode(value)
     },
     onClearMemory = {
       val memoryRepo = try {

@@ -48,9 +48,11 @@ class OrchestrationController(
   private val memoryRepository: MemoryRepository? = null,
   private val maxIterations: Int = 3,
   private val maxRepairAttempts: Int = 2,
+  thinkingMode: ThinkingMode = ThinkingMode.AUTO,
 ) {
+  private val thinkingPolicy = ThinkingPolicy(thinkingMode)
   private val planner = Planner()
-  private val orchestrator = ExecutionOrchestrator(llmProvider, toolExecutor)
+  private val orchestrator = ExecutionOrchestrator(llmProvider, toolExecutor, thinkingPolicy)
   private val evaluator = SelfEvaluator()
   private val skillCreator = SkillCreator()
 
@@ -93,7 +95,10 @@ class OrchestrationController(
       Log.d(TAG, "Phase 1: Planning for: $userMessage")
       val skills = toolExecutor.getAvailableSkills()
       val planPrompt = planner.buildPlanningPrompt(userMessage, skills, memoryContext)
-      val planResponse = llmProvider.generateResponse(planPrompt)
+      val planResponse = llmProvider.generateResponse(
+        planPrompt,
+        enableThinking = thinkingPolicy.planner(userMessage, iteration = 0),
+      )
       val plan = planner.parsePlan(planResponse, userMessage)
 
       Log.d(TAG, "Plan created with ${plan.steps.size} steps")
@@ -152,7 +157,10 @@ class OrchestrationController(
           EvaluationResult(goalAchieved = true, assessment = "All steps completed", missingItems = emptyList(), shouldReplan = false)
         } else {
           val evalPrompt = evaluator.buildEvaluationPrompt(userMessage, currentPlan, repairedResults)
-          val evalResponse = llmProvider.generateResponse(evalPrompt)
+          val evalResponse = llmProvider.generateResponse(
+            evalPrompt,
+            enableThinking = thinkingPolicy.evaluator(),
+          )
           val combinedOutputs = repairedResults.values.joinToString("\n") { it.output }
           evaluator.parseEvaluation(evalResponse, combinedOutputs)
         }
@@ -211,7 +219,10 @@ class OrchestrationController(
         } else {
           replanPrompt
         }
-        val replanResponse = llmProvider.generateResponse(fullReplanPrompt)
+        val replanResponse = llmProvider.generateResponse(
+          fullReplanPrompt,
+          enableThinking = thinkingPolicy.replan(replanAttempt = iteration),
+        )
         currentPlan = planner.parsePlan(replanResponse, userMessage)
 
         Log.d(TAG, "Revised plan has ${currentPlan.steps.size} steps")
@@ -350,7 +361,10 @@ Rewrite into a clear, friendly response. Rules:
 """.trimIndent()
 
     Log.d(TAG, "Formatting result with LLM, raw output length=${rawOutput.length}")
-    val response = llmProvider.generateResponse(prompt)
+    val response = llmProvider.generateResponse(
+      prompt,
+      enableThinking = thinkingPolicy.format(),
+    )
     Log.d(TAG, "Formatted result length=${response.length}")
     return response.trim()
   }

@@ -85,6 +85,8 @@ fun LlmChatScreen(
   onAgentMaxLoopsChanged: (Int) -> Unit = {},
   onAgentMaxRepairAttemptsChanged: (Int) -> Unit = {},
   onAgentSkillTimeoutSecsChanged: (Int) -> Unit = {},
+  agentThinkingMode: Int = 0,
+  onAgentThinkingModeChanged: (Int) -> Unit = {},
 ) {
   ChatViewWrapper(
     viewModel = viewModel,
@@ -117,6 +119,8 @@ fun LlmChatScreen(
     onAgentMaxLoopsChanged = onAgentMaxLoopsChanged,
     onAgentMaxRepairAttemptsChanged = onAgentMaxRepairAttemptsChanged,
     onAgentSkillTimeoutSecsChanged = onAgentSkillTimeoutSecsChanged,
+    agentThinkingMode = agentThinkingMode,
+    onAgentThinkingModeChanged = onAgentThinkingModeChanged,
   )
 }
 
@@ -225,6 +229,8 @@ fun ChatViewWrapper(
   onAgentMaxLoopsChanged: (Int) -> Unit = {},
   onAgentMaxRepairAttemptsChanged: (Int) -> Unit = {},
   onAgentSkillTimeoutSecsChanged: (Int) -> Unit = {},
+  agentThinkingMode: Int = 0,
+  onAgentThinkingModeChanged: (Int) -> Unit = {},
 ) {
   val context = LocalContext.current
   val task = modelManagerViewModel.getTaskById(id = taskId)!!
@@ -343,5 +349,7 @@ fun ChatViewWrapper(
     onAgentMaxLoopsChanged = onAgentMaxLoopsChanged,
     onAgentMaxRepairAttemptsChanged = onAgentMaxRepairAttemptsChanged,
     onAgentSkillTimeoutSecsChanged = onAgentSkillTimeoutSecsChanged,
+    agentThinkingMode = agentThinkingMode,
+    onAgentThinkingModeChanged = onAgentThinkingModeChanged,
   )
 }

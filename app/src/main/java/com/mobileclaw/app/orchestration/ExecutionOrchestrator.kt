@@ -69,6 +69,7 @@ private val NATIVE_SKILL_TOOLS = mapOf(
 class ExecutionOrchestrator(
   private val llmProvider: LlmInferenceProvider,
   private val toolExecutor: ToolExecutor,
+  private val thinkingPolicy: ThinkingPolicy = ThinkingPolicy(ThinkingMode.AUTO),
 ) {
   private val cancelled = AtomicBoolean(false)
   private val llmMutex = Mutex()
@@ -686,7 +687,10 @@ class ExecutionOrchestrator(
         }
       }
 
-      val response = llmProvider.generateResponse(prompt)
+      val response = llmProvider.generateResponse(
+        prompt,
+        enableThinking = thinkingPolicy.llmStep(),
+      )
 
       StepResult(
         stepId = step.id,

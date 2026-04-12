@@ -54,6 +54,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.MultiChoiceSegmentedButtonRow
+import androidx.compose.material3.SingleChoiceSegmentedButtonRow
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.PrimaryTabRow
@@ -145,6 +146,8 @@ fun ConfigDialog(
   onAgentMaxLoopsChanged: (Int) -> Unit = {},
   onAgentMaxRepairAttemptsChanged: (Int) -> Unit = {},
   onAgentSkillTimeoutSecsChanged: (Int) -> Unit = {},
+  agentThinkingMode: Int = 0,
+  onAgentThinkingModeChanged: (Int) -> Unit = {},
 ) {
   val values: SnapshotStateMap<String, Any> = remember {
     mutableStateMapOf<String, Any>().apply { putAll(initialValues) }
@@ -159,6 +162,7 @@ fun ConfigDialog(
   var localMaxLoops by remember { mutableStateOf(agentMaxLoops.toFloat()) }
   var localMaxRepair by remember { mutableStateOf(agentMaxRepairAttempts.toFloat()) }
   var localTimeout by remember { mutableStateOf(agentSkillTimeoutSecs.toFloat()) }
+  var localThinkingMode by remember { mutableStateOf(agentThinkingMode) }
   val scope = rememberCoroutineScope()
   val tabs = remember(showSystemPromptEditorTab, showAgentSettingsTab) {
     buildList {
@@ -411,6 +415,46 @@ fun ConfigDialog(
                 steps = 10,
                 enabled = localAgenticMode,
               )
+              // Thinking Mode selector.
+              Spacer(modifier = Modifier.height(4.dp))
+              Column(modifier = Modifier.fillMaxWidth()) {
+                Text(
+                  "Thinking Mode",
+                  style = MaterialTheme.typography.bodyLarge,
+                  color = if (localAgenticMode) MaterialTheme.colorScheme.onSurface
+                    else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.38f),
+                )
+                Text(
+                  when (localThinkingMode) {
+                    1 -> "Off — fastest, no chain-of-thought"
+                    2 -> "Aggressive — thinking on every reasoning step"
+                    else -> "Auto — thinking on hard plans and repeat replans"
+                  },
+                  style = MaterialTheme.typography.bodySmall,
+                  color = if (localAgenticMode) MaterialTheme.colorScheme.onSurfaceVariant
+                    else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.38f),
+                )
+                Spacer(modifier = Modifier.height(4.dp))
+                val thinkingOptions = listOf("Auto" to 0, "Off" to 1, "Aggressive" to 2)
+                SingleChoiceSegmentedButtonRow(modifier = Modifier.fillMaxWidth()) {
+                  thinkingOptions.forEachIndexed { index, (label, value) ->
+                    SegmentedButton(
+                      selected = localThinkingMode == value,
+                      onClick = {
+                        localThinkingMode = value
+                        onAgentThinkingModeChanged(value)
+                      },
+                      shape = SegmentedButtonDefaults.itemShape(
+                        index = index,
+                        count = thinkingOptions.size,
+                      ),
+                      enabled = localAgenticMode,
+                    ) {
+                      Text(label)
+                    }
+                  }
+                }
+              }
               // Clear Memory button.
               if (onClearMemory != null) {
                 Spacer(modifier = Modifier.height(8.dp))

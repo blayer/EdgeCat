@@ -129,6 +129,10 @@ interface DataStoreRepository {
   fun getAgentSkillTimeoutSecs(): Int
 
   fun setAgentSkillTimeoutSecs(value: Int)
+
+  fun getAgentThinkingMode(): Int
+
+  fun setAgentThinkingMode(value: Int)
 }
 
 /** Repository for managing data using Proto DataStore. */
@@ -516,6 +520,16 @@ class DefaultDataStoreRepository(
   override fun setAgentSkillTimeoutSecs(value: Int) {
     runBlocking {
       dataStore.updateData { settings -> settings.toBuilder().setAgentSkillTimeoutSecs(value).build() }
+    }
+  }
+
+  override fun getAgentThinkingMode(): Int {
+    return runBlocking { dataStore.data.first().agentThinkingMode }
+  }
+
+  override fun setAgentThinkingMode(value: Int) {
+    runBlocking {
+      dataStore.updateData { settings -> settings.toBuilder().setAgentThinkingMode(value).build() }
     }
   }
 }

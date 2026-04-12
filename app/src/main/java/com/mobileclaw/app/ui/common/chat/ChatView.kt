@@ -121,6 +121,8 @@ fun ChatView(
   onAgentMaxLoopsChanged: (Int) -> Unit = {},
   onAgentMaxRepairAttemptsChanged: (Int) -> Unit = {},
   onAgentSkillTimeoutSecsChanged: (Int) -> Unit = {},
+  agentThinkingMode: Int = 0,
+  onAgentThinkingModeChanged: (Int) -> Unit = {},
 ) {
   val uiState by viewModel.uiState.collectAsState()
   val modelManagerUiState by modelManagerViewModel.uiState.collectAsState()
@@ -223,6 +225,8 @@ fun ChatView(
         onAgentMaxLoopsChanged = onAgentMaxLoopsChanged,
         onAgentMaxRepairAttemptsChanged = onAgentMaxRepairAttemptsChanged,
         onAgentSkillTimeoutSecsChanged = onAgentSkillTimeoutSecsChanged,
+        agentThinkingMode = agentThinkingMode,
+        onAgentThinkingModeChanged = onAgentThinkingModeChanged,
       )
     },
   ) { innerPadding ->

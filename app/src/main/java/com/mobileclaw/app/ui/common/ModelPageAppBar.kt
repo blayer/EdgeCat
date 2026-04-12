@@ -94,6 +94,8 @@ fun ModelPageAppBar(
   onAgentMaxLoopsChanged: (Int) -> Unit = {},
   onAgentMaxRepairAttemptsChanged: (Int) -> Unit = {},
   onAgentSkillTimeoutSecsChanged: (Int) -> Unit = {},
+  agentThinkingMode: Int = 0,
+  onAgentThinkingModeChanged: (Int) -> Unit = {},
 ) {
   var showConfigDialog by remember { mutableStateOf(false) }
   val modelManagerUiState by modelManagerViewModel.uiState.collectAsState()
@@ -308,6 +310,8 @@ fun ModelPageAppBar(
       onAgentMaxLoopsChanged = onAgentMaxLoopsChanged,
       onAgentMaxRepairAttemptsChanged = onAgentMaxRepairAttemptsChanged,
       onAgentSkillTimeoutSecsChanged = onAgentSkillTimeoutSecsChanged,
+      agentThinkingMode = agentThinkingMode,
+      onAgentThinkingModeChanged = onAgentThinkingModeChanged,
     )
   }
 }
