@@ -117,6 +117,18 @@ interface DataStoreRepository {
   fun isAgentTracesEnabled(): Boolean
 
   fun setAgentTracesEnabled(enabled: Boolean)
+
+  fun getAgentMaxLoops(): Int
+
+  fun setAgentMaxLoops(value: Int)
+
+  fun getAgentMaxRepairAttempts(): Int
+
+  fun setAgentMaxRepairAttempts(value: Int)
+
+  fun getAgentSkillTimeoutSecs(): Int
+
+  fun setAgentSkillTimeoutSecs(value: Int)
 }
 
 /** Repository for managing data using Proto DataStore. */
@@ -465,6 +477,45 @@ class DefaultDataStoreRepository(
   override fun setAgentTracesEnabled(enabled: Boolean) {
     runBlocking {
       dataStore.updateData { settings -> settings.toBuilder().setAgentTracesDisabled(!enabled).build() }
+    }
+  }
+
+  override fun getAgentMaxLoops(): Int {
+    return runBlocking {
+      val v = dataStore.data.first().agentMaxLoops
+      if (v == 0) 3 else v
+    }
+  }
+
+  override fun setAgentMaxLoops(value: Int) {
+    runBlocking {
+      dataStore.updateData { settings -> settings.toBuilder().setAgentMaxLoops(value).build() }
+    }
+  }
+
+  override fun getAgentMaxRepairAttempts(): Int {
+    return runBlocking {
+      val v = dataStore.data.first().agentMaxRepairAttempts
+      if (v == 0) 2 else v
+    }
+  }
+
+  override fun setAgentMaxRepairAttempts(value: Int) {
+    runBlocking {
+      dataStore.updateData { settings -> settings.toBuilder().setAgentMaxRepairAttempts(value).build() }
+    }
+  }
+
+  override fun getAgentSkillTimeoutSecs(): Int {
+    return runBlocking {
+      val v = dataStore.data.first().agentSkillTimeoutSecs
+      if (v == 0) 60 else v
+    }
+  }
+
+  override fun setAgentSkillTimeoutSecs(value: Int) {
+    runBlocking {
+      dataStore.updateData { settings -> settings.toBuilder().setAgentSkillTimeoutSecs(value).build() }
     }
   }
 }

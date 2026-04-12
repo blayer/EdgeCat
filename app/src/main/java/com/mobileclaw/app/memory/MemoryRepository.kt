@@ -8,4 +8,5 @@ interface MemoryRepository {
   suspend fun recallRepairs(skillName: String, error: String, limit: Int = 3): List<RepairRecord>
   suspend fun getDeviceFacts(): List<DeviceFact>
   suspend fun evictIfNeeded(maxSizeBytes: Long = 100L * 1024 * 1024)
+  suspend fun clearAll()
 }

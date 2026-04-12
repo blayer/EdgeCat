@@ -61,6 +61,17 @@ interface MemoryDao {
   @Query("DELETE FROM device_facts WHERE id IN (SELECT id FROM device_facts ORDER BY last_accessed_at ASC LIMIT :count)")
   suspend fun evictOldestDeviceFacts(count: Int)
 
+  // ---- Clear All ----
+
+  @Query("DELETE FROM episodes")
+  suspend fun deleteAllEpisodes()
+
+  @Query("DELETE FROM repairs")
+  suspend fun deleteAllRepairs()
+
+  @Query("DELETE FROM device_facts")
+  suspend fun deleteAllDeviceFacts()
+
   // ---- Counts ----
 
   @Query("SELECT COUNT(*) FROM episodes")

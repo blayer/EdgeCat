@@ -114,6 +114,13 @@ fun ChatView(
   agentTracesEnabled: Boolean = true,
   onAgenticModeChanged: (Boolean) -> Unit = {},
   onAgentTracesChanged: (Boolean) -> Unit = {},
+  onClearMemory: (() -> Unit)? = null,
+  agentMaxLoops: Int = 3,
+  agentMaxRepairAttempts: Int = 2,
+  agentSkillTimeoutSecs: Int = 60,
+  onAgentMaxLoopsChanged: (Int) -> Unit = {},
+  onAgentMaxRepairAttemptsChanged: (Int) -> Unit = {},
+  onAgentSkillTimeoutSecsChanged: (Int) -> Unit = {},
 ) {
   val uiState by viewModel.uiState.collectAsState()
   val modelManagerUiState by modelManagerViewModel.uiState.collectAsState()
@@ -209,6 +216,13 @@ fun ChatView(
         agentTracesEnabled = agentTracesEnabled,
         onAgenticModeChanged = onAgenticModeChanged,
         onAgentTracesChanged = onAgentTracesChanged,
+        onClearMemory = onClearMemory,
+        agentMaxLoops = agentMaxLoops,
+        agentMaxRepairAttempts = agentMaxRepairAttempts,
+        agentSkillTimeoutSecs = agentSkillTimeoutSecs,
+        onAgentMaxLoopsChanged = onAgentMaxLoopsChanged,
+        onAgentMaxRepairAttemptsChanged = onAgentMaxRepairAttemptsChanged,
+        onAgentSkillTimeoutSecsChanged = onAgentSkillTimeoutSecsChanged,
       )
     },
   ) { innerPadding ->

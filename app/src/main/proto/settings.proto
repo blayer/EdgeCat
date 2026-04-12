@@ -82,6 +82,11 @@ message Settings {
   // Agent settings (inverted: false=enabled by default, true=disabled).
   bool agentic_mode_disabled = 11;
   bool agent_traces_disabled = 12;
+
+  // Agent tuning (0 = use default).
+  int32 agent_max_loops = 13;          // default 3
+  int32 agent_max_repair_attempts = 14; // default 2
+  int32 agent_skill_timeout_secs = 15;  // default 60
 }
 
 message UserData {

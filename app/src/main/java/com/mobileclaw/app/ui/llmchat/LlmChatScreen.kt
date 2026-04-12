@@ -78,6 +78,13 @@ fun LlmChatScreen(
   agentTracesEnabled: Boolean = true,
   onAgenticModeChanged: (Boolean) -> Unit = {},
   onAgentTracesChanged: (Boolean) -> Unit = {},
+  onClearMemory: (() -> Unit)? = null,
+  agentMaxLoops: Int = 3,
+  agentMaxRepairAttempts: Int = 2,
+  agentSkillTimeoutSecs: Int = 60,
+  onAgentMaxLoopsChanged: (Int) -> Unit = {},
+  onAgentMaxRepairAttemptsChanged: (Int) -> Unit = {},
+  onAgentSkillTimeoutSecsChanged: (Int) -> Unit = {},
 ) {
   ChatViewWrapper(
     viewModel = viewModel,
@@ -103,6 +110,13 @@ fun LlmChatScreen(
     agentTracesEnabled = agentTracesEnabled,
     onAgenticModeChanged = onAgenticModeChanged,
     onAgentTracesChanged = onAgentTracesChanged,
+    onClearMemory = onClearMemory,
+    agentMaxLoops = agentMaxLoops,
+    agentMaxRepairAttempts = agentMaxRepairAttempts,
+    agentSkillTimeoutSecs = agentSkillTimeoutSecs,
+    onAgentMaxLoopsChanged = onAgentMaxLoopsChanged,
+    onAgentMaxRepairAttemptsChanged = onAgentMaxRepairAttemptsChanged,
+    onAgentSkillTimeoutSecsChanged = onAgentSkillTimeoutSecsChanged,
   )
 }
 
@@ -204,6 +218,13 @@ fun ChatViewWrapper(
   agentTracesEnabled: Boolean = true,
   onAgenticModeChanged: (Boolean) -> Unit = {},
   onAgentTracesChanged: (Boolean) -> Unit = {},
+  onClearMemory: (() -> Unit)? = null,
+  agentMaxLoops: Int = 3,
+  agentMaxRepairAttempts: Int = 2,
+  agentSkillTimeoutSecs: Int = 60,
+  onAgentMaxLoopsChanged: (Int) -> Unit = {},
+  onAgentMaxRepairAttemptsChanged: (Int) -> Unit = {},
+  onAgentSkillTimeoutSecsChanged: (Int) -> Unit = {},
 ) {
   val context = LocalContext.current
   val task = modelManagerViewModel.getTaskById(id = taskId)!!
@@ -315,5 +336,12 @@ fun ChatViewWrapper(
     agentTracesEnabled = agentTracesEnabled,
     onAgenticModeChanged = onAgenticModeChanged,
     onAgentTracesChanged = onAgentTracesChanged,
+    onClearMemory = onClearMemory,
+    agentMaxLoops = agentMaxLoops,
+    agentMaxRepairAttempts = agentMaxRepairAttempts,
+    agentSkillTimeoutSecs = agentSkillTimeoutSecs,
+    onAgentMaxLoopsChanged = onAgentMaxLoopsChanged,
+    onAgentMaxRepairAttemptsChanged = onAgentMaxRepairAttemptsChanged,
+    onAgentSkillTimeoutSecsChanged = onAgentSkillTimeoutSecsChanged,
   )
 }

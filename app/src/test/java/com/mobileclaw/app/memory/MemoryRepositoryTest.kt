@@ -204,6 +204,10 @@ class FakeMemoryDao : MemoryDao {
     deviceFacts.removeAll { it.id in toRemove }
   }
 
+  override suspend fun deleteAllEpisodes() { episodes.clear() }
+  override suspend fun deleteAllRepairs() { repairs.clear() }
+  override suspend fun deleteAllDeviceFacts() { deviceFacts.clear() }
+
   override suspend fun episodeCount(): Int = episodes.size
   override suspend fun repairCount(): Int = repairs.size
   override suspend fun deviceFactCount(): Int = deviceFacts.size

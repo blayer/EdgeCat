@@ -138,6 +138,13 @@ fun ConfigDialog(
   agentTracesEnabled: Boolean = true,
   onAgenticModeChanged: (Boolean) -> Unit = {},
   onAgentTracesChanged: (Boolean) -> Unit = {},
+  onClearMemory: (() -> Unit)? = null,
+  agentMaxLoops: Int = 3,
+  agentMaxRepairAttempts: Int = 2,
+  agentSkillTimeoutSecs: Int = 60,
+  onAgentMaxLoopsChanged: (Int) -> Unit = {},
+  onAgentMaxRepairAttemptsChanged: (Int) -> Unit = {},
+  onAgentSkillTimeoutSecsChanged: (Int) -> Unit = {},
 ) {
   val values: SnapshotStateMap<String, Any> = remember {
     mutableStateMapOf<String, Any>().apply { putAll(initialValues) }
@@ -148,6 +155,11 @@ fun ConfigDialog(
   var systemPrompt by remember { mutableStateOf(curSystemPrompt) }
   var localAgenticMode by remember { mutableStateOf(agenticModeEnabled) }
   var localAgentTraces by remember { mutableStateOf(agentTracesEnabled) }
+  var showMemoryCleared by remember { mutableStateOf(false) }
+  var localMaxLoops by remember { mutableStateOf(agentMaxLoops.toFloat()) }
+  var localMaxRepair by remember { mutableStateOf(agentMaxRepairAttempts.toFloat()) }
+  var localTimeout by remember { mutableStateOf(agentSkillTimeoutSecs.toFloat()) }
+  val scope = rememberCoroutineScope()
   val tabs = remember(showSystemPromptEditorTab, showAgentSettingsTab) {
     buildList {
       addAll(TABS_BASE.take(1)) // Model configs always shown
@@ -292,6 +304,137 @@ fun ConfigDialog(
                     onAgentTracesChanged(enabled)
                   },
                 )
+              }
+              // Max Thinking Loops slider.
+              Spacer(modifier = Modifier.height(4.dp))
+              Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+              ) {
+                Column(modifier = Modifier.weight(1f)) {
+                  Text(
+                    "Max Thinking Loops",
+                    style = MaterialTheme.typography.bodyLarge,
+                    color = if (localAgenticMode) MaterialTheme.colorScheme.onSurface
+                      else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.38f),
+                  )
+                  Text(
+                    "Plan-execute-evaluate iterations",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = if (localAgenticMode) MaterialTheme.colorScheme.onSurfaceVariant
+                      else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.38f),
+                  )
+                }
+                Text(
+                  "${localMaxLoops.toInt()}",
+                  style = MaterialTheme.typography.bodyLarge,
+                  color = if (localAgenticMode) MaterialTheme.colorScheme.onSurface
+                    else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.38f),
+                  modifier = Modifier.padding(horizontal = 8.dp),
+                )
+              }
+              Slider(
+                value = localMaxLoops,
+                onValueChange = { localMaxLoops = it },
+                onValueChangeFinished = { onAgentMaxLoopsChanged(localMaxLoops.toInt()) },
+                valueRange = 1f..10f,
+                steps = 8,
+                enabled = localAgenticMode,
+              )
+              // Max Repair Attempts slider.
+              Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+              ) {
+                Column(modifier = Modifier.weight(1f)) {
+                  Text(
+                    "Max Repair Attempts",
+                    style = MaterialTheme.typography.bodyLarge,
+                    color = if (localAgenticMode) MaterialTheme.colorScheme.onSurface
+                      else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.38f),
+                  )
+                  Text(
+                    "Retries per failed skill step",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = if (localAgenticMode) MaterialTheme.colorScheme.onSurfaceVariant
+                      else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.38f),
+                  )
+                }
+                Text(
+                  "${localMaxRepair.toInt()}",
+                  style = MaterialTheme.typography.bodyLarge,
+                  color = if (localAgenticMode) MaterialTheme.colorScheme.onSurface
+                    else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.38f),
+                  modifier = Modifier.padding(horizontal = 8.dp),
+                )
+              }
+              Slider(
+                value = localMaxRepair,
+                onValueChange = { localMaxRepair = it },
+                onValueChangeFinished = { onAgentMaxRepairAttemptsChanged(localMaxRepair.toInt()) },
+                valueRange = 0f..5f,
+                steps = 4,
+                enabled = localAgenticMode,
+              )
+              // Skill Timeout slider.
+              Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+              ) {
+                Column(modifier = Modifier.weight(1f)) {
+                  Text(
+                    "Skill Timeout",
+                    style = MaterialTheme.typography.bodyLarge,
+                    color = if (localAgenticMode) MaterialTheme.colorScheme.onSurface
+                      else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.38f),
+                  )
+                  Text(
+                    "Max seconds per skill execution",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = if (localAgenticMode) MaterialTheme.colorScheme.onSurfaceVariant
+                      else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.38f),
+                  )
+                }
+                Text(
+                  "${localTimeout.toInt()}s",
+                  style = MaterialTheme.typography.bodyLarge,
+                  color = if (localAgenticMode) MaterialTheme.colorScheme.onSurface
+                    else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.38f),
+                  modifier = Modifier.padding(horizontal = 8.dp),
+                )
+              }
+              Slider(
+                value = localTimeout,
+                onValueChange = { localTimeout = it },
+                onValueChangeFinished = { onAgentSkillTimeoutSecsChanged(localTimeout.toInt()) },
+                valueRange = 15f..180f,
+                steps = 10,
+                enabled = localAgenticMode,
+              )
+              // Clear Memory button.
+              if (onClearMemory != null) {
+                Spacer(modifier = Modifier.height(8.dp))
+                OutlinedButton(
+                  onClick = {
+                    onClearMemory()
+                    showMemoryCleared = true
+                    scope.launch {
+                      delay(2000)
+                      showMemoryCleared = false
+                    }
+                  },
+                  modifier = Modifier.fillMaxWidth(),
+                ) {
+                  Text("Clear Memory")
+                }
+                if (showMemoryCleared) {
+                  Text(
+                    "Memory cleared successfully",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.padding(top = 4.dp),
+                  )
+                }
               }
             }
           }

@@ -156,6 +156,9 @@ fun AgentChatScreen(
   val dataStoreRepo = skillManagerViewModel.dataStoreRepository
   var orchestrationEnabled by remember { mutableStateOf(dataStoreRepo.isAgenticModeEnabled()) }
   var agentTracesEnabled by remember { mutableStateOf(dataStoreRepo.isAgentTracesEnabled()) }
+  var agentMaxLoops by remember { mutableStateOf(dataStoreRepo.getAgentMaxLoops()) }
+  var agentMaxRepairAttempts by remember { mutableStateOf(dataStoreRepo.getAgentMaxRepairAttempts()) }
+  var agentSkillTimeoutSecs by remember { mutableStateOf(dataStoreRepo.getAgentSkillTimeoutSecs()) }
   val coroutineScope = androidx.compose.runtime.rememberCoroutineScope()
 
   // Save-as-skill state.
@@ -283,7 +286,7 @@ fun AgentChatScreen(
               try {
                 // Set up a safety net timeout so we NEVER hang the chat or tool execution
                 launch {
-                  delay(60000L) // 60 seconds max
+                  delay(agentSkillTimeoutSecs * 1000L)
                   if (!action.result.isCompleted) {
                     Log.e(TAG, "JS Execution timed out, completing with error.")
                     action.result.complete(
@@ -545,7 +548,7 @@ fun AgentChatScreen(
           val memoryRepo = try {
             EntryPointAccessors.fromApplication(context, MemoryEntryPoint::class.java).memoryRepository()
           } catch (e: Exception) { null }
-          val controller = OrchestrationController(llmProvider, toolExec, memoryRepo)
+          val controller = OrchestrationController(llmProvider, toolExec, memoryRepo, maxIterations = agentMaxLoops, maxRepairAttempts = agentMaxRepairAttempts)
           orchestrationController.value = controller
 
           // Observe state changes — single consolidated log bubble.
@@ -767,6 +770,31 @@ fun AgentChatScreen(
     onAgentTracesChanged = { enabled ->
       agentTracesEnabled = enabled
       dataStoreRepo.setAgentTracesEnabled(enabled)
+    },
+    agentMaxLoops = agentMaxLoops,
+    agentMaxRepairAttempts = agentMaxRepairAttempts,
+    agentSkillTimeoutSecs = agentSkillTimeoutSecs,
+    onAgentMaxLoopsChanged = { value ->
+      agentMaxLoops = value
+      dataStoreRepo.setAgentMaxLoops(value)
+    },
+    onAgentMaxRepairAttemptsChanged = { value ->
+      agentMaxRepairAttempts = value
+      dataStoreRepo.setAgentMaxRepairAttempts(value)
+    },
+    onAgentSkillTimeoutSecsChanged = { value ->
+      agentSkillTimeoutSecs = value
+      dataStoreRepo.setAgentSkillTimeoutSecs(value)
+    },
+    onClearMemory = {
+      val memoryRepo = try {
+        EntryPointAccessors.fromApplication(context, MemoryEntryPoint::class.java).memoryRepository()
+      } catch (e: Exception) { null }
+      memoryRepo?.let { repo ->
+        kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.IO).launch {
+          repo.clearAll()
+        }
+      }
     },
   )
 

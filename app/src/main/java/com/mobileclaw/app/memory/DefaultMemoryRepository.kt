@@ -223,6 +223,13 @@ class DefaultMemoryRepository(
     // Device facts are rarely evicted — they're high-value, low-count
   }
 
+  override suspend fun clearAll() {
+    dao.deleteAllEpisodes()
+    dao.deleteAllRepairs()
+    dao.deleteAllDeviceFacts()
+    Log.d(TAG, "Cleared all memory (episodes, repairs, device facts)")
+  }
+
   /** Extract keywords from text: lowercase, deduplicate, remove stopwords. */
   internal fun extractKeywords(text: String): String {
     val stopwords = setOf(
