@@ -82,14 +82,14 @@ Test workflow:
 4. Send prompt and verify response
 5. Capture screenshot
 
-| # | Skill | Test Prompt | Passed | Notes |
-|---|-------|------------|--------|-------|
-| 1 | calculator | What is 42 times 17? | | Base skill |
-| 2 | device-info | Show my device info | | Base skill |
-| 3 | search-web | Search the web for Claude AI | | Base skill |
-| 4 | set-reminder | Set a reminder for tomorrow at 9am to exercise | | Base skill |
-| 5 | clipboard | Copy this to clipboard: test123 | | Base skill |
-| 6 | summarize | Summarize this: The quick brown fox jumps over the lazy dog | | Base skill |
+Per-skill unit tests live in `test/skill-unit/<skill>/<action>.sh`.
+**Not** part of the main test flow — run manually when skills are updated:
+
+```bash
+./test/skill-unit/run.sh                    # all skills
+./test/skill-unit/run.sh calendar           # one skill (all actions)
+./test/skill-unit/run.sh calendar/create    # one action
+```
 
 ### Orchestration Scenarios
 
@@ -98,7 +98,7 @@ Test workflow:
 | 1 | single-native-skill | (none) | What is 42 times 17? | Goal achieved | 90 |
 | 2 | two-skill-chain | (none) | Get my device info and calculate the hash of the manufacturer name | Goal achieved | 180 |
 | 3 | web-and-summarize | (none) | Search the web for latest Android news and summarize it | Goal achieved | 240 |
-| 4 | reminder-test | (none) | Set a reminder for tomorrow at 9am to buy groceries | Goal achieved | 120 |
+| 4 | calendar-test | (none) | Set a reminder for tomorrow at 9am to buy groceries | Goal achieved | 120 |
 
 ### Auto-Repair Scenarios
 

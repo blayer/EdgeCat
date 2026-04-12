@@ -168,10 +168,12 @@ press_enter() {
 
 # Clear the input field (select all + delete)
 clear_input() {
+  # Select all text then delete — much faster than individual DEL presses
   $ADB shell input keyevent KEYCODE_MOVE_END
-  for i in $(seq 1 100); do
-    $ADB shell input keyevent KEYCODE_DEL
-  done
+  $ADB shell "input keycombination 113 29"   # Ctrl+A (select all)
+  sleep 0.2
+  $ADB shell input keyevent KEYCODE_DEL
+  sleep 0.2
 }
 
 # =============================================
@@ -209,6 +211,17 @@ warm_start() {
   if ui_has "Type prompt" || ui_has "Prompt input"; then
     return 0
   fi
+
+  # Press BACK a few times to escape external activities (settings, share sheet, etc.)
+  for i in 1 2 3; do
+    $ADB shell input keyevent KEYCODE_BACK
+    sleep 1
+    dump_ui
+    if ui_has "Type prompt" || ui_has "Prompt input"; then
+      return 0
+    fi
+  done
+
   # Not on chat screen — try launching activity
   $ADB shell am start -n "$PKG/$ACTIVITY" >/dev/null 2>&1
   sleep 3
@@ -216,6 +229,13 @@ warm_start() {
   if ui_has "Type prompt" || ui_has "Prompt input"; then
     return 0
   fi
+
+  # May be on model select screen — navigate to chat
+  if ui_has "Start" || ui_has "Try it" || ui_has "Choose a model"; then
+    navigate_to_chat
+    return $?
+  fi
+
   # Still not on chat, do full fresh start
   fresh_app
 }
@@ -327,6 +347,9 @@ send_prompt() {
   fi
   sleep 0.5
 
+  # Clear any leftover text from previous test
+  clear_input
+
   # Type the prompt
   type_text "$prompt"
   sleep 0.3
@@ -368,7 +391,7 @@ poll_ui() {
     cur_hash=$(ui_text | md5 2>/dev/null || ui_text | md5sum 2>/dev/null | cut -d' ' -f1)
     if [ -n "$prev_hash" ] && [ "$cur_hash" = "$prev_hash" ]; then
       stale_count=$((stale_count + 1))
-      if [ $stale_count -ge 3 ]; then
+      if [ $stale_count -ge 4 ]; then
         return 1  # UI settled, pattern not found
       fi
     else

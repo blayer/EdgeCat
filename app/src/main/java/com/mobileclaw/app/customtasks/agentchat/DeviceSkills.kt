@@ -125,20 +125,77 @@ class DeviceSkills(
     }
   }
 
-  // ─── Calendar: Read ───
+  // ─── Calendar: CRUD ───
 
-  suspend fun readCalendarEvents(startDate: String, endDate: String): Map<String, Any> {
-    sendProgress("Reading calendar events", inProgress = true, title = "Read Calendar", desc = "$startDate to $endDate")
+  suspend fun manageCalendar(action: String, args: Map<String, String>): Map<String, Any> {
+    return when (action.lowercase().replace("-", "_")) {
+      "create" -> {
+        val reminderMin = args["reminderMinutes"]?.toIntOrNull()
+        if (reminderMin != null) {
+          setReminder(args["title"] ?: "", args["startDateTime"] ?: args["dateTime"] ?: "", reminderMin)
+        } else {
+          createCalendarEvent(
+            args["title"] ?: "",
+            args["startDateTime"] ?: "",
+            args["endDateTime"] ?: "",
+            args["location"] ?: "",
+            args["description"] ?: "",
+          )
+        }
+      }
+      "read" -> readCalendarEvents(args["startDate"] ?: "", args["endDate"] ?: "")
+      "edit" -> editCalendarEvent(args)
+      "delete" -> {
+        val eid = args["eventId"]
+          ?: args["title"]?.let { findEventIdByTitle(it)?.toString() }
+          ?: args["eventTitle"]?.let { findEventIdByTitle(it)?.toString() }
+          ?: args["name"]?.let { findEventIdByTitle(it)?.toString() }
+        if (eid.isNullOrBlank()) {
+          mapOf("status" to "failed", "error" to "No eventId or title provided to find the event")
+        } else {
+          deleteCalendarEvent(eid)
+        }
+      }
+      else -> mapOf("status" to "failed", "error" to "Unknown action: $action. Use: create, read, edit, delete")
+    }
+  }
+
+  // ─── Timer / Alarm ───
+
+  suspend fun manageTimer(action: String, args: Map<String, String>): Map<String, Any> {
+    return when (action.lowercase().replace("-", "_")) {
+      "set_alarm" -> setAlarm(
+        args["hour"]?.toIntOrNull() ?: 0,
+        args["minute"]?.toIntOrNull() ?: 0,
+        args["label"] ?: "",
+      )
+      "set_timer" -> setTimer(
+        args["durationSeconds"]?.toIntOrNull() ?: 60,
+        args["label"] ?: "",
+      )
+      "show_alarms" -> showAlarms()
+      "dismiss_alarm" -> dismissAlarm(args["label"] ?: "")
+      else -> mapOf("status" to "failed", "error" to "Unknown action: $action. Use: set_alarm, set_timer, show_alarms, dismiss_alarm")
+    }
+  }
+
+  private suspend fun readCalendarEvents(startDate: String, endDate: String): Map<String, Any> {
+    // Default to today if dates are empty or unparseable
+    val sdf = SimpleDateFormat("yyyy-MM-dd", Locale.US)
+    sdf.timeZone = TimeZone.getDefault()
+    val todayStr = sdf.format(java.util.Date())
+    val effectiveStart = startDate.ifBlank { todayStr }
+    val effectiveEnd = endDate.ifBlank { effectiveStart }
+
+    sendProgress("Reading calendar events", inProgress = true, title = "Read Calendar", desc = "$effectiveStart to $effectiveEnd")
 
     if (!ensurePermission(Manifest.permission.READ_CALENDAR, rationale = "Read calendar events")) {
       return mapOf("status" to "failed", "error" to "Calendar permission denied")
     }
 
     return try {
-      val sdf = SimpleDateFormat("yyyy-MM-dd", Locale.US)
-      sdf.timeZone = TimeZone.getDefault()
-      val startMillis = sdf.parse(startDate)?.time ?: return mapOf("status" to "failed", "error" to "Invalid start date")
-      val endCal = Calendar.getInstance().apply { time = sdf.parse(endDate) ?: return mapOf("status" to "failed", "error" to "Invalid end date") }
+      val startMillis = sdf.parse(effectiveStart)?.time ?: return mapOf("status" to "failed", "error" to "Invalid start date: $effectiveStart")
+      val endCal = Calendar.getInstance().apply { time = sdf.parse(effectiveEnd) ?: return mapOf("status" to "failed", "error" to "Invalid end date: $effectiveEnd") }
       endCal.set(Calendar.HOUR_OF_DAY, 23)
       endCal.set(Calendar.MINUTE, 59)
       val endMillis = endCal.timeInMillis
@@ -180,9 +237,7 @@ class DeviceSkills(
     }
   }
 
-  // ─── Calendar: Write ───
-
-  suspend fun createCalendarEvent(
+  private suspend fun createCalendarEvent(
     title: String, startDateTime: String, endDateTime: String, location: String, description: String,
   ): Map<String, String> {
     sendProgress("Creating calendar event: $title", inProgress = true, title = "Create Event", desc = title)
@@ -221,6 +276,123 @@ class DeviceSkills(
     } catch (e: Exception) {
       Log.e(TAG, "Failed to create calendar event", e)
       mapOf("status" to "failed", "error" to (e.message ?: "Failed to create event"))
+    }
+  }
+
+  private suspend fun findEventIdByTitle(title: String): Long? {
+    val cursor = context.contentResolver.query(
+      CalendarContract.Events.CONTENT_URI,
+      arrayOf(CalendarContract.Events._ID),
+      "${CalendarContract.Events.TITLE} = ?",
+      arrayOf(title),
+      "${CalendarContract.Events.DTSTART} DESC",
+    )
+    return cursor?.use { if (it.moveToFirst()) it.getLong(0) else null }
+  }
+
+  private suspend fun editCalendarEvent(args: Map<String, String>): Map<String, String> {
+    // Look up event by ID, or fall back to finding by title
+    val lookupTitle = args["originalTitle"] ?: args["searchTitle"] ?: args["eventTitle"] ?: args["title"]
+    val eventId = args["eventId"]
+      ?: lookupTitle?.let { findEventIdByTitle(it)?.toString() }
+      ?: return mapOf("status" to "failed", "error" to "Missing eventId or event title to look up")
+    sendProgress("Editing event $eventId", inProgress = true, title = "Edit Event", desc = eventId)
+
+    if (!ensurePermission(Manifest.permission.WRITE_CALENDAR, Manifest.permission.READ_CALENDAR,
+        rationale = "Edit calendar events")) {
+      return mapOf("status" to "failed", "error" to "Calendar permission denied")
+    }
+
+    return try {
+      val values = ContentValues()
+      // newTitle takes priority for renaming; otherwise fall back to title
+      val newTitle = args["newTitle"] ?: args["newtitle"] ?: args["new_title"]
+      if (newTitle != null) {
+        values.put(CalendarContract.Events.TITLE, newTitle)
+      } else {
+        // Only set title if it's different from the lookup title (avoid no-op)
+        args["title"]?.let { if (it != lookupTitle) values.put(CalendarContract.Events.TITLE, it) }
+      }
+      args["startDateTime"]?.let {
+        parseDateTimeLenient(it)?.let { ms -> values.put(CalendarContract.Events.DTSTART, ms) }
+      }
+      args["endDateTime"]?.let {
+        parseDateTimeLenient(it)?.let { ms -> values.put(CalendarContract.Events.DTEND, ms) }
+      }
+      args["location"]?.let { values.put(CalendarContract.Events.EVENT_LOCATION, it) }
+      args["description"]?.let { values.put(CalendarContract.Events.DESCRIPTION, it) }
+
+      if (values.size() == 0) {
+        return mapOf("status" to "failed", "error" to "No fields to update")
+      }
+
+      val uri = android.content.ContentUris.withAppendedId(CalendarContract.Events.CONTENT_URI, eventId.toLong())
+      val rows = context.contentResolver.update(uri, values, null, null)
+      Log.d(TAG, "Updated $rows row(s) for event $eventId")
+      if (rows > 0) {
+        mapOf("status" to "succeeded", "message" to "Event $eventId updated")
+      } else {
+        mapOf("status" to "failed", "error" to "Event $eventId not found")
+      }
+    } catch (e: Exception) {
+      Log.e(TAG, "Failed to edit calendar event", e)
+      mapOf("status" to "failed", "error" to (e.message ?: "Failed to edit event"))
+    }
+  }
+
+  private suspend fun deleteCalendarEvent(eventId: String): Map<String, String> {
+    sendProgress("Deleting event $eventId", inProgress = true, title = "Delete Event", desc = eventId)
+
+    if (!ensurePermission(Manifest.permission.WRITE_CALENDAR, rationale = "Delete calendar events")) {
+      return mapOf("status" to "failed", "error" to "Calendar permission denied")
+    }
+
+    return try {
+      val uri = android.content.ContentUris.withAppendedId(CalendarContract.Events.CONTENT_URI, eventId.toLong())
+      val rows = context.contentResolver.delete(uri, null, null)
+      Log.d(TAG, "Deleted $rows row(s) for event $eventId")
+      if (rows > 0) {
+        mapOf("status" to "succeeded", "message" to "Event $eventId deleted")
+      } else {
+        mapOf("status" to "failed", "error" to "Event $eventId not found")
+      }
+    } catch (e: Exception) {
+      Log.e(TAG, "Failed to delete calendar event", e)
+      mapOf("status" to "failed", "error" to (e.message ?: "Failed to delete event"))
+    }
+  }
+
+  private suspend fun showAlarms(): Map<String, String> {
+    sendProgress("Showing alarms", inProgress = true, title = "Show Alarms")
+    return try {
+      val intent = Intent(AlarmClock.ACTION_SHOW_ALARMS).apply {
+        addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+      }
+      context.startActivity(intent)
+      mapOf("status" to "succeeded", "message" to "Clock app opened")
+    } catch (e: Exception) {
+      Log.e(TAG, "Failed to show alarms", e)
+      mapOf("status" to "failed", "error" to (e.message ?: "Failed to show alarms"))
+    }
+  }
+
+  private suspend fun dismissAlarm(label: String): Map<String, String> {
+    sendProgress("Dismissing alarm", inProgress = true, title = "Dismiss Alarm", desc = label)
+    return try {
+      val intent = Intent(AlarmClock.ACTION_DISMISS_ALARM).apply {
+        if (label.isNotEmpty()) {
+          putExtra(AlarmClock.EXTRA_ALARM_SEARCH_MODE, AlarmClock.ALARM_SEARCH_MODE_LABEL)
+          putExtra(AlarmClock.EXTRA_MESSAGE, label)
+        } else {
+          putExtra(AlarmClock.EXTRA_ALARM_SEARCH_MODE, AlarmClock.ALARM_SEARCH_MODE_ALL)
+        }
+        addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+      }
+      context.startActivity(intent)
+      mapOf("status" to "succeeded", "message" to "Alarm dismissed${if (label.isNotEmpty()) " ($label)" else ""}")
+    } catch (e: Exception) {
+      Log.e(TAG, "Failed to dismiss alarm", e)
+      mapOf("status" to "failed", "error" to (e.message ?: "Failed to dismiss alarm"))
     }
   }
 
@@ -392,7 +564,7 @@ class DeviceSkills(
 
   // ─── Set Alarm ───
 
-  suspend fun setAlarm(hour: Int, minute: Int, label: String): Map<String, String> {
+  private suspend fun setAlarm(hour: Int, minute: Int, label: String): Map<String, String> {
     sendProgress("Setting alarm for $hour:${"%02d".format(minute)}", inProgress = true, title = "Set Alarm", desc = label)
 
     return try {
@@ -413,7 +585,7 @@ class DeviceSkills(
 
   // ─── Set Timer ───
 
-  suspend fun setTimer(durationSeconds: Int, label: String): Map<String, String> {
+  private suspend fun setTimer(durationSeconds: Int, label: String): Map<String, String> {
     sendProgress("Setting timer for ${durationSeconds}s", inProgress = true, title = "Set Timer", desc = label)
 
     return try {
@@ -752,7 +924,7 @@ class DeviceSkills(
 
   // ─── Create Reminder (via calendar with reminder alert) ───
 
-  suspend fun setReminder(title: String, dateTime: String, minutesBefore: Int): Map<String, String> {
+  private suspend fun setReminder(title: String, dateTime: String, minutesBefore: Int): Map<String, String> {
     sendProgress("Setting reminder: $title", inProgress = true, title = "Set Reminder", desc = title)
 
     if (!ensurePermission(Manifest.permission.WRITE_CALENDAR, Manifest.permission.READ_CALENDAR,

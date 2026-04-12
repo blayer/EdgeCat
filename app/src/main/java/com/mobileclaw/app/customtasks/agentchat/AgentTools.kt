@@ -285,24 +285,33 @@ class AgentTools() : ToolSet {
     return runBlocking(Dispatchers.Default) { deviceSkills.sendEmail(to, subject, body) }
   }
 
-  @Tool(description = "Read calendar events within a date range from the device calendar")
-  fun readCalendarEvents(
-    @ToolParam(description = "Start date in yyyy-MM-dd format") startDate: String,
-    @ToolParam(description = "End date in yyyy-MM-dd format") endDate: String,
+  @Tool(description = "Manage calendar events and reminders. Actions: create, read, edit, delete")
+  fun manageCalendar(
+    @ToolParam(description = "Action: create, read, edit, delete") action: String,
+    @ToolParam(description = "JSON args, e.g. {\"title\":\"Meeting\",\"startDateTime\":\"2026-01-15T14:00\"}") args: String,
   ): Map<String, Any> {
-    return runBlocking(Dispatchers.Default) { deviceSkills.readCalendarEvents(startDate, endDate) }
+    return runBlocking(Dispatchers.Default) {
+      deviceSkills.manageCalendar(action, parseJsonArgs(args))
+    }
   }
 
-  @Tool(description = "Create a new event in the device calendar")
-  fun createCalendarEvent(
-    @ToolParam(description = "Event title") title: String,
-    @ToolParam(description = "Start date and time in yyyy-MM-ddTHH:mm format") startDateTime: String,
-    @ToolParam(description = "End date and time in yyyy-MM-ddTHH:mm format") endDateTime: String,
-    @ToolParam(description = "Event location, use empty string if none") location: String,
-    @ToolParam(description = "Event description, use empty string if none") description: String,
-  ): Map<String, String> {
+  @Tool(description = "Manage alarms and timers. Actions: set_alarm, set_timer, show_alarms, dismiss_alarm")
+  fun manageTimer(
+    @ToolParam(description = "Action: set_alarm, set_timer, show_alarms, dismiss_alarm") action: String,
+    @ToolParam(description = "JSON args, e.g. {\"hour\":\"7\",\"minute\":\"30\",\"label\":\"Wake up\"}") args: String,
+  ): Map<String, Any> {
     return runBlocking(Dispatchers.Default) {
-      deviceSkills.createCalendarEvent(title, startDateTime, endDateTime, location, description)
+      deviceSkills.manageTimer(action, parseJsonArgs(args))
+    }
+  }
+
+  private fun parseJsonArgs(args: String): Map<String, String> {
+    return try {
+      val json = org.json.JSONObject(args)
+      json.keys().asSequence().associateWith { json.optString(it, "") }
+    } catch (e: Exception) {
+      Log.w(TAG, "Failed to parse args as JSON: $args", e)
+      emptyMap()
     }
   }
 
@@ -344,26 +353,6 @@ class AgentTools() : ToolSet {
     return runBlocking(Dispatchers.Default) { deviceSkills.makePhoneCall(phoneNumber) }
   }
 
-  @Tool(description = "Set an alarm at a specific time")
-  fun setAlarm(
-    @ToolParam(description = "Hour in 24-hour format (0-23)") hour: String,
-    @ToolParam(description = "Minute (0-59)") minute: String,
-    @ToolParam(description = "Label for the alarm") label: String,
-  ): Map<String, String> {
-    return runBlocking(Dispatchers.Default) {
-      deviceSkills.setAlarm(hour.toIntOrNull() ?: 0, minute.toIntOrNull() ?: 0, label)
-    }
-  }
-
-  @Tool(description = "Set a countdown timer")
-  fun setTimer(
-    @ToolParam(description = "Duration in seconds") durationSeconds: String,
-    @ToolParam(description = "Label for the timer") label: String,
-  ): Map<String, String> {
-    return runBlocking(Dispatchers.Default) {
-      deviceSkills.setTimer(durationSeconds.toIntOrNull() ?: 60, label)
-    }
-  }
 
   @Tool(description = "Get the device's current GPS location with address")
   fun getLocation(): Map<String, String> {
@@ -466,16 +455,6 @@ class AgentTools() : ToolSet {
     return runBlocking(Dispatchers.Default) { deviceSkills.openSettings(settingsPage) }
   }
 
-  @Tool(description = "Set a reminder with a notification alert at a specific date and time")
-  fun setReminder(
-    @ToolParam(description = "Reminder title") title: String,
-    @ToolParam(description = "Date and time in yyyy-MM-ddTHH:mm format") dateTime: String,
-    @ToolParam(description = "Minutes before the event to show the alert") minutesBefore: String,
-  ): Map<String, String> {
-    return runBlocking(Dispatchers.Default) {
-      deviceSkills.setReminder(title, dateTime, minutesBefore.toIntOrNull() ?: 10)
-    }
-  }
 
   @Tool(description = "Check if the device has an active internet connection and what type (WiFi, cellular, etc)")
   fun checkInternet(): Map<String, String> {

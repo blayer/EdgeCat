@@ -121,7 +121,7 @@ class Planner {
 You are a task planner. Given a user request and available skills, produce an execution plan as JSON.
 
 Today: $dayOfWeek $dateStr $timeStr. Tomorrow: $tomorrowDate.
-Date-time format for toolArgs: yyyy-MM-ddTHH:mm (e.g., ${tomorrowDate}T15:00).
+IMPORTANT: All date-time values in toolArgs MUST use format yyyy-MM-ddTHH:mm. Examples: "${dateStr}T23:00", "${tomorrowDate}T09:00". Never use "today", "tomorrow", or "11pm" — always convert to this exact format.
 
 Available skills:
 $skillList
@@ -191,7 +191,7 @@ Respond with ONLY valid JSON:
 You are a task planner. A previous plan did not fully achieve the user's goal. Create a revised plan.
 
 Today: $dateStr. Tomorrow: $tomorrowDate.
-Date-time format for toolArgs: yyyy-MM-ddTHH:mm (e.g., ${tomorrowDate}T15:00).
+IMPORTANT: All date-time values in toolArgs MUST use format yyyy-MM-ddTHH:mm. Examples: "${dateStr}T23:00", "${tomorrowDate}T09:00". Never use "today", "tomorrow", or "11pm" — always convert to this exact format.
 
 User request: "$userMessage"
 $skillList${if (memoryContext.isNotEmpty()) "\n$memoryContext\n" else ""}

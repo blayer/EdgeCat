@@ -126,15 +126,20 @@ class ToolExecutorImpl(
             val map = agentTools.sendEmail(args["to"] ?: "", args["subject"] ?: "", args["body"] ?: "")
             ToolExecutionResult(success = map["status"] == "succeeded", output = map.toString())
           }
-          "readCalendarEvents" -> {
-            val map = agentTools.readCalendarEvents(args["startdate"] ?: "", args["enddate"] ?: "")
+          "manageCalendar" -> {
+            val action = args["action"] ?: return ToolExecutionResult(
+              success = false, output = "", error = "Missing action argument",
+            )
+            val calArgs = org.json.JSONObject(rawArgs.filterKeys { it.lowercase() != "action" }).toString()
+            val map = agentTools.manageCalendar(action, calArgs)
             ToolExecutionResult(success = map["status"] == "succeeded", output = map.toString())
           }
-          "createCalendarEvent" -> {
-            val map = agentTools.createCalendarEvent(
-              args["title"] ?: "", args["startdatetime"] ?: "", args["enddatetime"] ?: "",
-              args["location"] ?: "", args["description"] ?: "",
+          "manageTimer" -> {
+            val action = args["action"] ?: return ToolExecutionResult(
+              success = false, output = "", error = "Missing action argument",
             )
+            val timerArgs = org.json.JSONObject(rawArgs.filterKeys { it.lowercase() != "action" }).toString()
+            val map = agentTools.manageTimer(action, timerArgs)
             ToolExecutionResult(success = map["status"] == "succeeded", output = map.toString())
           }
           "readContacts" -> {
@@ -155,14 +160,6 @@ class ToolExecutorImpl(
           }
           "makePhoneCall" -> {
             val map = agentTools.makePhoneCall(args["phonenumber"] ?: "")
-            ToolExecutionResult(success = map["status"] == "succeeded", output = map.toString())
-          }
-          "setAlarm" -> {
-            val map = agentTools.setAlarm(args["hour"] ?: "0", args["minute"] ?: "0", args["label"] ?: "")
-            ToolExecutionResult(success = map["status"] == "succeeded", output = map.toString())
-          }
-          "setTimer" -> {
-            val map = agentTools.setTimer(args["durationseconds"] ?: "60", args["label"] ?: "")
             ToolExecutionResult(success = map["status"] == "succeeded", output = map.toString())
           }
           "getLocation" -> {
@@ -224,10 +221,6 @@ class ToolExecutorImpl(
           }
           "openSettings" -> {
             val map = agentTools.openSettings(args["settingspage"] ?: "general")
-            ToolExecutionResult(success = map["status"] == "succeeded", output = map.toString())
-          }
-          "setReminder" -> {
-            val map = agentTools.setReminder(args["title"] ?: "", args["datetime"] ?: "", args["minutesbefore"] ?: "10")
             ToolExecutionResult(success = map["status"] == "succeeded", output = map.toString())
           }
           "checkInternet" -> {

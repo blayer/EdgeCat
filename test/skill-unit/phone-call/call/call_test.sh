@@ -1,0 +1,3 @@
+PROMPT="Call 555-0100"
+PASS_PATTERN="emergency"
+TIMEOUT=20

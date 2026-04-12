@@ -1,0 +1,3 @@
+PROMPT="What is 42 times 17?"
+PASS_PATTERN="714"
+TIMEOUT=20

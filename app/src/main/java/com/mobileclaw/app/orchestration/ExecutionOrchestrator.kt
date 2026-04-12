@@ -35,15 +35,13 @@ private val NATIVE_SKILL_TOOLS = mapOf(
   "fetch-web-content" to "fetchWebContent",
   "send-sms" to "sendSms",
   "send-email" to "sendEmail",
-  "access-calendar" to "readCalendarEvents",
-  "create-calendar-event" to "createCalendarEvent",
+  "calendar" to "manageCalendar",
+  "timer" to "manageTimer",
   "read-contacts" to "readContacts",
   "list-photos" to "listPhotos",
   "list-apps" to "listApps",
   "launch-app" to "launchApp",
   "phone-call" to "makePhoneCall",
-  "set-alarm" to "setAlarm",
-  "set-timer" to "setTimer",
   "get-location" to "getLocation",
   "open-url" to "openUrl",
   "clipboard" to "getClipboard",
@@ -55,7 +53,6 @@ private val NATIVE_SKILL_TOOLS = mapOf(
   "take-photo" to "takePhoto",
   "list-downloads" to "listDownloads",
   "open-settings" to "openSettings",
-  "set-reminder" to "setReminder",
   "check-internet" to "checkInternet",
   "search-web" to "searchWeb",
 )
@@ -324,6 +321,37 @@ class ExecutionOrchestrator(
 
     Log.d(TAG, "Fixing date-time arg '$key': '$value'")
 
+    val today = java.time.LocalDate.now()
+    val tomorrow = today.plusDays(1)
+    val lower = value.lowercase().trim()
+
+    // Handle natural language: "today at 11pm", "tomorrow at 9am", "today 23:00"
+    val todayTomorrow = when {
+      lower.startsWith("tomorrow") -> tomorrow
+      lower.startsWith("today") || lower.startsWith("tonight") -> today
+      else -> null
+    }
+    if (todayTomorrow != null) {
+      val time = extractTime(lower)
+      if (time != null) {
+        args[key] = "${todayTomorrow}T$time"
+        Log.d(TAG, "Fixed natural language date-time to: ${args[key]}")
+        return
+      }
+      // No time found — default to 09:00
+      args[key] = "${todayTomorrow}T09:00"
+      Log.d(TAG, "Fixed natural language date (no time) to: ${args[key]}")
+      return
+    }
+
+    // Handle time-only values: "23:00", "11pm", "9:30 AM"
+    val timeOnly = extractTime(lower)
+    if (timeOnly != null && !lower.contains(Regex("""\d{4}"""))) {
+      args[key] = "${today}T$timeOnly"
+      Log.d(TAG, "Fixed time-only to: ${args[key]}")
+      return
+    }
+
     // Try to extract date and time components from garbled input.
     // Handle patterns like "2066406T15:00" -> should be "2026-04-06T15:00"
     val timeMatch = Regex("""(\d{1,2}):(\d{2})""").find(value)
@@ -345,14 +373,12 @@ class ExecutionOrchestrator(
         val year = beforeTime.substring(0, 4)
         val remaining = beforeTime.substring(4)
         if (remaining.length == 2) {
-          // Could be Md (e.g., "46" for April 6th).
           val month = remaining.substring(0, 1).padStart(2, '0')
           val day = remaining.substring(1, 2).padStart(2, '0')
           args[key] = "$year-$month-${day}T$hour:$minute"
           Log.d(TAG, "Fixed short date-time to: ${args[key]}")
           return
         } else if (remaining.length == 3) {
-          // Could be MMd or Mdd.
           val month = remaining.substring(0, 2)
           val day = remaining.substring(2, 3).padStart(2, '0')
           if (month.toIntOrNull() in 1..12) {
@@ -360,7 +386,6 @@ class ExecutionOrchestrator(
             Log.d(TAG, "Fixed 3-digit date-time to: ${args[key]}")
             return
           }
-          // Try M + dd.
           val month2 = remaining.substring(0, 1).padStart(2, '0')
           val day2 = remaining.substring(1, 3)
           args[key] = "$year-$month2-${day2}T$hour:$minute"
@@ -369,6 +394,42 @@ class ExecutionOrchestrator(
         }
       }
     }
+  }
+
+  /** Extract HH:mm from various time formats: "23:00", "11pm", "9:30 AM", "at 3pm" */
+  private fun extractTime(input: String): String? {
+    // 24h format: "23:00", "09:30"
+    Regex("""(\d{1,2}):(\d{2})""").find(input)?.let {
+      val h = it.groupValues[1].toInt()
+      val m = it.groupValues[2].toInt()
+      if (h in 0..23 && m in 0..59) return "${h.toString().padStart(2, '0')}:${m.toString().padStart(2, '0')}"
+    }
+    // 12h format: "11pm", "9 am", "3:30pm"
+    Regex("""(\d{1,2})(?::(\d{2}))?\s*(am|pm)""", RegexOption.IGNORE_CASE).find(input)?.let {
+      var h = it.groupValues[1].toInt()
+      val m = it.groupValues[2].toIntOrNull() ?: 0
+      val ampm = it.groupValues[3].lowercase()
+      if (ampm == "pm" && h != 12) h += 12
+      if (ampm == "am" && h == 12) h = 0
+      if (h in 0..23 && m in 0..59) return "${h.toString().padStart(2, '0')}:${m.toString().padStart(2, '0')}"
+    }
+    return null
+  }
+
+  /** Fix date-only args: convert "today", "tomorrow" to yyyy-MM-dd. */
+  internal fun fixDateArgs(args: MutableMap<String, String>, key: String) {
+    val value = args[key] ?: return
+    if (value.matches(Regex("""\d{4}-\d{2}-\d{2}"""))) return
+
+    val today = java.time.LocalDate.now()
+    val lower = value.lowercase().trim()
+    val date = when {
+      lower == "today" || lower.startsWith("today") -> today
+      lower == "tomorrow" || lower.startsWith("tomorrow") -> today.plusDays(1)
+      else -> return // leave as-is, DeviceSkills will default to today if blank
+    }
+    args[key] = date.toString()
+    Log.d(TAG, "Fixed date arg '$key' from '$value' to '${args[key]}'")
   }
 
   /**
@@ -390,14 +451,50 @@ class ExecutionOrchestrator(
       }
     }
 
+    // Rescue garbled keys: scan all args for values that look like date-times
+    // and map them to startDateTime/endDateTime if those are empty.
+    val isoDateTimePattern = Regex("""\d{4}-\d{2}-\d{2}T\d{2}:\d{2}""")
+    if (args["startDateTime"].isNullOrBlank()) {
+      // Look for any arg value that looks like a valid datetime
+      val rescueEntry = args.entries.firstOrNull { (key, value) ->
+        key != "endDateTime" && key != "title" && key != "action" &&
+          key != "location" && key != "description" &&
+          isoDateTimePattern.containsMatchIn(value)
+      }
+      if (rescueEntry != null) {
+        args["startDateTime"] = rescueEntry.value
+        args.remove(rescueEntry.key)
+        Log.d(TAG, "Rescued startDateTime from garbled key '${rescueEntry.key}': ${args["startDateTime"]}")
+      } else if (!args["endDateTime"].isNullOrBlank()) {
+        // If endDateTime is set but startDateTime is empty, copy endDateTime
+        args["startDateTime"] = args["endDateTime"]!!
+        Log.d(TAG, "Copied endDateTime to missing startDateTime: ${args["startDateTime"]}")
+      }
+    }
+
     // If endDateTime is missing, default to startDateTime + 1 hour.
-    if (args.containsKey("startDateTime") && !args.containsKey("endDateTime")) {
+    if (!args["startDateTime"].isNullOrBlank() && args["endDateTime"].isNullOrBlank()) {
       val start = args["startDateTime"]!!
       val hourMatch = Regex("""T(\d{2}):(\d{2})""").find(start)
       if (hourMatch != null) {
         val hour = hourMatch.groupValues[1].toIntOrNull() ?: 0
         val newHour = ((hour + 1) % 24).toString().padStart(2, '0')
         args["endDateTime"] = start.replace(hourMatch.value, "T$newHour:${hourMatch.groupValues[2]}")
+      }
+    }
+
+    // Last resort: if startDateTime is still empty, infer from step description context
+    // using today's date + any time found in args values
+    if (args["startDateTime"].isNullOrBlank()) {
+      val today = java.time.LocalDate.now()
+      // Try to find a time in any arg value
+      for ((_, value) in args) {
+        val time = extractTime(value.lowercase())
+        if (time != null) {
+          args["startDateTime"] = "${today}T$time"
+          Log.d(TAG, "Inferred startDateTime from arg values: ${args["startDateTime"]}")
+          break
+        }
       }
     }
   }
@@ -459,13 +556,90 @@ class ExecutionOrchestrator(
       args["expression"] = desc
     }
 
-    // For calendar event creation, fix common date-time arg issues.
-    if (toolName == "createCalendarEvent") {
+    // For multi-action tools, infer the action from the step description if missing.
+    // Use word-boundary matching to avoid false positives (e.g., "DeleteMe" != "delete").
+    if (toolName == "manageCalendar" && !args.containsKey("action")) {
+      val desc = step.description.lowercase()
+      fun hasWord(vararg words: String) = words.any { desc.contains(Regex("""\b${it}\b""")) }
+      val action = when {
+        hasWord("delete", "remove", "cancel") -> "delete"
+        hasWord("edit", "update", "change", "modify", "rename") -> "edit"
+        hasWord("read", "show", "list", "get", "check", "view", "find", "search") -> "read"
+        else -> "create"
+      }
+      args["action"] = action
+      Log.d(TAG, "Inferred calendar action='$action' from description: ${step.description}")
+    }
+
+    // For calendar edit/delete, ensure we have an eventId or title to look up.
+    if (toolName == "manageCalendar") {
+      val action = args["action"]?.lowercase()
+      if (action == "delete" || action == "edit") {
+        // If eventId is a non-numeric string (e.g., dep output or placeholder), try to extract real ID
+        val currentId = args["eventId"]
+        if (!currentId.isNullOrBlank() && currentId.toLongOrNull() == null) {
+          val idMatch = Regex("""_id=(\d+)""").find(currentId)
+            ?: Regex("""event_id[=:](\d+)""").find(currentId)
+          if (idMatch != null) {
+            args["eventId"] = idMatch.groupValues[1]
+            Log.d(TAG, "Extracted eventId '${args["eventId"]}' from raw value")
+          } else {
+            args.remove("eventId") // invalid, let title lookup handle it
+            Log.d(TAG, "Removed invalid eventId: ${currentId.take(100)}")
+          }
+        }
+
+        // If still no valid eventId, try title-based lookup
+        if (args["eventId"].isNullOrBlank()) {
+          // Check dependency outputs for event IDs
+          for ((_, output) in depOutputs) {
+            val idMatch = Regex("""_id=(\d+)""").find(output)
+              ?: Regex("""event_id[=:](\d+)""").find(output)
+            if (idMatch != null) {
+              args["eventId"] = idMatch.groupValues[1]
+              Log.d(TAG, "Extracted eventId '${args["eventId"]}' from dependency output")
+              break
+            }
+          }
+        }
+
+        // If still no eventId, extract title from step description
+        if (args["eventId"].isNullOrBlank() && args["title"].isNullOrBlank() && args["originalTitle"].isNullOrBlank()) {
+          val desc = step.description
+          val titleMatch = Regex("""['"]([^'"]+)['"]""").find(desc)
+            ?: Regex("""(?:named|called|titled)\s+(\S+)""", RegexOption.IGNORE_CASE).find(desc)
+          if (titleMatch != null) {
+            args["title"] = titleMatch.groupValues[1]
+            Log.d(TAG, "Extracted event title '${args["title"]}' from description for $action")
+          }
+        }
+      }
+    }
+
+    if (toolName == "manageTimer" && !args.containsKey("action")) {
+      val desc = step.description.lowercase()
+      val action = when {
+        desc.contains("dismiss") -> "dismiss_alarm"
+        desc.contains("show") || desc.contains("list") || desc.contains("view") -> "show_alarms"
+        desc.contains("timer") || desc.contains("countdown") -> "set_timer"
+        else -> "set_alarm"
+      }
+      args["action"] = action
+      Log.d(TAG, "Inferred timer action='$action' from description: ${step.description}")
+    }
+
+    // For calendar tool, fix common date-time arg issues.
+    if (toolName == "manageCalendar") {
       fixDateTimeArgs(args, "startdatetime")
       fixDateTimeArgs(args, "startDateTime")
       fixDateTimeArgs(args, "enddatetime")
       fixDateTimeArgs(args, "endDateTime")
-      // Normalize arg keys to what DeviceSkills expects.
+      fixDateTimeArgs(args, "dateTime")
+      fixDateTimeArgs(args, "datetime")
+      fixDateArgs(args, "startDate")
+      fixDateArgs(args, "endDate")
+      fixDateArgs(args, "startdate")
+      fixDateArgs(args, "enddate")
       normalizeCalendarArgs(args)
     }
 
