@@ -313,7 +313,11 @@ class PlannerTest {
   @Test
   fun `buildPlanningPrompt handles empty skills`() {
     val prompt = planner.buildPlanningPrompt("hello", emptyList())
-    assertTrue(prompt.contains("No skills available."))
+    // Even with no user-installed skills, the catalog always exposes the built-in LLM
+    // synthesis skills and the skill-discovery meta-skill.
+    assertTrue(prompt.contains("- compose:"))
+    assertTrue(prompt.contains("- summarize:"))
+    assertTrue(prompt.contains("- search-skills:"))
   }
 
   @Test

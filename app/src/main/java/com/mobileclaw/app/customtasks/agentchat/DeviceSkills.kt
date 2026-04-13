@@ -1363,19 +1363,91 @@ class DeviceSkills(
    * Basic HTML-to-text: strips tags, decodes common entities, collapses whitespace.
    */
   internal fun extractTextFromHtml(html: String): String {
-    // Remove script/style blocks.
-    var text = html.replace(Regex("<(script|style)[^>]*>[\\s\\S]*?</\\1>", RegexOption.IGNORE_CASE), "")
-    // Convert <br>, <p>, <div>, <li> to newlines.
-    text = text.replace(Regex("<(br|p|div|li|h[1-6])[^>]*/?>", RegexOption.IGNORE_CASE), "\n")
+    // Remove script/style/nav/footer/header blocks — they are noise for content extraction.
+    var text = html.replace(
+      Regex(
+        "<(script|style|nav|footer|header|aside|form)[^>]*>[\\s\\S]*?</\\1>",
+        RegexOption.IGNORE_CASE,
+      ),
+      "",
+    )
+    // Prefer <main> / <article> / role="main" content if present.
+    val mainMatch = Regex(
+      "<(main|article)\\b[^>]*>([\\s\\S]*?)</\\1>",
+      RegexOption.IGNORE_CASE,
+    ).find(text)
+    if (mainMatch != null) {
+      text = mainMatch.groupValues[2]
+    }
+    // Convert block-level tags and table rows to newlines so content doesn't all smash together.
+    text = text.replace(
+      Regex("<(br|p|div|li|h[1-6]|tr|section)[^>]*/?>", RegexOption.IGNORE_CASE),
+      "\n",
+    )
+    // Collapse <td>/<th> to a tab so table rows remain scannable.
+    text = text.replace(Regex("<(td|th)[^>]*/?>", RegexOption.IGNORE_CASE), "\t")
     // Strip remaining tags.
-    text = text.replace(Regex("<[^>]+>"), "")
+    text = text.replace(Regex("<[^>]+>"), " ")
     // Decode common entities.
     text = text.replace("&amp;", "&").replace("&lt;", "<").replace("&gt;", ">")
       .replace("&quot;", "\"").replace("&#39;", "'").replace("&nbsp;", " ")
-    // Collapse whitespace.
-    text = text.replace(Regex("[ \\t]+"), " ")
-    text = text.replace(Regex("\\n{3,}"), "\n\n")
-    return text.trim()
+    // Collapse whitespace per line (preserve newlines).
+    text = text.lineSequence()
+      .map { it.replace(Regex("[ \\t]+"), " ").trim() }
+      .filter { it.isNotEmpty() }
+      .joinToString("\n")
+
+    // Drop nav-like short lines (<= 25 chars, no sentence punctuation) that appear in runs.
+    // Pages often start with a wall of single-word menu items that drown out real content.
+    val lines = text.lines()
+    val kept = lines.filterIndexed { idx, line ->
+      if (line.length >= 50) return@filterIndexed true
+      if (line.any { it in ".?!:" } && line.length >= 20) return@filterIndexed true
+      // Keep short data lines with temperature/weather signals.
+      if (Regex("""[-+]?\d+\s*(?:°|°c|°f|%|km/h|mph|mm|in)\b""", RegexOption.IGNORE_CASE)
+          .containsMatchIn(line)
+      ) return@filterIndexed true
+      false
+    }
+    return kept.joinToString("\n").replace(Regex("\\n{3,}"), "\n\n").trim()
+  }
+
+  /**
+   * Heuristic: detect fetched pages that are blocked/gated/empty and shouldn't be fed into the
+   * formatter. Weather/news sites commonly reject simple HTTP clients with Cloudflare/Akamai
+   * challenges or return a tiny JS shell.
+   */
+  private fun isUnusablePageContent(content: String): Boolean {
+    if (content.isBlank()) return true
+    if (content.length < 400) return true
+    val lower = content.lowercase()
+    val blockSignals = listOf(
+      "access denied",
+      "attention required",
+      "checking your browser",
+      "enable javascript",
+      "please enable js",
+      "cloudflare",
+      "request unsuccessful. incapsula",
+      "verify you are a human",
+      "bot protection",
+      "403 forbidden",
+    )
+    if (blockSignals.any { it in lower }) return true
+    // Require at least some alphabetic prose — very low alpha-char ratio usually means it's
+    // mostly nav markup / whitespace.
+    val alphaCount = content.count { it.isLetter() }
+    if (alphaCount < content.length / 4) return true
+    return false
+  }
+
+  /** Strip HTML tags and decode common entities from a short fragment (e.g. a search snippet). */
+  private fun stripHtmlTags(fragment: String): String {
+    var text = fragment.replace(Regex("<[^>]+>"), "")
+    text = text.replace("&amp;", "&").replace("&lt;", "<").replace("&gt;", ">")
+      .replace("&quot;", "\"").replace("&#39;", "'").replace("&nbsp;", " ")
+    text = text.replace(Regex("\\s+"), " ")
+    return text
   }
 
   // ─── Check Internet Connection ───
@@ -1421,23 +1493,87 @@ class DeviceSkills(
     return try {
       val encodedQuery = java.net.URLEncoder.encode(query, "UTF-8")
 
-      val results = searchGoogle(encodedQuery)
+      // DuckDuckGo only — Google returns a consent/redirect stub to mobile scrapers that
+      // defeats our HTML parser. DDG lite works reliably.
+      val results = searchDuckDuckGo(encodedQuery)
+      val source = "duckduckgo"
 
-      if (results.isBlank()) {
+      if (isUnusableSearchResult(results)) {
         return mapOf("status" to "failed", "error" to "No search results found for: $query")
       }
 
-      val truncated = if (results.length > 3000) results.take(3000) + "\n...[truncated]" else results
+      // Auto-fetch the top 2 result URLs so the caller gets actual page content, not just
+      // titles/snippets. DuckDuckGo returns links and one-line blurbs — without this, downstream
+      // evaluation/formatting has nothing substantive to work with.
+      // Auto-fetch page content: try up to 3 top URLs, skip junk (blocked/empty/tiny),
+      // keep the first usable one. Many weather/news sites block simple HTTP clients or
+      // return JS-only shells — hence the fallback chain.
+      val candidateUrls = Regex("""https?://[^\s]+""")
+        .findAll(results)
+        .map { it.value.trimEnd('.', ',', ')', ']') }
+        .map { it.replace("&amp;", "&") }
+        .filter { !it.contains("duckduckgo.com") }
+        .distinct()
+        .take(3)
+        .toList()
+
+      Log.d(TAG, "webSearch: candidate URLs: $candidateUrls")
+      val pageContent = StringBuilder()
+      for ((i, url) in candidateUrls.withIndex()) {
+        try {
+          val fetched = fetchWebContent(url)
+          val status = fetched["status"]
+          val content = fetched["content"] ?: ""
+          val usable = status == "succeeded" && !isUnusablePageContent(content)
+          Log.d(TAG, "webSearch auto-fetch #${i + 1} $url -> status=$status, content=${content.length} chars, usable=$usable")
+          if (status == "succeeded") {
+            Log.d(TAG, "  content head: ${content.take(300).replace("\n", " | ")}")
+          }
+          if (!usable) continue
+          pageContent.append("\n--- Page content from $url ---\n")
+          pageContent.append(content.take(1500))
+          pageContent.append("\n")
+          break  // one good page is enough for the 2B formatter
+        } catch (e: Exception) {
+          Log.w(TAG, "Auto-fetch failed for $url: ${e.message}")
+        }
+      }
+
+      // Keep only the first 5 search result entries to save tokens for fetched content.
+      val trimmedResults = results.lineSequence()
+        .take(25)  // ~5 results × 4-5 lines each
+        .joinToString("\n")
+      val combined = if (pageContent.isNotEmpty()) "$trimmedResults\n$pageContent" else results
+      val truncated = if (combined.length > 4000) combined.take(4000) + "\n...[truncated]" else combined
 
       mapOf(
         "status" to "succeeded",
         "query" to query,
+        "source" to source,
         "results" to truncated,
       )
     } catch (e: Exception) {
       Log.e(TAG, "Failed to web search", e)
       mapOf("status" to "failed", "error" to (e.message ?: "Web search failed"))
     }
+  }
+
+  /**
+   * Google sometimes returns a consent / "click here if not redirected" stub instead of real
+   * results. Treat such pages, and anything suspiciously short, as unusable so we can fall back.
+   */
+  private fun isUnusableSearchResult(text: String): Boolean {
+    if (text.isBlank()) return true
+    if (text.length < 120) return true
+    val lower = text.lowercase()
+    val stubSignals = listOf(
+      "click here if you are not redirected",
+      "enable javascript",
+      "before you continue",
+      "our systems have detected unusual traffic",
+      "sorry, we can't verify",
+    )
+    return stubSignals.any { lower.contains(it) }
   }
 
   /**
@@ -1578,8 +1714,9 @@ class DeviceSkills(
 
     for (i in links.indices.take(8)) {
       val url = links[i].groupValues[1]
-      val title = links[i].groupValues[2].trim()
-      val snippet = snippets.getOrNull(i)?.groupValues?.get(1)?.trim() ?: ""
+      val title = stripHtmlTags(links[i].groupValues[2]).trim()
+      val rawSnippet = snippets.getOrNull(i)?.groupValues?.get(1) ?: ""
+      val snippet = stripHtmlTags(rawSnippet).trim()
       results.append("${i + 1}. $title\n   $url\n   $snippet\n\n")
     }
 

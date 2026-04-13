@@ -44,32 +44,74 @@ class SelfEvaluator {
         "- ${step.id} (${step.description}): $status — $output$error"
       }
 
+    // Rubric-based evaluation when the planner emitted success criteria; otherwise fall back
+    // to the holistic prompt.
+    return if (plan.successCriteria.isNotEmpty()) {
+      buildRubricPrompt(goal, plan.successCriteria, stepsStr)
+    } else {
+      buildHolisticPrompt(goal, stepsStr)
+    }
+  }
+
+  private fun buildRubricPrompt(goal: String, criteria: List<String>, stepsStr: String): String {
+    val criteriaStr = criteria.mapIndexed { i, c -> "${i + 1}. $c" }.joinToString("\n")
     return """
-You are an evaluator. Determine if the user's goal was achieved by the execution results.
+You are a strict QA auditor. Your default stance is skeptical — find reasons the goal was NOT met before concluding it was met.
 
 User's goal: "$goal"
 
-Plan reasoning: ${plan.reasoning}
+Success criteria (the goal is met ONLY if every criterion is met):
+$criteriaStr
 
 Execution results:
 $stepsStr
 
-Evaluate the results and respond with ONLY valid JSON:
+Step 1 — Failure evidence: list concrete evidence from the step outputs that any criterion was NOT met. Quote the specific text. If none, write "none".
+Step 2 — Verdict: for each criterion output met=true|false and an exact `quote` from the step outputs that proves it. The quote MUST be copied verbatim from a step's output text — do not paraphrase, do not invent. If you cannot find a verbatim quote, mark met=false and set quote="".
+Step 3 — Output ONLY this JSON (no prose before or after):
 ```json
 {
-  "goalAchieved": true or false,
-  "assessment": "brief explanation of what was achieved or what went wrong",
-  "missingItems": ["item 1 that is still needed", "item 2"],
+  "criteria": [
+    {"name": "criterion 1 text", "met": true or false, "quote": "exact substring from a step output", "reason": "short reason"}
+  ],
+  "failedCriteria": ["criterion text", "..."],
   "shouldReplan": true or false
 }
 ```
 
 Rules:
-- goalAchieved = true if the user's request is fully satisfied
-- If the core request is satisfied, mark goalAchieved = true even if formatting isn't perfect
-- missingItems should be empty if goalAchieved is true
-- shouldReplan = true only if there is a clear path to improvement with a revised plan
-- shouldReplan = false if the failure is unrecoverable (e.g., skill not available)
+- goalAchieved is DERIVED: true iff every criterion has met=true AND its quote appears verbatim in the step outputs above.
+- A criterion with met=true but an empty, invented, or paraphrased quote will be rejected.
+- failedCriteria must list every criterion with met=false.
+- shouldReplan = true only if a revised plan could plausibly fix the failures. false if unrecoverable (skill missing, permission denied, etc.).
+- No free-text assessment. No preamble. JSON only.
+""".trimIndent()
+  }
+
+  private fun buildHolisticPrompt(goal: String, stepsStr: String): String {
+    return """
+You are a strict QA auditor. Your default stance is skeptical.
+
+User's goal: "$goal"
+
+Execution results:
+$stepsStr
+
+Step 1 — List concrete evidence from the step outputs that the goal was NOT met. Quote the specific text. If none, write "none".
+Step 2 — Output ONLY this JSON:
+```json
+{
+  "goalAchieved": true or false,
+  "missingItems": ["item still needed", "..."],
+  "shouldReplan": true or false
+}
+```
+
+Rules:
+- goalAchieved = true only if the core request is clearly satisfied by the step outputs.
+- missingItems must be empty when goalAchieved is true.
+- shouldReplan = true only if a revised plan could plausibly fix the gap.
+- No preamble. JSON only.
 """.trimIndent()
   }
 
@@ -86,7 +128,7 @@ Rules:
       val jsonStr = extractJson(llmOutput)
       if (jsonStr != null) {
         try {
-          return@run parseJsonEvaluation(jsonStr)
+          return@run parseJsonEvaluation(jsonStr, stepOutputs)
         } catch (e: Exception) {
           Log.w(TAG, "JSON parsing failed for evaluation, using fallback: ${e.message}")
         }
@@ -118,15 +160,63 @@ Rules:
     val codeBlockRegex = Regex("```(?:json)?\\s*\\n?(\\{.*?\\})\\s*```", RegexOption.DOT_MATCHES_ALL)
     codeBlockRegex.find(text)?.let { return it.groupValues[1].trim() }
 
-    val jsonRegex = Regex("(\\{\\s*\"goalAchieved\".*\\})", RegexOption.DOT_MATCHES_ALL)
-    jsonRegex.find(text)?.let { return it.groupValues[1].trim() }
-
+    // Try any JSON object with a recognizable eval field.
+    for (key in listOf("criteria", "goalAchieved", "failedCriteria")) {
+      val jsonRegex = Regex("(\\{[^{}]*\"$key\"[\\s\\S]*\\})", RegexOption.DOT_MATCHES_ALL)
+      jsonRegex.find(text)?.let { return it.groupValues[1].trim() }
+    }
     return null
   }
 
-  private fun parseJsonEvaluation(jsonStr: String): EvaluationResult {
+  private fun parseJsonEvaluation(jsonStr: String, stepOutputs: String = ""): EvaluationResult {
     val json = JSONObject(jsonStr)
 
+    // Rubric schema: derive goalAchieved from per-criterion verdicts.
+    val criteriaArr = json.optJSONArray("criteria")
+    if (criteriaArr != null) {
+      val failed = mutableListOf<String>()
+      var anyCriterion = false
+      val haystack = stepOutputs.lowercase()
+      for (i in 0 until criteriaArr.length()) {
+        val c = criteriaArr.optJSONObject(i) ?: continue
+        anyCriterion = true
+        val claimedMet = c.optBoolean("met", false)
+        val quote = c.optString("quote", "").trim()
+        val name = c.optString("name").ifEmpty { c.optString("reason", "criterion ${i + 1}") }
+        // Evidence grounding: when the model claims met=true, the quote must appear verbatim in
+        // the step outputs. Small models fabricate evidence; this rejects hallucinated passes.
+        val groundedMet = if (claimedMet && haystack.isNotEmpty()) {
+          val q = quote.lowercase()
+          if (q.length >= 4 && haystack.contains(q)) {
+            true
+          } else {
+            Log.w(TAG, "Evidence grounding rejected criterion '$name' (quote=\"$quote\" not in outputs)")
+            false
+          }
+        } else claimedMet
+        if (!groundedMet) failed.add(name)
+      }
+      // Explicit failedCriteria list also merged (model may emit it even with criteria array).
+      val explicitFailed = json.optJSONArray("failedCriteria")
+      if (explicitFailed != null) {
+        for (i in 0 until explicitFailed.length()) {
+          val item = explicitFailed.optString(i).trim()
+          if (item.isNotEmpty() && item !in failed) failed.add(item)
+        }
+      }
+      if (anyCriterion) {
+        val goalAchieved = failed.isEmpty()
+        return EvaluationResult(
+          goalAchieved = goalAchieved,
+          assessment = if (goalAchieved) "All criteria met" else "Unmet criteria: ${failed.joinToString("; ")}",
+          missingItems = failed,
+          shouldReplan = !goalAchieved && json.optBoolean("shouldReplan", true),
+          failedCriteria = failed,
+        )
+      }
+    }
+
+    // Holistic schema fallback.
     val missingItems = mutableListOf<String>()
     val missingArray = json.optJSONArray("missingItems")
     if (missingArray != null) {
@@ -136,7 +226,7 @@ Rules:
     }
 
     return EvaluationResult(
-      goalAchieved = json.getBoolean("goalAchieved"),
+      goalAchieved = json.optBoolean("goalAchieved", false),
       assessment = json.optString("assessment", ""),
       missingItems = missingItems,
       shouldReplan = json.optBoolean("shouldReplan", false),

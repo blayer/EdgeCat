@@ -63,7 +63,12 @@ class ThinkingPolicy(val mode: ThinkingMode) {
 
   fun evaluator(): Boolean = false
 
-  fun format(): Boolean = false
+  /** [complexOutput] = multi-step or large structured raw output needing synthesis. */
+  fun format(complexOutput: Boolean = false): Boolean = when (mode) {
+    ThinkingMode.OFF -> false
+    ThinkingMode.AUTO -> complexOutput
+    ThinkingMode.AGGRESSIVE -> true
+  }
 
   fun llmStep(): Boolean = false
 

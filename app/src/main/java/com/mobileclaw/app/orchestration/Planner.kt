@@ -100,16 +100,7 @@ class Planner {
 
   /** Build a prompt that instructs the LLM to output a JSON execution plan. */
   fun buildPlanningPrompt(userMessage: String, skills: List<SkillSummary>, memoryContext: String = ""): String {
-    val skillList =
-      if (skills.isEmpty()) "No skills available."
-      else skills.joinToString("\n") { skill ->
-        val base = "- ${skill.name}: ${skill.description}"
-        if (skill.instructions.isNotEmpty()) {
-          // Extract only data field names from instructions to keep prompt short.
-          val fields = extractDataFields(skill.instructions)
-          if (fields.isNotEmpty()) "$base (data fields: $fields)" else base
-        } else base
-      }
+    val skillList = renderSkillCatalog(skills)
 
     val now = java.time.LocalDateTime.now()
     val dateStr = now.format(java.time.format.DateTimeFormatter.ofPattern("yyyy-MM-dd"))
@@ -126,21 +117,39 @@ IMPORTANT: All date-time values in toolArgs MUST use format yyyy-MM-ddTHH:mm. Ex
 Available skills:
 $skillList
 ${if (memoryContext.isNotEmpty()) "\n$memoryContext\n" else ""}
-Set "skillName" to the skill name and put input parameters in "toolArgs" as key-value pairs.
-For LLM-only steps (like summarize), set skillName to "summarize".
+Set "skillName" to a skill name from the catalog above and put input parameters in "toolArgs" as key-value pairs.
 
 Rules:
 - Each step has: id, description, skillName, toolArgs, dependsOn
 - dependsOn lists step IDs that must complete first (empty = can run in parallel)
 - Keep the plan minimal — fewest steps needed
 - Use available skills. Do NOT answer from knowledge alone.
+- skillName MUST be a name that appears in the catalog above. Do NOT invent skills (no `generate_X`, `create_Y`, etc.).
+- `calculate` is for math expressions ONLY (e.g. "47*0.15", "sqrt(2)"). Never put prose or instructions in its expression field.
+- For generating long-form text (itineraries, reports, summaries from multiple sources, emails, step-by-step plans), use `compose` — NOT `calculate`.
+- For condensing existing text, use `summarize`.
 - If the request has TWO actions joined by "and", "then", or a comma (e.g. "get X and do Y with X"), produce TWO steps — the second step's dependsOn must include the first.
+- If only a deferred (name-only) skill fits the request, output a SINGLE-STEP plan using `search-skills` with a short keyword query. The system will re-plan with the loaded skill available.
+
+Example — deferred skill discovery:
+Request: "Scan a QR code from my latest photo"
+Steps: [
+  {"id":"step_1","description":"Find barcode scanning skill","skillName":"search-skills","toolArgs":{"query":"barcode qr scan"},"dependsOn":[]}
+]
 
 Example — multi-step with dependency:
 Request: "Get my device info and hash the manufacturer name"
 Steps: [
   {"id":"step_1","description":"Get device info","skillName":"device-info","toolArgs":{},"dependsOn":[]},
   {"id":"step_2","description":"Hash the manufacturer from step_1","skillName":"calculate","toolArgs":{"expression":"sha256(step_1.manufacturer)"},"dependsOn":["step_1"]}
+]
+
+Example — research + synthesize (use compose, NOT calculate, for text generation):
+Request: "Make a 3-day Tokyo itinerary with weather and events"
+Steps: [
+  {"id":"step_1","description":"Search Tokyo weather for the trip dates","skillName":"search-web","toolArgs":{"query":"Tokyo weather forecast next 3 days"},"dependsOn":[]},
+  {"id":"step_2","description":"Search Tokyo seasonal events and views","skillName":"search-web","toolArgs":{"query":"Tokyo seasonal events April sightseeing"},"dependsOn":[]},
+  {"id":"step_3","description":"Write the 3-day hour-by-hour itinerary using step_1 weather and step_2 events","skillName":"compose","toolArgs":{"instruction":"Produce a detailed 3-day Tokyo itinerary with hour-by-hour blocks, referencing the weather from step_1 and events from step_2."},"dependsOn":["step_1","step_2"]}
 ]
 
 User request: "$userMessage"
@@ -150,6 +159,7 @@ Respond with ONLY valid JSON:
 {
   "goal": "the user's goal",
   "reasoning": "brief explanation",
+  "successCriteria": ["concrete outcome 1 that means the user's request is satisfied", "outcome 2"],
   "steps": [
     {
       "id": "step_1",
@@ -161,6 +171,8 @@ Respond with ONLY valid JSON:
   ]
 }
 ```
+
+successCriteria: 1–3 short, concrete, verifiable outcomes (e.g. "an alarm is set for 7:00 AM tomorrow", "the weather for Tokyo on Friday is shown"). These are judged against the actual step outputs — they should describe observable results, not actions.
 """.trimIndent()
   }
 
@@ -183,13 +195,7 @@ Respond with ONLY valid JSON:
     val skillList =
       if (skills.isEmpty()) ""
       else "\nAvailable skills (you MUST use these exact skill names):\n" +
-        skills.joinToString("\n") { skill ->
-          val base = "- ${skill.name}: ${skill.description}"
-          if (skill.instructions.isNotEmpty()) {
-            val fields = extractDataFields(skill.instructions)
-            if (fields.isNotEmpty()) "$base (data fields: $fields)" else base
-          } else base
-        } + "\n"
+        renderSkillCatalog(skills) + "\n"
 
     val now = java.time.LocalDateTime.now()
     val dateStr = now.format(java.time.format.DateTimeFormatter.ofPattern("yyyy-MM-dd"))
@@ -221,6 +227,7 @@ Respond with ONLY valid JSON:
 {
   "goal": "the user's goal",
   "reasoning": "explanation of revised plan",
+  "successCriteria": ["concrete outcome 1", "outcome 2"],
   "steps": [
     {
       "id": "step_1",
@@ -247,12 +254,42 @@ Respond with ONLY valid JSON:
       try {
         return parseJsonPlan(jsonStr, originalGoal)
       } catch (e: Exception) {
-        Log.w(TAG, "JSON parsing failed, trying regex fallback: ${e.message}")
+        // Small models commonly emit trailing commas and stray commas after string values.
+        // Try a light-touch cleanup before giving up on the strict JSON path.
+        val repaired = repairJson(jsonStr)
+        if (repaired != jsonStr) {
+          try {
+            return parseJsonPlan(repaired, originalGoal)
+          } catch (e2: Exception) {
+            Log.w(TAG, "JSON parsing failed after repair, trying regex fallback: ${e2.message}")
+          }
+        } else {
+          Log.w(TAG, "JSON parsing failed, trying regex fallback: ${e.message}")
+        }
       }
     }
 
     // Regex fallback: try to extract steps from semi-structured text.
     return regexFallbackParse(llmOutput, originalGoal)
+  }
+
+  /**
+   * Light JSON repair for common small-model malformations:
+   * - trailing commas before `}` or `]`
+   * - stray double/extra commas (e.g. `"skillName":"x",    ,\n"toolArgs":`), which appear when the
+   *   model tries to emit a field and abandons it mid-token.
+   */
+  private fun repairJson(s: String): String {
+    var out = s
+    // Collapse stray comma-only lines: `, <ws> ,` → `,`
+    var prev: String
+    do {
+      prev = out
+      out = Regex(""",\s*,""").replace(out, ",")
+    } while (out != prev)
+    // Remove trailing commas: ,} or ,]
+    out = Regex(""",(\s*[}\]])""").replace(out) { it.groupValues[1] }
+    return out
   }
 
   /**
@@ -313,6 +350,45 @@ Respond with ONLY valid JSON:
   }
 
   // ---- Private helpers ----
+
+  /**
+   * Render the skill catalog split by tier.
+   * - Base skills: full detail (description + extracted data fields).
+   * - Deferred skills: name + one-line description only, with a note that the agent can call
+   *   `search-skills` to load details before using them.
+   */
+  private fun renderSkillCatalog(skills: List<SkillSummary>): String {
+    val base = skills.filter { it.tier != "deferred" }
+    val deferred = skills.filter { it.tier == "deferred" }
+
+    val baseBlock = base.joinToString("\n") { skill ->
+      val line = "- ${skill.name}: ${skill.description}"
+      if (skill.instructions.isNotEmpty()) {
+        val fields = extractDataFields(skill.instructions)
+        if (fields.isNotEmpty()) "$line (data fields: $fields)" else line
+      } else line
+    }
+
+    // Always-available LLM synthesis skills. These are not tool calls — the orchestrator
+    // routes them to the LLM with the dependency outputs in context. Listing them explicitly
+    // stops the planner from abusing `calculate` or hallucinating skills like `generate_X`
+    // for text-generation steps.
+    val synthesisBlock = """
+- summarize: Condense text from a previous step into a short summary. Use for shortening/extracting. Args: {"text":"..."} (or reference a step via dependsOn — the step output is passed automatically)
+- compose: Generate new structured text (itinerary, report, plan, email, explanation) from the goal and previous step outputs. Use for any "make", "write", "produce", "generate", or "build a plan" task that needs long-form text. Args: {"instruction":"what to write"} (dependency outputs are passed automatically)
+    """.trimIndent()
+
+    val searchSkillsEntry = """
+- search-skills: Look up additional skills by keyword. Use ONLY when no skill above matches the user's request. After running search-skills, the system will re-plan with the matching skills loaded. Args: {"query":"keywords"}
+    """.trimIndent()
+
+    val head = if (baseBlock.isBlank()) synthesisBlock else "$baseBlock\n$synthesisBlock"
+
+    if (deferred.isEmpty()) return "$head\n$searchSkillsEntry"
+
+    val deferredBlock = deferred.joinToString("\n") { "- ${it.name}: ${it.description}" }
+    return "$head\n$searchSkillsEntry\n\nAdditional skills (name-only — call search-skills first to load details before using):\n$deferredBlock"
+  }
 
   /**
    * Extract data field names and types from skill instructions.
@@ -382,11 +458,20 @@ Respond with ONLY valid JSON:
       )
     }
 
-    Log.d(TAG, "Parsed plan: goal=$goal, ${steps.size} steps")
+    val successCriteria = mutableListOf<String>()
+    val criteriaArray = json.optJSONArray("successCriteria")
+    if (criteriaArray != null) {
+      for (i in 0 until criteriaArray.length()) {
+        val item = criteriaArray.optString(i).trim()
+        if (item.isNotEmpty()) successCriteria.add(item)
+      }
+    }
+
+    Log.d(TAG, "Parsed plan: goal=$goal, ${steps.size} steps, ${successCriteria.size} criteria")
     for (step in steps) {
       Log.d(TAG, "  Step ${step.id}: tool=${step.toolName}, skill=${step.skillName}, args=${step.toolArgs}, deps=${step.dependsOn}")
     }
-    return ExecutionPlan(goal = goal, reasoning = reasoning, steps = steps)
+    return ExecutionPlan(goal = goal, reasoning = reasoning, steps = steps, successCriteria = successCriteria)
   }
 
   /** Fallback parser for when the LLM produces semi-structured but not valid JSON output. */

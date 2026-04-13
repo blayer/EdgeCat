@@ -186,11 +186,34 @@ class ToolExecutorImpl(
           }
           "searchWeb" -> {
             val map = agentTools.searchWeb(args["query"] ?: "")
-            ToolExecutionResult(success = map["status"] == "succeeded", output = map.toString())
+            val ok = map["status"] == "succeeded"
+            // Return pre-formatted text directly. Map.toString() mangles large text values
+            // (commas inside results break the downstream parser), and the results string is
+            // already human-readable.
+            val text = if (ok) {
+              val q = map["query"] ?: args["query"] ?: ""
+              buildString {
+                append("Search results for: ").append(q).append("\n\n")
+                append(map["results"] ?: "")
+              }
+            } else {
+              map.toString()
+            }
+            ToolExecutionResult(success = ok, output = text, error = map["error"])
           }
           "fetchWebContent" -> {
             val map = agentTools.fetchWebContent(args["url"] ?: "")
-            ToolExecutionResult(success = map["status"] == "succeeded", output = map.toString())
+            val ok = map["status"] == "succeeded"
+            val text = if (ok) {
+              val url = map["url"] ?: args["url"] ?: ""
+              buildString {
+                append("Content from: ").append(url).append("\n\n")
+                append(map["content"] ?: "")
+              }
+            } else {
+              map.toString()
+            }
+            ToolExecutionResult(success = ok, output = text, error = map["error"])
           }
           "calculate" -> {
             val map = agentTools.calculate(args["expression"] ?: "")
@@ -241,6 +264,32 @@ class ToolExecutorImpl(
             val map = agentTools.checkInternet()
             ToolExecutionResult(success = map["status"] == "succeeded", output = map.toString())
           }
+          "searchSkills" -> {
+            val query = (args["query"] ?: "").lowercase().trim()
+            val allSkills = skillManagerViewModel.getSelectedSkills()
+            val deferred = allSkills.filter { DEFERRED_SKILLS.contains(it.name) }
+            val tokens = query.split(Regex("\\s+")).filter { it.isNotBlank() }
+            val matches = if (tokens.isEmpty()) deferred else deferred.filter { skill ->
+              val hay = (skill.name + " " + skill.description).lowercase()
+              tokens.any { hay.contains(it) }
+            }
+            val json = org.json.JSONObject()
+            json.put("status", "succeeded")
+            val namesArr = org.json.JSONArray()
+            val skillsArr = org.json.JSONArray()
+            matches.forEach { skill ->
+              namesArr.put(skill.name)
+              val obj = org.json.JSONObject()
+              obj.put("name", skill.name)
+              obj.put("description", skill.description)
+              obj.put("instructions", skill.instructions.take(800))
+              skillsArr.put(obj)
+            }
+            json.put("loaded", namesArr)
+            json.put("skills", skillsArr)
+            android.util.Log.d("AGOrchBridge", "searchSkills query='$query' matched=${matches.map { it.name }}")
+            ToolExecutionResult(success = true, output = json.toString())
+          }
           else ->
             ToolExecutionResult(
               success = false,
@@ -267,9 +316,32 @@ class ToolExecutorImpl(
 
   override fun getAvailableSkills(): List<SkillSummary> {
     val skills = skillManagerViewModel.getSelectedSkills().map { skill ->
-      SkillSummary(name = skill.name, description = skill.description, instructions = skill.instructions)
+      SkillSummary(
+        name = skill.name,
+        description = skill.description,
+        instructions = skill.instructions,
+        tier = if (DEFERRED_SKILLS.contains(skill.name)) "deferred" else "base",
+      )
     }
-    android.util.Log.d("AGOrchBridge", "getAvailableSkills: ${skills.size} skills: ${skills.map { it.name }}")
+    android.util.Log.d("AGOrchBridge", "getAvailableSkills: ${skills.size} skills (${skills.count { it.tier == "deferred" }} deferred): ${skills.map { it.name }}")
     return skills
+  }
+
+  companion object {
+    /**
+     * Skills kept out of the default planner catalog. Only their names are shown;
+     * the agent must emit a `search-skills` step to load full details.
+     *
+     * Keep this list focused on skills that are:
+     * - Rarely used for typical chat turns (photo/barcode/etc are niche)
+     * - Have complex args the planner might fumble without full instructions
+     * - Safe to be invisible on the common path (base skills cover most requests)
+     */
+    val DEFERRED_SKILLS = setOf(
+      "scan-barcode", "search-photos", "list-photos", "take-photo",
+      "send-sms", "send-email", "read-contacts", "phone-call",
+      "get-location", "flashlight", "volume-control", "do-not-disturb",
+      "list-downloads", "open-settings", "share-content",
+    )
   }
 }

@@ -109,6 +109,7 @@ Per-skill unit tests live in `test/skill-unit/<skill>/<action>.sh`.
 | 7 | local-search | (none) | What is the best food around? | Goal achieved | 240 |
 | 8 | chat-no-skill | (none) | Hello, how are you today? | Model | 60 |
 | 9 | scan-barcode-qr | (none) | Find the photo named test_qr_claude in my gallery and scan it for QR codes | claude-code | 240 |
+| 10 | tokyo-trip-plan | (none) | Make a detailed travel plan for a 3-day trip in Tokyo starting tomorrow. Research weather, seasonal events, and seasonal views from multiple sources, combine them into a summary, and produce an hour-by-hour itinerary. | Goal achieved | 600 |
 
 ---
 

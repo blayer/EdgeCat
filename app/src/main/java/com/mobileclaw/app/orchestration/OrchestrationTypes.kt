@@ -31,6 +31,11 @@ data class ExecutionPlan(
   val goal: String,
   val reasoning: String,
   val steps: List<PlanStep>,
+  /**
+   * Concrete outcomes the user would call "success" — used by the evaluator as a rubric.
+   * Empty means the evaluator will fall back to the old holistic check.
+   */
+  val successCriteria: List<String> = emptyList(),
 )
 
 /** Status of a single plan step during execution. */
@@ -77,6 +82,8 @@ data class OrchestrationState(
   val finalOutputIsHtml: Boolean = false,
   val error: String? = null,
   val memoryRecalled: Boolean? = null,
+  /** Whether thinking/CoT was enabled for each LLM phase during this run. */
+  val thinkingByPhase: Map<String, Boolean> = emptyMap(),
 )
 
 /** Result of the self-evaluation module. */
@@ -85,6 +92,8 @@ data class EvaluationResult(
   val assessment: String,
   val missingItems: List<String> = emptyList(),
   val shouldReplan: Boolean = false,
+  /** Criteria the rubric check marked as failed (when rubric was used). */
+  val failedCriteria: List<String> = emptyList(),
 )
 
 /** Lightweight skill descriptor for planning prompts. */
@@ -92,6 +101,8 @@ data class SkillSummary(
   val name: String,
   val description: String,
   val instructions: String = "",
+  /** "base" = always in planner catalog. "deferred" = name-only until search-skills loads it. */
+  val tier: String = "base",
 )
 
 /** Result of diagnosing a failed skill step. */

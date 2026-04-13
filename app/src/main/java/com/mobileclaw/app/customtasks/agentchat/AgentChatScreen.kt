@@ -582,8 +582,36 @@ fun AgentChatScreen(
                 ),
               )
 
+              var planningThinkingMarked = false
+              // Currently-visible "...ing" line. Resolved to its done form when the phase ends.
+              var activeProgressLine: String? = "\uD83D\uDCA1 Planning..."
+              fun resolveActive(doneLine: String) {
+                val active = activeProgressLine ?: return
+                viewModel.replaceOrchestrationLogLine(model, active, doneLine)
+                activeProgressLine = null
+              }
+              fun setActive(line: String) {
+                activeProgressLine?.let { prev ->
+                  // Previous phase's progress line was never resolved — replace with a neutral done.
+                  viewModel.replaceOrchestrationLogLine(model, prev, prev.removeSuffix("...").removeSuffix(" (thinking)"))
+                }
+                viewModel.appendOrchestrationLogLine(model, line)
+                activeProgressLine = line
+              }
               controller.state.collect { state ->
               val showTraces = agentTracesEnabled
+              fun thinkSuffix(phase: String): String =
+                if (state.thinkingByPhase[phase] == true) " (thinking)" else ""
+
+              // Upgrade the initial "Planning..." line once we know if thinking is on.
+              if (!planningThinkingMarked && state.thinkingByPhase.containsKey("planning")) {
+                planningThinkingMarked = true
+                if (state.thinkingByPhase["planning"] == true) {
+                  val upgraded = "\uD83D\uDCA1 Planning (thinking)..."
+                  viewModel.replaceOrchestrationLogLine(model, "\uD83D\uDCA1 Planning...", upgraded)
+                  if (activeProgressLine == "\uD83D\uDCA1 Planning...") activeProgressLine = upgraded
+                }
+              }
 
               // Memory recall status.
               if (!memoryLogged && state.memoryRecalled != null) {
@@ -597,6 +625,9 @@ fun AgentChatScreen(
 
               // Plan ready — log the plan steps.
               if (state.plan != null && state.iteration != lastPlanIteration) {
+                // Planning/replanning phase finished. Resolve the in-progress line.
+                val doneLabel = if (state.iteration <= 1) "\uD83D\uDCA1 Planned" else "\uD83D\uDD04 Re-planned"
+                resolveActive(doneLabel)
                 lastPlanIteration = state.iteration
                 loggedSteps.clear()
                 val plan = state.plan!!
@@ -614,7 +645,7 @@ fun AgentChatScreen(
               if (state.status == OrchestrationStatus.EXECUTING && state.plan != null) {
                 // High-level "Executing..." log when traces are off.
                 if (!showTraces && lastStatus != OrchestrationStatus.EXECUTING) {
-                  viewModel.appendOrchestrationLogLine(model, "\u25B6\uFE0F Executing...")
+                  setActive("\u25B6\uFE0F Executing...")
                 }
                 if (showTraces) {
                   for ((stepId, result) in state.stepResults) {
@@ -649,10 +680,13 @@ fun AgentChatScreen(
 
               // Evaluation.
               if (state.evaluation != null && state.iteration != lastEvalIteration) {
+                // Execution phase finished (non-traces mode Executing... line).
+                resolveActive("\u25B6\uFE0F Executed")
                 lastEvalIteration = state.iteration
                 if (showTraces) {
                   if (state.status == OrchestrationStatus.EVALUATING || lastStatus == OrchestrationStatus.EVALUATING) {
-                    viewModel.appendOrchestrationLogLine(model, "\uD83D\uDD0D Evaluating results...")
+                    // Show evaluating as a resolved line immediately — the outcome follows.
+                    viewModel.appendOrchestrationLogLine(model, "\uD83D\uDD0D Evaluated${thinkSuffix("evaluating")}")
                   }
                   val eval = state.evaluation!!
                   if (eval.goalAchieved) {
@@ -660,7 +694,7 @@ fun AgentChatScreen(
                   } else {
                     viewModel.appendOrchestrationLogLine(model, "\u26A0\uFE0F Not yet achieved: ${eval.assessment.take(100)}")
                     if (eval.shouldReplan) {
-                      viewModel.appendOrchestrationLogLine(model, "\uD83D\uDD04 Re-planning...")
+                      setActive("\uD83D\uDD04 Re-planning${thinkSuffix("replanning")}...")
                     }
                   }
                 }
@@ -669,21 +703,26 @@ fun AgentChatScreen(
               // Repairing.
               if (state.status == OrchestrationStatus.REPAIRING && lastStatus != OrchestrationStatus.REPAIRING) {
                 if (showTraces) {
-                  viewModel.appendOrchestrationLogLine(model, "\uD83D\uDD27 Diagnosing failed steps...")
+                  setActive("\uD83D\uDD27 Diagnosing failed steps...")
                 }
               }
 
               // Formatting.
               if (state.status == OrchestrationStatus.FORMATTING && lastStatus != OrchestrationStatus.FORMATTING) {
+                // Execution may have been the prior active line in non-traces mode.
+                resolveActive("\u25B6\uFE0F Executed")
                 if (showTraces) {
-                  viewModel.appendOrchestrationLogLine(model, "\u270D\uFE0F Formatting response...")
+                  setActive("\u270D\uFE0F Formatting response${thinkSuffix("formatting")}...")
                 } else {
-                  viewModel.appendOrchestrationLogLine(model, "\u270D\uFE0F Summarizing...")
+                  setActive("\u270D\uFE0F Summarizing${thinkSuffix("formatting")}...")
                 }
               }
 
               // Completed — finalize log, send final output, capture for save-as-skill.
               if (state.status == OrchestrationStatus.COMPLETED && lastStatus != OrchestrationStatus.COMPLETED) {
+                // Resolve whichever progress line is still active (formatting, or execution in
+                // the short-circuit path where formatting was skipped).
+                resolveActive("\u270D\uFE0F Formatted")
                 viewModel.appendOrchestrationLogLine(model, "\uD83C\uDF89 Task complete")
                 viewModel.finalizeOrchestrationLog(model)
                 // Capture orchestration data for "Save as Skill".

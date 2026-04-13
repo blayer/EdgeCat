@@ -27,7 +27,7 @@ import kotlinx.coroutines.sync.withLock
 private const val TAG = "AGExecutionOrchestrator"
 
 /** Skills that are executed by the LLM rather than by running JS in a WebView. */
-private val LLM_ONLY_SKILLS = setOf("summarize")
+private val LLM_ONLY_SKILLS = setOf("summarize", "compose")
 
 /** Native app skills — map skill name to the native tool name. */
 private val NATIVE_SKILL_TOOLS = mapOf(
@@ -57,6 +57,7 @@ private val NATIVE_SKILL_TOOLS = mapOf(
   "open-settings" to "openSettings",
   "check-internet" to "checkInternet",
   "search-web" to "searchWeb",
+  "search-skills" to "searchSkills",
 )
 
 /**
@@ -675,13 +676,19 @@ class ExecutionOrchestrator(
         }
       }
 
+      // Prefer the explicit `instruction` toolArg (set by compose/summarize) over the
+      // generic step description — it's usually a more specific directive.
+      val taskText = step.toolArgs["instruction"]?.takeIf { it.isNotBlank() }
+        ?: step.toolArgs["text"]?.takeIf { it.isNotBlank() && step.skillName != "summarize" }
+        ?: step.description
+
       val prompt = buildString {
         if (contextParts.isNotEmpty()) {
           append("Context from previous steps:\n")
           append(contextParts.joinToString("\n"))
           append("\n\n")
         }
-        append("Task: ${step.description}")
+        append("Task: $taskText")
         if (isLlmSkill) {
           append("\n\nIMPORTANT: Output ONLY the result text. Do not add explanations or preamble.")
         }
