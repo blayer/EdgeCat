@@ -65,10 +65,6 @@ interface DataStoreRepository {
 
   fun acceptGemmaTermsOfUse()
 
-  fun getHasRunTinyGarden(): Boolean
-
-  fun setHasRunTinyGarden(hasRun: Boolean)
-
   fun addCutout(cutout: Cutout)
 
   fun getAllCutouts(): List<Cutout>
@@ -269,19 +265,6 @@ class DefaultDataStoreRepository(
       dataStore.updateData { settings ->
         settings.toBuilder().setIsGemmaTermsAccepted(true).build()
       }
-    }
-  }
-
-  override fun getHasRunTinyGarden(): Boolean {
-    return runBlocking {
-      val settings = dataStore.data.first()
-      settings.hasRunTinyGarden
-    }
-  }
-
-  override fun setHasRunTinyGarden(hasRun: Boolean) {
-    runBlocking {
-      dataStore.updateData { settings -> settings.toBuilder().setHasRunTinyGarden(hasRun).build() }
     }
   }
 

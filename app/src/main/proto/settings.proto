@@ -56,7 +56,8 @@ message LlmConfig {
   float default_temperature = 5;
   bool support_image = 6;
   bool support_audio = 7;
-  bool support_tiny_garden = 8;
+  reserved 8;
+  reserved "support_tiny_garden";
   bool support_mobile_actions = 9;
   bool support_thinking = 10;
 }
@@ -68,7 +69,8 @@ message Settings {
   repeated ImportedModel imported_model = 4;
   // Has the app tos been accepted.
   bool is_tos_accepted = 5;
-  bool has_run_tiny_garden = 6;
+  reserved 6;
+  reserved "has_run_tiny_garden";
   bool has_seen_benchmark_comparison_help = 7;
   // Has the Gemma terms of use been accepted.
   bool is_gemma_terms_accepted = 8;

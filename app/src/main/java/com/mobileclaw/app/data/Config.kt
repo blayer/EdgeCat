@@ -55,7 +55,6 @@ object ConfigKeys {
   val DEFAULT_TEMPERATURE = ConfigKey("default_temperature", "Default temperature")
   val SUPPORT_IMAGE = ConfigKey("support_image", "Support image")
   val SUPPORT_AUDIO = ConfigKey("support_audio", "Support audio")
-  val SUPPORT_TINY_GARDEN = ConfigKey("support_tiny_garden", "Support tiny garden")
   val SUPPORT_MOBILE_ACTIONS = ConfigKey("support_mobile_actions", "Support mobile actions")
   val SUPPORT_THINKING = ConfigKey("support_thinking", "Support thinking")
   val ENABLE_THINKING = ConfigKey("enable_thinking", "Enable thinking")
@@ -71,8 +70,6 @@ object ConfigKeys {
   val NAME = ConfigKey("name", "Name")
   val MODEL_TYPE = ConfigKey("model_type", "Model type")
   val MODEL = ConfigKey("model", "Model")
-  val RESET_CONVERSATION_TURN_COUNT =
-    ConfigKey("reset_conversation_turn_count", "Number of turns before the conversation resets")
   val PREFILL_TOKENS = ConfigKey("prefill_tokens", "Prefill tokens")
   val DECODE_TOKENS = ConfigKey("decode_tokens", "Decode tokens")
   val NUMBER_OF_RUNS = ConfigKey("number_of_runs", "Number of runs")

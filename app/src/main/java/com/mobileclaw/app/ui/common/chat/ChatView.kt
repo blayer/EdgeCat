@@ -188,18 +188,9 @@ fun ChatView(
         modelPreparing = uiState.preparing,
         onResetSessionClicked = onResetSessionClicked,
         onConfigChanged = { old, new ->
-          // Filter out config values that are not relevant to the task.
-          //
-          // - The "reset conversation turn count" is only valid for tiny garden task.
-          val filteredOld = old.toMutableMap()
-          val filteredNew = new.toMutableMap()
-          if (task.id != BuiltInTaskId.LLM_TINY_GARDEN) {
-            filteredOld.remove(ConfigKeys.RESET_CONVERSATION_TURN_COUNT.label)
-            filteredNew.remove(ConfigKeys.RESET_CONVERSATION_TURN_COUNT.label)
-          }
           viewModel.addConfigChangedMessage(
-            oldConfigValues = filteredOld,
-            newConfigValues = filteredNew,
+            oldConfigValues = old,
+            newConfigValues = new,
             model = selectedModel,
           )
         },
