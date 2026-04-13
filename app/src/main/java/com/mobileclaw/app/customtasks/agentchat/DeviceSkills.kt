@@ -1397,17 +1397,43 @@ class DeviceSkills(
       .filter { it.isNotEmpty() }
       .joinToString("\n")
 
-    // Drop nav-like short lines (<= 25 chars, no sentence punctuation) that appear in runs.
-    // Pages often start with a wall of single-word menu items that drown out real content.
+    // Drop nav-menu runs: only filter short lines when they appear in a run of 3+ consecutive
+    // short, non-sentence lines. Real nav menus have multiple items in sequence; isolated short
+    // lines in prose content are kept. This stops the filter from destroying simple content.
     val lines = text.lines()
-    val kept = lines.filterIndexed { idx, line ->
-      if (line.length >= 50) return@filterIndexed true
-      if (line.any { it in ".?!:" } && line.length >= 20) return@filterIndexed true
-      // Keep short data lines with temperature/weather signals.
+    fun isNavLike(line: String): Boolean {
+      if (line.length >= 50) return false
+      if (line.any { it in ".?!:" } && line.length >= 20) return false
+      // Short lines with weather/temperature signals are data, not nav.
       if (Regex("""[-+]?\d+\s*(?:°|°c|°f|%|km/h|mph|mm|in)\b""", RegexOption.IGNORE_CASE)
           .containsMatchIn(line)
-      ) return@filterIndexed true
-      false
+      ) return false
+      return true
+    }
+    // Only activate the nav-run filter on substantial pages (≥8 lines). Small fragments are never
+    // nav menus, and the filter would destroy them.
+    val kept = if (lines.size < 8) {
+      lines
+    } else {
+      val navRunStart = IntArray(lines.size)
+      var run = 0
+      for (idx in lines.indices) {
+        run = if (isNavLike(lines[idx])) run + 1 else 0
+        navRunStart[idx] = run
+      }
+      val dropMask = BooleanArray(lines.size)
+      for (idx in lines.indices) {
+        if (navRunStart[idx] >= 4) {
+          val end = idx
+          var start = idx
+          while (start > 0 && navRunStart[start - 1] >= 1) start--
+          for (j in start..end) dropMask[j] = true
+        }
+      }
+      for (k in lines.indices) {
+        if (dropMask[k] && k + 1 < lines.size && isNavLike(lines[k + 1])) dropMask[k + 1] = true
+      }
+      lines.filterIndexed { idx, _ -> !dropMask[idx] }
     }
     return kept.joinToString("\n").replace(Regex("\\n{3,}"), "\n\n").trim()
   }
