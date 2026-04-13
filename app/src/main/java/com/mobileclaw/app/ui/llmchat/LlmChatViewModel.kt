@@ -20,6 +20,9 @@ import android.content.Context
 import android.graphics.Bitmap
 import android.util.Log
 import androidx.lifecycle.viewModelScope
+import com.mobileclaw.app.conversations.ConversationRepository
+import com.mobileclaw.app.conversations.ROLE_ASSISTANT
+import com.mobileclaw.app.conversations.ROLE_USER
 import com.mobileclaw.app.data.ConfigKeys
 import com.mobileclaw.app.data.Model
 import com.mobileclaw.app.data.Task
@@ -49,7 +52,46 @@ import kotlinx.coroutines.suspendCancellableCoroutine
 private const val TAG = "AGLlmChatViewModel"
 
 @OptIn(ExperimentalApi::class)
-open class LlmChatViewModelBase() : ChatViewModel() {
+open class LlmChatViewModelBase(
+  private val conversationRepository: ConversationRepository? = null,
+) : ChatViewModel() {
+
+  var currentConversationId: Long? = null
+
+  fun loadConversation(model: Model, id: Long) {
+    val repo = conversationRepository ?: return
+    currentConversationId = id
+    viewModelScope.launch(Dispatchers.IO) {
+      val messages = repo.getMessages(id)
+      clearAllMessages(model = model)
+      for (m in messages) {
+        val side = if (m.role == ROLE_USER) ChatSide.USER else ChatSide.AGENT
+        addMessage(
+          model = model,
+          message = ChatMessageText(content = m.content, side = side),
+        )
+      }
+    }
+  }
+
+  fun persistUserMessage(content: String) {
+    val repo = conversationRepository ?: return
+    val id = currentConversationId ?: return
+    if (content.isBlank()) return
+    viewModelScope.launch(Dispatchers.IO) {
+      repo.appendMessage(conversationId = id, role = ROLE_USER, content = content)
+    }
+  }
+
+  fun persistAssistantMessage(content: String) {
+    val repo = conversationRepository ?: return
+    val id = currentConversationId ?: return
+    if (content.isBlank()) return
+    viewModelScope.launch(Dispatchers.IO) {
+      repo.appendMessage(conversationId = id, role = ROLE_ASSISTANT, content = content)
+    }
+  }
+
   fun generateResponse(
     model: Model,
     input: String,
@@ -178,6 +220,9 @@ open class LlmChatViewModelBase() : ChatViewModel() {
 
               if (done) {
                 val finalLastMessage = getLastMessage(model = model)
+                if (finalLastMessage is ChatMessageText && finalLastMessage.side == ChatSide.AGENT) {
+                  persistAssistantMessage(finalLastMessage.content)
+                }
                 if (finalLastMessage?.type == ChatMessageType.THINKING) {
                   val thinkingMsg = finalLastMessage as ChatMessageThinking
                   if (thinkingMsg.inProgress) {
@@ -440,7 +485,11 @@ open class LlmChatViewModelBase() : ChatViewModel() {
   }
 }
 
-@HiltViewModel class LlmChatViewModel @Inject constructor() : LlmChatViewModelBase()
+@HiltViewModel
+class LlmChatViewModel
+@Inject
+constructor(conversationRepository: ConversationRepository) :
+  LlmChatViewModelBase(conversationRepository)
 
 @HiltViewModel class LlmAskImageViewModel @Inject constructor() : LlmChatViewModelBase()
 

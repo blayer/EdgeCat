@@ -135,9 +135,19 @@ fun AgentChatScreen(
   modelManagerViewModel: ModelManagerViewModel,
   navigateUp: () -> Unit,
   agentTools: AgentTools,
+  conversationId: Long? = null,
   viewModel: LlmChatViewModel = hiltViewModel(),
   skillManagerViewModel: SkillManagerViewModel = hiltViewModel(),
 ) {
+  // Load persisted conversation history once per conversation id.
+  LaunchedEffect(conversationId, modelManagerViewModel.getSelectedModel()?.name) {
+    val currentModel = modelManagerViewModel.getSelectedModel()
+    if (conversationId != null && currentModel != null && currentModel.name != "empty") {
+      viewModel.loadConversation(model = currentModel, id = conversationId)
+    } else {
+      viewModel.currentConversationId = conversationId
+    }
+  }
   val context = LocalContext.current
   agentTools.context = context
   agentTools.skillManagerViewModel = skillManagerViewModel
@@ -547,6 +557,9 @@ fun AgentChatScreen(
           // Add user message to chat.
           for (message in messages) {
             viewModel.addMessage(model = model, message = message)
+            if (message is ChatMessageText && message.side == ChatSide.USER) {
+              viewModel.persistUserMessage(message.content)
+            }
           }
 
           // Create controller.
@@ -760,6 +773,7 @@ fun AgentChatScreen(
                         side = ChatSide.AGENT,
                       ),
                     )
+                    viewModel.persistAssistantMessage(state.finalOutput!!)
                   }
                 }
                 // Hint about saving as skill if multi-step plan.

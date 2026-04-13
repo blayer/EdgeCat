@@ -122,6 +122,7 @@ class AgentChatTask @Inject constructor() : CustomTask {
       modelManagerViewModel = myData.modelManagerViewModel,
       navigateUp = myData.onNavUp,
       agentTools = agentTools,
+      conversationId = myData.conversationId,
     )
   }
 }

@@ -68,6 +68,7 @@ import androidx.compose.ui.unit.sp
 import com.mobileclaw.app.data.Model
 import com.mobileclaw.app.data.ModelDownloadStatusType
 import com.mobileclaw.app.data.Task
+import com.mobileclaw.app.ui.common.DownloadAndTryButton
 import com.mobileclaw.app.ui.modelmanager.ModelManagerViewModel
 import kotlinx.coroutines.delay
 
@@ -248,12 +249,14 @@ private fun ModelCard(
       .clip(RoundedCornerShape(16.dp))
       .background(SurfaceCard)
       .border(1.dp, CardBorder, RoundedCornerShape(16.dp))
-      .clickable(
-        interactionSource = remember { MutableInteractionSource() },
-        indication = null,
-      ) {
-        if (isDownloaded) onModelClicked(model)
-      }
+      .then(
+        if (isDownloaded) {
+          Modifier.clickable(
+            interactionSource = remember { MutableInteractionSource() },
+            indication = null,
+          ) { onModelClicked(model) }
+        } else Modifier
+      )
       .padding(16.dp),
   ) {
     Column {
@@ -328,75 +331,17 @@ private fun ModelCard(
 
       Spacer(modifier = Modifier.height(14.dp))
 
-      // Action button.
-      when {
-        isDownloaded -> {
-          // Ready — "Start" button.
-          Button(
-            onClick = { onModelClicked(model) },
-            modifier = Modifier.fillMaxWidth().height(44.dp),
-            shape = RoundedCornerShape(12.dp),
-            colors = ButtonDefaults.buttonColors(containerColor = SuccessGreen),
-          ) {
-            Icon(
-              Icons.Rounded.PlayArrow,
-              contentDescription = null,
-              modifier = Modifier.size(18.dp),
-              tint = Color.White,
-            )
-            Spacer(modifier = Modifier.width(6.dp))
-            Text("Start", fontWeight = FontWeight.SemiBold, color = Color.White)
-          }
-        }
-        isDownloading -> {
-          // Downloading — progress bar.
-          Box(
-            modifier = Modifier
-              .fillMaxWidth()
-              .height(44.dp)
-              .clip(RoundedCornerShape(12.dp))
-              .background(AccentViolet.copy(alpha = 0.12f)),
-            contentAlignment = Alignment.Center,
-          ) {
-            // Progress fill.
-            Box(
-              modifier = Modifier
-                .fillMaxWidth(fraction = downloadProgress)
-                .height(44.dp)
-                .background(
-                  Brush.horizontalGradient(listOf(AccentViolet.copy(alpha = 0.3f), AccentTeal.copy(alpha = 0.3f))),
-                  RoundedCornerShape(12.dp),
-                )
-                .align(Alignment.CenterStart),
-            )
-            Text(
-              text = "${(downloadProgress * 100).toInt()}%",
-              style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.Bold),
-              color = AccentViolet,
-            )
-          }
-        }
-        else -> {
-          // Not downloaded — download button.
-          Button(
-            onClick = {
-              modelManagerViewModel.downloadModel(task, model)
-            },
-            modifier = Modifier.fillMaxWidth().height(44.dp),
-            shape = RoundedCornerShape(12.dp),
-            colors = ButtonDefaults.buttonColors(containerColor = AccentViolet),
-          ) {
-            Icon(
-              Icons.Rounded.Download,
-              contentDescription = null,
-              modifier = Modifier.size(18.dp),
-              tint = Color.White,
-            )
-            Spacer(modifier = Modifier.width(6.dp))
-            Text("Download", fontWeight = FontWeight.SemiBold, color = Color.White)
-          }
-        }
-      }
+      // Action button — delegates to shared component which handles TOS, notification
+      // permission, HuggingFace auth, memory check, progress display, and cancel.
+      DownloadAndTryButton(
+        task = task,
+        model = model,
+        enabled = true,
+        downloadStatus = downloadStatus,
+        modelManagerViewModel = modelManagerViewModel,
+        onClicked = { onModelClicked(model) },
+        modifier = Modifier.fillMaxWidth(),
+      )
     }
   }
 }

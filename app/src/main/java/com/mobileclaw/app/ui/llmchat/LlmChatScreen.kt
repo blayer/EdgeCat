@@ -45,6 +45,7 @@ import com.mobileclaw.app.ui.common.chat.ChatMessage
 import com.mobileclaw.app.ui.common.chat.ChatMessageAudioClip
 import com.mobileclaw.app.ui.common.chat.ChatMessageImage
 import com.mobileclaw.app.ui.common.chat.ChatMessageText
+import com.mobileclaw.app.ui.common.chat.ChatSide
 import com.mobileclaw.app.ui.common.chat.ChatView
 import com.mobileclaw.app.ui.common.chat.SendMessageTrigger
 import com.mobileclaw.app.ui.modelmanager.ModelManagerViewModel
@@ -247,6 +248,9 @@ fun ChatViewWrapper(
       if (!handled) {
         for (message in messages) {
           viewModel.addMessage(model = model, message = message)
+          if (message is ChatMessageText && message.side == ChatSide.USER) {
+            viewModel.persistUserMessage(message.content)
+          }
         }
 
         var text = ""

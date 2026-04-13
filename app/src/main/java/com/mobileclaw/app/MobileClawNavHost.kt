@@ -3,18 +3,18 @@ package com.mobileclaw.app
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.rememberCoroutineScope
-import androidx.compose.ui.platform.LocalContext
 import androidx.navigation.NavHostController
 import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.navArgument
 import com.mobileclaw.app.customtasks.common.CustomTaskDataForBuiltinTask
+import com.mobileclaw.app.data.Model
+import com.mobileclaw.app.data.ModelDownloadStatusType
+import com.mobileclaw.app.ui.conversations.ConversationListScreen
 import com.mobileclaw.app.ui.modelmanager.ModelManagerViewModel
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.launch
 
+private const val ROUTE_CONVERSATIONS = "conversations"
 private const val ROUTE_MODEL_SELECT = "model_select"
 private const val ROUTE_AGENT_CHAT = "agent_chat"
 
@@ -23,36 +23,76 @@ fun MobileClawNavHost(
   navController: NavHostController,
   modelManagerViewModel: ModelManagerViewModel,
 ) {
-  val context = LocalContext.current
-  val scope = rememberCoroutineScope()
-
-  // Reactively observe the agent chat task (the only task in Mobile-Claw).
   val uiState by modelManagerViewModel.uiState.collectAsState()
   val agentTask = uiState.tasks.firstOrNull()
 
   NavHost(
     navController = navController,
-    startDestination = ROUTE_MODEL_SELECT,
+    startDestination = ROUTE_CONVERSATIONS,
   ) {
+    // Conversation list screen (start destination).
+    composable(route = ROUTE_CONVERSATIONS) {
+      fun isReady(model: Model?): Boolean {
+        if (model == null || model.name == "empty") return false
+        val status = uiState.modelDownloadStatus[model.name]?.status
+        return status == ModelDownloadStatusType.SUCCEEDED
+      }
+
+      ConversationListScreen(
+        modelManagerViewModel = modelManagerViewModel,
+        task = agentTask,
+        onConversationClicked = { conversationId ->
+          val selected = modelManagerViewModel.getSelectedModel()
+          if (!isReady(selected)) {
+            navController.navigate("$ROUTE_MODEL_SELECT?conversationId=$conversationId")
+          } else {
+            navController.navigate("$ROUTE_AGENT_CHAT/${selected!!.name}/$conversationId")
+          }
+        },
+        onOpenDownloadPage = {
+          navController.navigate("$ROUTE_MODEL_SELECT?conversationId=-1")
+        },
+      )
+    }
+
     // Model selection screen.
-    composable(route = ROUTE_MODEL_SELECT) {
+    composable(
+      route = "$ROUTE_MODEL_SELECT?conversationId={conversationId}",
+      arguments = listOf(
+        navArgument("conversationId") {
+          type = NavType.LongType
+          defaultValue = -1L
+        }
+      ),
+    ) { backStackEntry ->
+      val conversationId = backStackEntry.arguments?.getLong("conversationId") ?: -1L
       ModelSelectScreen(
         task = agentTask,
         modelManagerViewModel = modelManagerViewModel,
         isLoading = uiState.loadingModelAllowlist,
         onModelClicked = { model ->
           modelManagerViewModel.selectModel(model)
-          navController.navigate("$ROUTE_AGENT_CHAT/${model.name}")
+          if (conversationId >= 0L) {
+            navController.navigate("$ROUTE_AGENT_CHAT/${model.name}/$conversationId") {
+              popUpTo(ROUTE_CONVERSATIONS)
+            }
+          } else {
+            navController.navigate("$ROUTE_AGENT_CHAT/${model.name}/-1")
+          }
         },
       )
     }
 
     // Agent chat screen.
     composable(
-      route = "$ROUTE_AGENT_CHAT/{modelName}",
-      arguments = listOf(navArgument("modelName") { type = NavType.StringType }),
+      route = "$ROUTE_AGENT_CHAT/{modelName}/{conversationId}",
+      arguments = listOf(
+        navArgument("modelName") { type = NavType.StringType },
+        navArgument("conversationId") { type = NavType.LongType },
+      ),
     ) { backStackEntry ->
-      val modelName = backStackEntry.arguments?.getString("modelName") ?: ""
+      val conversationIdArg = backStackEntry.arguments?.getLong("conversationId") ?: -1L
+      val conversationId = if (conversationIdArg >= 0L) conversationIdArg else null
 
       agentTask?.let { task ->
         val customTask = modelManagerViewModel.getCustomTaskByTaskId(id = task.id)
@@ -60,19 +100,10 @@ fun MobileClawNavHost(
           customTask.MainScreen(
             data = CustomTaskDataForBuiltinTask(
               modelManagerViewModel = modelManagerViewModel,
+              conversationId = conversationId,
               onNavUp = {
-                // Clean up models when navigating back.
-                for (model in task.models) {
-                  val instance = model.instance
-                  scope.launch(Dispatchers.Default) {
-                    modelManagerViewModel.cleanupModel(
-                      context = context,
-                      task = task,
-                      model = model,
-                      instanceToCleanUp = instance,
-                    )
-                  }
-                }
+                // Pop back to the conversation list — do NOT tear down the model so that
+                // the user can tap another conversation and skip model selection.
                 navController.navigateUp()
               },
             )

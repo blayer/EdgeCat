@@ -371,6 +371,7 @@ fun MessageInputText(
                   minLines = 1,
                   maxLines = 3,
                   onValueChange = onValueChanged,
+                  enabled = !modelInitializing && !modelPreparing,
                   colors =
                     TextFieldDefaults.colors(
                       unfocusedContainerColor = Color.Transparent,
@@ -382,7 +383,13 @@ fun MessageInputText(
                     ),
                   textStyle = bodyLargeNarrow,
                   modifier = Modifier.weight(1f).semantics { contentDescription = cdPromptInput },
-                  placeholder = { Text(stringResource(textFieldPlaceHolderRes)) },
+                  placeholder = {
+                    Text(
+                      if (modelInitializing || modelPreparing)
+                        stringResource(R.string.aichat_initializing_title)
+                      else stringResource(textFieldPlaceHolderRes)
+                    )
+                  },
                 )
                 Spacer(modifier = Modifier.width(4.dp))
               }
@@ -613,6 +620,8 @@ fun MessageInputText(
                     enabled =
                       !inProgress &&
                         !isResettingSession &&
+                        !modelInitializing &&
+                        !modelPreparing &&
                         (curMessage.isNotEmpty() || pickedAudioClips.isNotEmpty()),
                     onClick = {
                       var message = curMessage.trim()
