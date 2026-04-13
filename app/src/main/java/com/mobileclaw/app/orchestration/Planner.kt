@@ -30,6 +30,11 @@ private const val TAG = "AGPlanner"
  */
 class Planner {
 
+  private fun dateNote(dateStr: String, tomorrowDate: String): String =
+    "IMPORTANT: date-time values in toolArgs MUST be yyyy-MM-ddTHH:mm " +
+      "(e.g. \"${dateStr}T23:00\", \"${tomorrowDate}T09:00\"). Never use \"today\"/\"tomorrow\"/\"11pm\"."
+
+
   /**
    * Classify whether the user message is an actionable task (requiring device skills/tools)
    * or casual conversation (greeting, chitchat).
@@ -112,44 +117,25 @@ class Planner {
 You are a task planner. Given a user request and available skills, produce an execution plan as JSON.
 
 Today: $dayOfWeek $dateStr $timeStr. Tomorrow: $tomorrowDate.
-IMPORTANT: All date-time values in toolArgs MUST use format yyyy-MM-ddTHH:mm. Examples: "${dateStr}T23:00", "${tomorrowDate}T09:00". Never use "today", "tomorrow", or "11pm" — always convert to this exact format.
+${dateNote(dateStr, tomorrowDate)}
 
 Available skills:
 $skillList
 ${if (memoryContext.isNotEmpty()) "\n$memoryContext\n" else ""}
-Set "skillName" to a skill name from the catalog above and put input parameters in "toolArgs" as key-value pairs.
-
 Rules:
-- Each step has: id, description, skillName, toolArgs, dependsOn
-- dependsOn lists step IDs that must complete first (empty = can run in parallel)
-- Keep the plan minimal — fewest steps needed
+- Each step: id, description, skillName (must exist in the catalog — do NOT invent), toolArgs, dependsOn.
+- dependsOn lists step IDs that must complete first (empty = parallel). Keep the plan minimal.
 - Use available skills. Do NOT answer from knowledge alone.
-- skillName MUST be a name that appears in the catalog above. Do NOT invent skills (no `generate_X`, `create_Y`, etc.).
-- `calculate` is for math expressions ONLY (e.g. "47*0.15", "sqrt(2)"). Never put prose or instructions in its expression field.
-- For generating long-form text (itineraries, reports, summaries from multiple sources, emails, step-by-step plans), use `compose` — NOT `calculate`.
-- For condensing existing text, use `summarize`.
-- If the request has TWO actions joined by "and", "then", or a comma (e.g. "get X and do Y with X"), produce TWO steps — the second step's dependsOn must include the first.
-- If only a deferred (name-only) skill fits the request, output a SINGLE-STEP plan using `search-skills` with a short keyword query. The system will re-plan with the loaded skill available.
+- `calculate` is math ONLY (e.g. "47*0.15"). For long-form text (itineraries, reports, emails) use `compose`. For condensing text use `summarize`.
+- If the request joins TWO actions with "and"/"then"/comma, produce two steps with dependsOn linking them.
+- If only a deferred (name-only) skill fits, output a SINGLE step calling `search-skills` with a keyword query; the system re-plans with the loaded skill.
 
-Example — deferred skill discovery:
-Request: "Scan a QR code from my latest photo"
-Steps: [
-  {"id":"step_1","description":"Find barcode scanning skill","skillName":"search-skills","toolArgs":{"query":"barcode qr scan"},"dependsOn":[]}
-]
-
-Example — multi-step with dependency:
-Request: "Get my device info and hash the manufacturer name"
-Steps: [
-  {"id":"step_1","description":"Get device info","skillName":"device-info","toolArgs":{},"dependsOn":[]},
-  {"id":"step_2","description":"Hash the manufacturer from step_1","skillName":"calculate","toolArgs":{"expression":"sha256(step_1.manufacturer)"},"dependsOn":["step_1"]}
-]
-
-Example — research + synthesize (use compose, NOT calculate, for text generation):
+Example — research + synthesize:
 Request: "Make a 3-day Tokyo itinerary with weather and events"
 Steps: [
-  {"id":"step_1","description":"Search Tokyo weather for the trip dates","skillName":"search-web","toolArgs":{"query":"Tokyo weather forecast next 3 days"},"dependsOn":[]},
-  {"id":"step_2","description":"Search Tokyo seasonal events and views","skillName":"search-web","toolArgs":{"query":"Tokyo seasonal events April sightseeing"},"dependsOn":[]},
-  {"id":"step_3","description":"Write the 3-day hour-by-hour itinerary using step_1 weather and step_2 events","skillName":"compose","toolArgs":{"instruction":"Produce a detailed 3-day Tokyo itinerary with hour-by-hour blocks, referencing the weather from step_1 and events from step_2."},"dependsOn":["step_1","step_2"]}
+  {"id":"step_1","description":"Tokyo weather","skillName":"search-web","toolArgs":{"query":"Tokyo weather forecast next 3 days"},"dependsOn":[]},
+  {"id":"step_2","description":"Tokyo seasonal events","skillName":"search-web","toolArgs":{"query":"Tokyo seasonal events April sightseeing"},"dependsOn":[]},
+  {"id":"step_3","description":"Write itinerary from step_1 and step_2","skillName":"compose","toolArgs":{"instruction":"Produce a 3-day Tokyo itinerary with hour-by-hour blocks, referencing step_1 weather and step_2 events."},"dependsOn":["step_1","step_2"]}
 ]
 
 User request: "$userMessage"
@@ -205,7 +191,7 @@ successCriteria: 1–3 short, concrete, verifiable outcomes (e.g. "an alarm is s
 You are a task planner. A previous plan did not fully achieve the user's goal. Create a revised plan.
 
 Today: $dateStr. Tomorrow: $tomorrowDate.
-IMPORTANT: All date-time values in toolArgs MUST use format yyyy-MM-ddTHH:mm. Examples: "${dateStr}T23:00", "${tomorrowDate}T09:00". Never use "today", "tomorrow", or "11pm" — always convert to this exact format.
+${dateNote(dateStr, tomorrowDate)}
 
 User request: "$userMessage"
 $skillList${if (memoryContext.isNotEmpty()) "\n$memoryContext\n" else ""}
@@ -451,7 +437,6 @@ Respond with ONLY valid JSON:
           id = stepJson.getString("id"),
           description = stepJson.optString("description", ""),
           skillName = stepJson.optString("skillName").takeIf { it.isNotEmpty() && it != "null" },
-          toolName = stepJson.optString("toolName").takeIf { it.isNotEmpty() && it != "null" },
           toolArgs = toolArgs,
           dependsOn = dependsOn,
         )

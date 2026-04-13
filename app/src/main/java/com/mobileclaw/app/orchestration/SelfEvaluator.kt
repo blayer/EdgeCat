@@ -56,62 +56,45 @@ class SelfEvaluator {
   private fun buildRubricPrompt(goal: String, criteria: List<String>, stepsStr: String): String {
     val criteriaStr = criteria.mapIndexed { i, c -> "${i + 1}. $c" }.joinToString("\n")
     return """
-You are a strict QA auditor. Your default stance is skeptical — find reasons the goal was NOT met before concluding it was met.
+You are a strict QA auditor. Be skeptical.
 
 User's goal: "$goal"
 
-Success criteria (the goal is met ONLY if every criterion is met):
+Success criteria (all must be met):
 $criteriaStr
 
 Execution results:
 $stepsStr
 
-Step 1 — Failure evidence: list concrete evidence from the step outputs that any criterion was NOT met. Quote the specific text. If none, write "none".
-Step 2 — Verdict: for each criterion output met=true|false and an exact `quote` from the step outputs that proves it. The quote MUST be copied verbatim from a step's output text — do not paraphrase, do not invent. If you cannot find a verbatim quote, mark met=false and set quote="".
-Step 3 — Output ONLY this JSON (no prose before or after):
+For each criterion, set met=true ONLY if a verbatim substring from a step output supports it; copy that exact substring into `quote`. Otherwise met=false and quote="".
+shouldReplan=true only if a revised plan could fix the gaps; false if unrecoverable (missing skill, permission denied).
+Output ONLY this JSON — no prose:
 ```json
 {
   "criteria": [
-    {"name": "criterion 1 text", "met": true or false, "quote": "exact substring from a step output", "reason": "short reason"}
+    {"name": "criterion text", "met": true, "quote": "exact substring from a step output", "reason": "short reason"}
   ],
-  "failedCriteria": ["criterion text", "..."],
-  "shouldReplan": true or false
+  "failedCriteria": ["criterion text"],
+  "shouldReplan": true
 }
 ```
-
-Rules:
-- goalAchieved is DERIVED: true iff every criterion has met=true AND its quote appears verbatim in the step outputs above.
-- A criterion with met=true but an empty, invented, or paraphrased quote will be rejected.
-- failedCriteria must list every criterion with met=false.
-- shouldReplan = true only if a revised plan could plausibly fix the failures. false if unrecoverable (skill missing, permission denied, etc.).
-- No free-text assessment. No preamble. JSON only.
 """.trimIndent()
   }
 
   private fun buildHolisticPrompt(goal: String, stepsStr: String): String {
     return """
-You are a strict QA auditor. Your default stance is skeptical.
+You are a strict QA auditor. Be skeptical.
 
 User's goal: "$goal"
 
 Execution results:
 $stepsStr
 
-Step 1 — List concrete evidence from the step outputs that the goal was NOT met. Quote the specific text. If none, write "none".
-Step 2 — Output ONLY this JSON:
+goalAchieved=true ONLY if the core request is clearly satisfied by the step outputs above. missingItems must be empty when true. shouldReplan=true only if a revised plan could plausibly fix the gap.
+Output ONLY this JSON — no prose:
 ```json
-{
-  "goalAchieved": true or false,
-  "missingItems": ["item still needed", "..."],
-  "shouldReplan": true or false
-}
+{"goalAchieved": false, "missingItems": ["item still needed"], "shouldReplan": true}
 ```
-
-Rules:
-- goalAchieved = true only if the core request is clearly satisfied by the step outputs.
-- missingItems must be empty when goalAchieved is true.
-- shouldReplan = true only if a revised plan could plausibly fix the gap.
-- No preamble. JSON only.
 """.trimIndent()
   }
 

@@ -120,14 +120,7 @@ Rules:
 - If the raw result has a "Page content from <url>" section, ANSWER the user's question using facts from that content. Cite ONLY the domain (e.g. "Source: accuweather.com") — never copy the full URL path, and never invent a path. Do NOT list the search result links.
 - If there is no fetched page content, fall back to a short bulleted list of the top 3 result titles, citing only the domain for each (e.g. "• Coroutines guide — kotlinlang.org"). Never copy full URL paths.
 
-Example 1 — simple value:
-User: What is 42 * 17?
-Raw result:
-status: succeeded
-result: 714
-Reply: <msg>42 × 17 = 714.</msg>
-
-Example 2 — search with fetched content (ANSWER from content):
+Example — search with fetched content (ANSWER from content):
 User: weather in Paris tomorrow
 Raw result:
 Search results for: weather in Paris tomorrow
@@ -142,20 +135,7 @@ Paris, France — Tomorrow: partly cloudy, high 18°C, low 11°C. Light winds 8 
 Reply: <msg>Paris tomorrow: partly cloudy, high 18°C, low 11°C, light winds 8 km/h, 20% chance of afternoon rain. Sunrise 6:42, sunset 20:15.
 Source: weather.com</msg>
 
-Example 3 — search, no fetched content (fall back to link list):
-User: search for Kotlin coroutines
-Raw result:
-Search results for: Kotlin coroutines
-
-1. Coroutines guide
-   https://kotlinlang.org/docs/coroutines-guide.html
-2. Coroutines on Android
-   https://developer.android.com/kotlin/coroutines
-Reply: <msg>Top results:
-• Coroutines guide — kotlinlang.org
-• Coroutines on Android — developer.android.com</msg>
-
-Example 4 — error:
+Example — error:
 User: send sms to alice
 Raw result:
 status: failed
