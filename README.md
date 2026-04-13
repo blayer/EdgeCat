@@ -2,6 +2,13 @@
 
 **Agentic orchestration for on-device LLMs.** Turn a 2B/4B chat model into a task-executing assistant that plans, calls device skills, recovers from failure, and answers in natural language — all offline, on Android.
 
+> Built on top of [Google AI Edge Gallery](https://github.com/google-ai-edge/gallery). Mobile-Claw is an extension focused on **expanding the skill system and layering agentic orchestration** (planner → executor → evaluator) around the same on-device runtime. All credit for the underlying model-hosting app, UI shell, and LiteRT-LM integration goes to the AI Edge Gallery team.
+
+## Download
+
+- **Release APKs** — [GitHub Releases](https://github.com/blayer/Mobile-Claw/releases/latest). Signed, tagged builds produced by the `Release` workflow.
+- **Debug APKs (per-commit)** — available as artifacts on each [CI run](https://github.com/blayer/Mobile-Claw/actions/workflows/ci.yml) for 14 days after the commit.
+
 ## Why orchestration?
 
 A raw on-device model like Gemma-4-2B (8K context) can chat, but it can't reliably:

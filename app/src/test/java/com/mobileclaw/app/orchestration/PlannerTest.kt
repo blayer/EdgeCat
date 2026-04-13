@@ -336,6 +336,110 @@ class PlannerTest {
 
   // ─── buildReplanPrompt ───
 
+  // ─── classifyIntent ───
+
+  @Test
+  fun `classifyIntent routes greetings to chat`() {
+    for (msg in listOf("hi", "Hello", "hey there", "good morning", "thanks!", "bye")) {
+      assertEquals("chat for '$msg'", "chat", planner.classifyIntent(msg))
+    }
+  }
+
+  @Test
+  fun `classifyIntent routes action verbs to task`() {
+    for (msg in listOf(
+      "search for weather in Tokyo",
+      "send sms to alice saying hi",
+      "set a timer for 5 minutes",
+      "summarize this article for me",
+      "what is the capital of France",
+    )) {
+      assertEquals("task for '$msg'", "task", planner.classifyIntent(msg))
+    }
+  }
+
+  @Test
+  fun `classifyIntent routes ambiguous short messages to chat`() {
+    // Short, no task keywords, no question mark — fall back to chat to avoid spurious planning.
+    assertEquals("chat", planner.classifyIntent("nice one"))
+  }
+
+  @Test
+  fun `classifyIntent treats long questions as task`() {
+    assertEquals(
+      "task",
+      planner.classifyIntent("could you figure out the best route to the airport?"),
+    )
+  }
+
+  // ─── Canonical prompt → plan shape ───
+
+  @Test
+  fun `parsePlan recovers single-step search from canonical JSON`() {
+    val json = """
+      {
+        "goal": "find tokyo weather",
+        "reasoning": "one search is enough",
+        "steps": [
+          {"id":"step_1","description":"search weather","skillName":"search-web",
+           "toolArgs":{"query":"Tokyo weather"},"dependsOn":[]}
+        ]
+      }
+    """.trimIndent()
+    val plan = planner.parsePlan(json, "weather in tokyo")
+    assertEquals(1, plan.steps.size)
+    assertEquals("search-web", plan.steps[0].skillName)
+    assertTrue(plan.steps[0].dependsOn.isEmpty())
+  }
+
+  @Test
+  fun `parsePlan recovers search-then-summarize shape`() {
+    val json = """
+      {
+        "goal": "search and summarize AI news",
+        "reasoning": "search then compress",
+        "steps": [
+          {"id":"step_1","description":"search","skillName":"search-web",
+           "toolArgs":{"query":"AI news"},"dependsOn":[]},
+          {"id":"step_2","description":"summarize","skillName":"summarize",
+           "toolArgs":{},"dependsOn":["step_1"]}
+        ]
+      }
+    """.trimIndent()
+    val plan = planner.parsePlan(json, "search AI news and summarize")
+    assertEquals(2, plan.steps.size)
+    assertEquals("search-web", plan.steps[0].skillName)
+    assertEquals("summarize", plan.steps[1].skillName)
+    assertEquals(listOf("step_1"), plan.steps[1].dependsOn)
+    val batches = planner.getExecutionBatches(plan)
+    assertEquals("sequential shape", 2, batches.size)
+  }
+
+  @Test
+  fun `parsePlan recovers parallel-fan-in compose shape`() {
+    val json = """
+      {
+        "goal": "3-day Tokyo itinerary",
+        "reasoning": "two parallel searches then compose",
+        "steps": [
+          {"id":"step_1","description":"weather","skillName":"search-web",
+           "toolArgs":{"query":"Tokyo weather"},"dependsOn":[]},
+          {"id":"step_2","description":"events","skillName":"search-web",
+           "toolArgs":{"query":"Tokyo events"},"dependsOn":[]},
+          {"id":"step_3","description":"write it","skillName":"compose",
+           "toolArgs":{"instruction":"make itinerary"},"dependsOn":["step_1","step_2"]}
+        ]
+      }
+    """.trimIndent()
+    val plan = planner.parsePlan(json, "Tokyo itinerary with weather and events")
+    val batches = planner.getExecutionBatches(plan)
+    assertEquals("diamond fan-in has 2 batches", 2, batches.size)
+    assertEquals("first batch runs both searches in parallel", 2, batches[0].size)
+    assertEquals("compose", batches[1][0].skillName)
+  }
+
+  // ─── buildReplanPrompt ───
+
   @Test
   fun `buildReplanPrompt includes previous results and evaluation`() {
     val prevPlan = ExecutionPlan(
