@@ -77,7 +77,7 @@ private const val TEXT_INPUT_HISTORY_MAX_SIZE = 50
 private const val MODEL_ALLOWLIST_FILENAME = "model_allowlist.json"
 private const val MODEL_ALLOWLIST_TEST_FILENAME = "model_allowlist_test.json"
 private const val ALLOWLIST_BASE_URL =
-  "https://raw.githubusercontent.com/google-ai-edge/gallery/refs/heads/main/model_allowlists"
+  "https://raw.githubusercontent.com/blayer/Mobile-Claw/refs/heads/main/android-app/model_allowlists"
 
 private const val TEST_MODEL_ALLOW_LIST = ""
 
