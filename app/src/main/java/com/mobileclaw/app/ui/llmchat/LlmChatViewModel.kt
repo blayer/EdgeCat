@@ -24,6 +24,7 @@ import com.mobileclaw.app.conversations.ConversationRepository
 import com.mobileclaw.app.conversations.ROLE_ASSISTANT
 import com.mobileclaw.app.conversations.ROLE_USER
 import com.mobileclaw.app.data.ConfigKeys
+import com.mobileclaw.app.data.DataStoreRepository
 import com.mobileclaw.app.data.Model
 import com.mobileclaw.app.data.Task
 import com.mobileclaw.app.runtime.runtimeHelper
@@ -37,8 +38,11 @@ import com.mobileclaw.app.ui.common.chat.ChatMessageWarning
 import com.mobileclaw.app.ui.common.chat.ChatSide
 import com.mobileclaw.app.ui.common.chat.ChatViewModel
 import com.mobileclaw.app.ui.modelmanager.ModelManagerViewModel
+import com.google.ai.edge.litertlm.Content
 import com.google.ai.edge.litertlm.Contents
 import com.google.ai.edge.litertlm.ExperimentalApi
+import com.google.ai.edge.litertlm.Message
+import com.google.ai.edge.litertlm.MessageCallback
 import com.google.ai.edge.litertlm.ToolProvider
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
@@ -54,6 +58,7 @@ private const val TAG = "AGLlmChatViewModel"
 @OptIn(ExperimentalApi::class)
 open class LlmChatViewModelBase(
   private val conversationRepository: ConversationRepository? = null,
+  private val dataStoreRepository: DataStoreRepository? = null,
 ) : ChatViewModel() {
 
   var currentConversationId: Long? = null
@@ -71,6 +76,77 @@ open class LlmChatViewModelBase(
           message = ChatMessageText(content = m.content, side = side),
         )
       }
+
+      // Inject user portrait + sliding-window history into the model's KV cache
+      // so the model remembers context across app/session reloads.
+      val portrait = dataStoreRepository?.getUserPortrait().orEmpty()
+      val windowSize = (dataStoreRepository?.getAgentHistoryWindowSize() ?: 0).coerceIn(0, 6)
+      val seed = buildHistorySeed(portrait, messages, windowSize)
+      if (seed.isNotBlank()) {
+        try {
+          // Wait briefly for the model instance to be ready.
+          var waits = 0
+          while (model.instance == null && waits < 100) { delay(100); waits++ }
+          if (model.instance != null) {
+            prefillConversation(model, seed)
+          }
+        } catch (e: Exception) {
+          Log.w(TAG, "Prefill on conversation open failed: ${e.message}")
+        }
+      }
+    }
+  }
+
+  private fun buildHistorySeed(
+    portrait: String,
+    messages: List<com.mobileclaw.app.conversations.db.MessageEntity>,
+    windowSize: Int,
+  ): String = buildString {
+    if (portrait.isNotBlank()) {
+      appendLine("About the user:")
+      appendLine(portrait.trim())
+      appendLine()
+    }
+    if (windowSize > 0) {
+      val recent = messages
+        .filter { it.role == ROLE_USER || it.role == ROLE_ASSISTANT }
+        .takeLast(windowSize * 2)
+      if (recent.isNotEmpty()) {
+        appendLine("Our recent conversation:")
+        for (m in recent) {
+          val who = if (m.role == ROLE_USER) "User" else "Assistant"
+          appendLine("$who: ${m.content.trim()}")
+        }
+        appendLine()
+      }
+    }
+    if (isNotEmpty()) {
+      append("Acknowledge with just \"Ready.\" and await the user's next message.")
+    }
+  }
+
+  private suspend fun prefillConversation(model: Model, seedText: String) {
+    val instance = model.instance as? LlmModelInstance ?: return
+    val conversation = instance.conversation
+    suspendCancellableCoroutine<Unit> { continuation ->
+      conversation.sendMessageAsync(
+        Contents.of(listOf(Content.Text(seedText))),
+        object : MessageCallback {
+          override fun onMessage(message: Message) { /* discard model's ack */ }
+          override fun onDone() {
+            if (continuation.isActive) continuation.resume(Unit)
+          }
+          override fun onError(throwable: Throwable) {
+            if (!continuation.isActive) return
+            if (throwable is java.util.concurrent.CancellationException) {
+              continuation.resume(Unit)
+            } else {
+              continuation.resumeWithException(Exception(throwable.message))
+            }
+          }
+        },
+        emptyMap(),
+      )
     }
   }
 
@@ -488,8 +564,10 @@ open class LlmChatViewModelBase(
 @HiltViewModel
 class LlmChatViewModel
 @Inject
-constructor(conversationRepository: ConversationRepository) :
-  LlmChatViewModelBase(conversationRepository)
+constructor(
+  conversationRepository: ConversationRepository,
+  dataStoreRepository: DataStoreRepository,
+) : LlmChatViewModelBase(conversationRepository, dataStoreRepository)
 
 @HiltViewModel class LlmAskImageViewModel @Inject constructor() : LlmChatViewModelBase()
 

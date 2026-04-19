@@ -94,6 +94,13 @@ message Settings {
   // 0 = AUTO (balanced, default), 1 = OFF, 2 = AGGRESSIVE.
   // Stored as int so the proto zero-value maps to AUTO.
   int32 agent_thinking_mode = 16;
+
+  // Durable user profile text injected into every chat open and planner call.
+  string user_portrait = 17;
+
+  // Sliding-window replay size on conversation reopen (0..6, 0 = disabled).
+  // Stored raw; 0 means "unset" → treat as default 6 in code.
+  int32 agent_history_window_size = 18;
 }
 
 message UserData {

@@ -44,7 +44,10 @@ class Planner {
    *
    * Returns "task" or "chat".
    */
-  fun classifyIntent(userMessage: String): String {
+  fun classifyIntent(
+    userMessage: String,
+    hasPriorAssistantTurn: Boolean = false,
+  ): String {
     val lower = userMessage.lowercase().trim()
 
     // Short greetings / small talk patterns.
@@ -68,6 +71,7 @@ class Planner {
     }
 
     // Task-indicating keywords — actions, device features, skill names.
+    // Checked BEFORE follow-up markers so "then set an alarm" still routes to task.
     val taskKeywords = listOf(
       "search", "find", "look up", "set", "create", "send", "call", "open",
       "calculate", "remind", "alarm", "timer", "weather", "calendar", "email",
@@ -82,6 +86,26 @@ class Planner {
       if (lower.contains(keyword)) {
         Log.d(TAG, "classifyIntent: '$lower' matched task keyword '$keyword'")
         return "task"
+      }
+    }
+
+    // Referential follow-up — pronouns/adverbs that lean on a prior turn and carry no new
+    // task of their own. Only routes to chat when a prior assistant reply exists so that a
+    // cold-start ambiguous question still gets planned.
+    if (hasPriorAssistantTurn) {
+      val followUpMarkers = listOf(
+        "^(so|then|and|but|ok|okay|well)[,.!?\\s]",
+        "\\b(what|how)\\s+(about|else|next|then)\\b",
+        "^why(\\s+not)?\\b",
+        "^then\\s+what\\b",
+        "^(what|which)\\s+(should|do|would|can)\\s+(we|i|you)\\b.*\\b(then|next|now|instead)\\b",
+        "\\b(that|those|these|it|they|them)\\s+(one|ones)?\\s*[?.!]?$",
+      )
+      for (pattern in followUpMarkers) {
+        if (Regex(pattern).containsMatchIn(lower)) {
+          Log.d(TAG, "classifyIntent: '$lower' matched follow-up '$pattern' with prior turn, treating as chat")
+          return "chat"
+        }
       }
     }
 
@@ -104,7 +128,13 @@ class Planner {
   }
 
   /** Build a prompt that instructs the LLM to output a JSON execution plan. */
-  fun buildPlanningPrompt(userMessage: String, skills: List<SkillSummary>, memoryContext: String = ""): String {
+  fun buildPlanningPrompt(
+    userMessage: String,
+    skills: List<SkillSummary>,
+    memoryContext: String = "",
+    userPortrait: String = "",
+    conversationContext: String = "",
+  ): String {
     val skillList = renderSkillCatalog(skills)
 
     val now = java.time.LocalDateTime.now()
@@ -118,7 +148,7 @@ You are a task planner. Given a user request and available skills, produce an ex
 
 Today: $dayOfWeek $dateStr $timeStr. Tomorrow: $tomorrowDate.
 ${dateNote(dateStr, tomorrowDate)}
-
+${if (userPortrait.isNotBlank()) "\nAbout the user:\n${userPortrait.trim()}\n" else ""}${if (conversationContext.isNotBlank()) "\nRecent conversation (use as context for the current request):\n${conversationContext.trim()}\n" else ""}
 Available skills:
 $skillList
 ${if (memoryContext.isNotEmpty()) "\n$memoryContext\n" else ""}

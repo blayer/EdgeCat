@@ -96,6 +96,10 @@ fun ModelPageAppBar(
   onAgentSkillTimeoutSecsChanged: (Int) -> Unit = {},
   agentThinkingMode: Int = 0,
   onAgentThinkingModeChanged: (Int) -> Unit = {},
+  userPortrait: String = "",
+  onUserPortraitChanged: (String) -> Unit = {},
+  agentHistoryWindowSize: Int = 6,
+  onAgentHistoryWindowSizeChanged: (Int) -> Unit = {},
 ) {
   var showConfigDialog by remember { mutableStateOf(false) }
   val modelManagerUiState by modelManagerViewModel.uiState.collectAsState()
@@ -305,6 +309,10 @@ fun ModelPageAppBar(
       onAgentSkillTimeoutSecsChanged = onAgentSkillTimeoutSecsChanged,
       agentThinkingMode = agentThinkingMode,
       onAgentThinkingModeChanged = onAgentThinkingModeChanged,
+      userPortrait = userPortrait,
+      onUserPortraitChanged = onUserPortraitChanged,
+      agentHistoryWindowSize = agentHistoryWindowSize,
+      onAgentHistoryWindowSizeChanged = onAgentHistoryWindowSizeChanged,
     )
   }
 }

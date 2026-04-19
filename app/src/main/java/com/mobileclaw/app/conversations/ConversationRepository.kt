@@ -31,6 +31,9 @@ class DefaultConversationRepository(
   override suspend fun getConversation(id: Long): ConversationEntity? = dao.getConversation(id)
 
   override suspend fun createConversation(): Long {
+    // Reap any empty conversations left behind by earlier "New" taps where the user
+    // navigated away without sending a message.
+    dao.deleteEmptyConversations()
     val now = System.currentTimeMillis()
     return dao.insertConversation(
       ConversationEntity(

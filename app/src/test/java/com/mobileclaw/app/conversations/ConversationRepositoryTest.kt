@@ -137,6 +137,17 @@ private class FakeConversationDao : ConversationDao {
     messages.removeAll { it.conversationId == id }
   }
 
+  override suspend fun deleteEmptyConversations() {
+    conversations.removeAll { it.messageCount == 0 }
+  }
+
+  override suspend fun setPinned(id: Long, pinned: Boolean, pinnedAt: Long) {
+    val idx = conversations.indexOfFirst { it.id == id }
+    if (idx >= 0) {
+      conversations[idx] = conversations[idx].copy(pinned = pinned, pinnedAt = pinnedAt)
+    }
+  }
+
   override suspend fun insertMessage(message: MessageEntity): Long {
     val assignedId = nextMsgId++
     messages.add(message.copy(id = assignedId))

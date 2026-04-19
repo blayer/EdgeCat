@@ -88,6 +88,10 @@ fun LlmChatScreen(
   onAgentSkillTimeoutSecsChanged: (Int) -> Unit = {},
   agentThinkingMode: Int = 0,
   onAgentThinkingModeChanged: (Int) -> Unit = {},
+  userPortrait: String = "",
+  onUserPortraitChanged: (String) -> Unit = {},
+  agentHistoryWindowSize: Int = 6,
+  onAgentHistoryWindowSizeChanged: (Int) -> Unit = {},
 ) {
   ChatViewWrapper(
     viewModel = viewModel,
@@ -122,6 +126,10 @@ fun LlmChatScreen(
     onAgentSkillTimeoutSecsChanged = onAgentSkillTimeoutSecsChanged,
     agentThinkingMode = agentThinkingMode,
     onAgentThinkingModeChanged = onAgentThinkingModeChanged,
+    userPortrait = userPortrait,
+    onUserPortraitChanged = onUserPortraitChanged,
+    agentHistoryWindowSize = agentHistoryWindowSize,
+    onAgentHistoryWindowSizeChanged = onAgentHistoryWindowSizeChanged,
   )
 }
 
@@ -232,6 +240,10 @@ fun ChatViewWrapper(
   onAgentSkillTimeoutSecsChanged: (Int) -> Unit = {},
   agentThinkingMode: Int = 0,
   onAgentThinkingModeChanged: (Int) -> Unit = {},
+  userPortrait: String = "",
+  onUserPortraitChanged: (String) -> Unit = {},
+  agentHistoryWindowSize: Int = 6,
+  onAgentHistoryWindowSizeChanged: (Int) -> Unit = {},
 ) {
   val context = LocalContext.current
   val task = modelManagerViewModel.getTaskById(id = taskId)!!
@@ -355,5 +367,9 @@ fun ChatViewWrapper(
     onAgentSkillTimeoutSecsChanged = onAgentSkillTimeoutSecsChanged,
     agentThinkingMode = agentThinkingMode,
     onAgentThinkingModeChanged = onAgentThinkingModeChanged,
+    userPortrait = userPortrait,
+    onUserPortraitChanged = onUserPortraitChanged,
+    agentHistoryWindowSize = agentHistoryWindowSize,
+    onAgentHistoryWindowSizeChanged = onAgentHistoryWindowSizeChanged,
   )
 }

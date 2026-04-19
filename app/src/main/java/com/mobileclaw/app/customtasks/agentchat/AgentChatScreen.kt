@@ -170,6 +170,8 @@ fun AgentChatScreen(
   var agentMaxRepairAttempts by remember { mutableStateOf(dataStoreRepo.getAgentMaxRepairAttempts()) }
   var agentSkillTimeoutSecs by remember { mutableStateOf(dataStoreRepo.getAgentSkillTimeoutSecs()) }
   var agentThinkingMode by remember { mutableStateOf(dataStoreRepo.getAgentThinkingMode()) }
+  var userPortrait by remember { mutableStateOf(dataStoreRepo.getUserPortrait()) }
+  var agentHistoryWindowSize by remember { mutableStateOf(dataStoreRepo.getAgentHistoryWindowSize()) }
   val coroutineScope = androidx.compose.runtime.rememberCoroutineScope()
 
   // Save-as-skill state.
@@ -545,13 +547,38 @@ fun AgentChatScreen(
         } else {
           // Classify intent: is this a task or casual chat?
           val planner = com.mobileclaw.app.orchestration.Planner()
-          val intentResult = planner.classifyIntent(text)
+          val hasPriorAssistantTurn =
+            viewModel.uiState.value.messagesByModel[model.name]
+              ?.any { it is ChatMessageText && it.side == ChatSide.AGENT }
+              ?: false
+          val intentResult = planner.classifyIntent(text, hasPriorAssistantTurn)
           android.util.Log.d("AGOrchOverride", "Intent classification: '$intentResult' for: '$text'")
 
           if (intentResult == "chat") {
-            // Casual conversation — let the default handler respond directly.
-            android.util.Log.d("AGOrchOverride", "Chat intent, passing to default handler")
-            false
+            // Casual conversation — respond directly with thinking disabled to avoid
+            // showing model chain-of-thought for simple follow-ups.
+            android.util.Log.d("AGOrchOverride", "Chat intent, responding without thinking")
+            for (message in messages) {
+              viewModel.addMessage(model = model, message = message)
+              if (message is ChatMessageText && message.side == ChatSide.USER) {
+                viewModel.persistUserMessage(message.content)
+              }
+            }
+            viewModel.generateResponse(
+              model = model,
+              input = text,
+              onError = { errorMessage ->
+                viewModel.handleError(
+                  context = context,
+                  task = task,
+                  model = model,
+                  errorMessage = errorMessage,
+                  modelManagerViewModel = modelManagerViewModel,
+                )
+              },
+              allowThinking = false,
+            )
+            true
           } else {
           android.util.Log.d("AGOrchOverride", "Task intent, starting orchestration for: '$text'")
           // Add user message to chat.
@@ -575,6 +602,7 @@ fun AgentChatScreen(
             maxIterations = agentMaxLoops,
             maxRepairAttempts = agentMaxRepairAttempts,
             thinkingMode = com.mobileclaw.app.orchestration.ThinkingMode.fromInt(agentThinkingMode),
+            userPortraitProvider = { dataStoreRepo.getUserPortrait() },
           )
           orchestrationController.value = controller
 
@@ -801,11 +829,26 @@ fun AgentChatScreen(
             }
           }
 
+          // Build recent conversation context for the planner.
+          val recentContext = buildString {
+            val allMsgs = viewModel.uiState.value.messagesByModel[model.name] ?: emptyList()
+            // Take last few user+assistant text messages (excluding the current user message
+            // which was just added above).
+            val textMsgs = allMsgs
+              .filterIsInstance<ChatMessageText>()
+              .dropLast(1) // drop the current user message
+              .takeLast(6)
+            for (m in textMsgs) {
+              val who = if (m.side == ChatSide.USER) "User" else "Assistant"
+              appendLine("$who: ${m.content.trim().take(300)}")
+            }
+          }
+
           // Run orchestration (blocks until complete).
           coroutineScope.launch(kotlinx.coroutines.Dispatchers.Default) {
             android.util.Log.d("AGOrchOverride", "Launching controller.run()")
             try {
-              controller.run(text)
+              controller.run(text, recentContext)
               android.util.Log.d("AGOrchOverride", "controller.run() completed")
             } catch (e: Exception) {
               android.util.Log.e("AGOrchOverride", "controller.run() failed", e)
@@ -857,6 +900,16 @@ fun AgentChatScreen(
     onAgentThinkingModeChanged = { value ->
       agentThinkingMode = value
       dataStoreRepo.setAgentThinkingMode(value)
+    },
+    userPortrait = userPortrait,
+    onUserPortraitChanged = { value ->
+      userPortrait = value
+      dataStoreRepo.setUserPortrait(value)
+    },
+    agentHistoryWindowSize = agentHistoryWindowSize,
+    onAgentHistoryWindowSizeChanged = { value ->
+      agentHistoryWindowSize = value
+      dataStoreRepo.setAgentHistoryWindowSize(value)
     },
     onClearMemory = {
       val memoryRepo = try {

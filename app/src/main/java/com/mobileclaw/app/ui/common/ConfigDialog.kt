@@ -148,6 +148,10 @@ fun ConfigDialog(
   onAgentSkillTimeoutSecsChanged: (Int) -> Unit = {},
   agentThinkingMode: Int = 0,
   onAgentThinkingModeChanged: (Int) -> Unit = {},
+  userPortrait: String = "",
+  onUserPortraitChanged: (String) -> Unit = {},
+  agentHistoryWindowSize: Int = 6,
+  onAgentHistoryWindowSizeChanged: (Int) -> Unit = {},
 ) {
   val values: SnapshotStateMap<String, Any> = remember {
     mutableStateMapOf<String, Any>().apply { putAll(initialValues) }
@@ -163,6 +167,8 @@ fun ConfigDialog(
   var localMaxRepair by remember { mutableStateOf(agentMaxRepairAttempts.toFloat()) }
   var localTimeout by remember { mutableStateOf(agentSkillTimeoutSecs.toFloat()) }
   var localThinkingMode by remember { mutableStateOf(agentThinkingMode) }
+  var localPortrait by remember { mutableStateOf(userPortrait) }
+  var localWindowSize by remember { mutableStateOf(agentHistoryWindowSize.toFloat()) }
   val scope = rememberCoroutineScope()
   val tabs = remember(showSystemPromptEditorTab, showAgentSettingsTab) {
     buildList {
@@ -455,6 +461,67 @@ fun ConfigDialog(
                   }
                 }
               }
+              // User Portrait editor.
+              Spacer(modifier = Modifier.height(8.dp))
+              Column(modifier = Modifier.fillMaxWidth()) {
+                Text(
+                  "Your Portrait",
+                  style = MaterialTheme.typography.bodyLarge,
+                )
+                Text(
+                  "Injected into every chat and plan. Describe yourself, your preferences, and recurring context.",
+                  style = MaterialTheme.typography.bodySmall,
+                  color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                Spacer(modifier = Modifier.height(6.dp))
+                OutlinedTextField(
+                  value = localPortrait,
+                  onValueChange = {
+                    localPortrait = it
+                    onUserPortraitChanged(it)
+                  },
+                  modifier = Modifier.fillMaxWidth().height(120.dp),
+                  textStyle = MaterialTheme.typography.bodySmall,
+                  placeholder = {
+                    Text(
+                      "e.g., I live in SF, vegetarian, prefer concise technical answers.",
+                      style = MaterialTheme.typography.bodySmall,
+                    )
+                  },
+                )
+              }
+              // Conversation Window slider.
+              Spacer(modifier = Modifier.height(4.dp))
+              Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+              ) {
+                Column(modifier = Modifier.weight(1f)) {
+                  Text(
+                    "Conversation Window",
+                    style = MaterialTheme.typography.bodyLarge,
+                  )
+                  Text(
+                    "Recent exchanges replayed on reopen (0 = off)",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                  )
+                }
+                Text(
+                  "${localWindowSize.toInt()}",
+                  style = MaterialTheme.typography.bodyLarge,
+                  modifier = Modifier.padding(horizontal = 8.dp),
+                )
+              }
+              Slider(
+                value = localWindowSize,
+                onValueChange = { localWindowSize = it },
+                onValueChangeFinished = {
+                  onAgentHistoryWindowSizeChanged(localWindowSize.toInt())
+                },
+                valueRange = 0f..6f,
+                steps = 5,
+              )
               // Clear Memory button.
               if (onClearMemory != null) {
                 Spacer(modifier = Modifier.height(8.dp))

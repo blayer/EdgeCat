@@ -372,6 +372,48 @@ class PlannerTest {
     )
   }
 
+  @Test
+  fun `classifyIntent routes follow-ups to chat when prior turn exists`() {
+    for (msg in listOf(
+      "what should we do then?",
+      "why not?",
+      "so what next?",
+      "how about that one?",
+      "then what?",
+      "what else?",
+    )) {
+      assertEquals(
+        "chat for '$msg' with prior turn",
+        "chat",
+        planner.classifyIntent(msg, hasPriorAssistantTurn = true),
+      )
+    }
+  }
+
+  @Test
+  fun `classifyIntent still routes follow-ups with task keywords to task`() {
+    // "then set an alarm" has follow-up marker but also task keyword "set" + "alarm".
+    assertEquals("task", planner.classifyIntent("then set an alarm for 7am", hasPriorAssistantTurn = true))
+  }
+
+  @Test
+  fun `classifyIntent routes follow-ups to task when no prior turn`() {
+    // Cold start — no prior context, so ambiguous follow-up should default to task.
+    assertEquals("task", planner.classifyIntent("what should we do then?", hasPriorAssistantTurn = false))
+  }
+
+  @Test
+  fun `buildPlanningPrompt includes conversation context`() {
+    val context = "User: check weather in tokyo\nAssistant: Tokyo weather: rainy"
+    val prompt = planner.buildPlanningPrompt(
+      userMessage = "check train schedule",
+      skills = emptyList(),
+      conversationContext = context,
+    )
+    assertTrue("prompt should contain conversation context", prompt.contains("check weather in tokyo"))
+    assertTrue("prompt should contain context header", prompt.contains("Recent conversation"))
+  }
+
   // ─── Canonical prompt → plan shape ───
 
   @Test

@@ -39,7 +39,7 @@ class SelfEvaluator {
       plan.steps.joinToString("\n") { step ->
         val result = results[step.id]
         val status = result?.status?.name ?: "UNKNOWN"
-        val output = result?.output?.take(300) ?: "no output"
+        val output = result?.output?.take(1000) ?: "no output"
         val error = if (result?.error != null) " [error: ${result.error}]" else ""
         "- ${step.id} (${step.description}): $status — $output$error"
       }

@@ -58,6 +58,7 @@ class OrchestrationController(
   private val maxIterations: Int = 3,
   private val maxRepairAttempts: Int = 2,
   thinkingMode: ThinkingMode = ThinkingMode.AUTO,
+  private val userPortraitProvider: () -> String = { "" },
 ) {
   private val thinkingPolicy = ThinkingPolicy(thinkingMode)
   private val planner = Planner()
@@ -76,7 +77,7 @@ class OrchestrationController(
    * This is a suspending function that runs the full orchestration loop. It updates [state] at each
    * phase so the UI can react.
    */
-  suspend fun run(userMessage: String) {
+  suspend fun run(userMessage: String, conversationContext: String = "") {
     cancelled.set(false)
     _state.value =
       OrchestrationState(
@@ -110,7 +111,7 @@ class OrchestrationController(
         if (loadedDeferred.contains(it.name)) it.copy(tier = "base") else it
       }
       var skills = skillsForPlanning()
-      val planPrompt = planner.buildPlanningPrompt(userMessage, skills, memoryContext)
+      val planPrompt = planner.buildPlanningPrompt(userMessage, skills, memoryContext, userPortraitProvider(), conversationContext)
       val planningThinking = thinkingPolicy.planner(userMessage, iteration = 0)
       _state.value = _state.value.copy(
         thinkingByPhase = _state.value.thinkingByPhase + ("planning" to planningThinking),
@@ -193,7 +194,7 @@ class OrchestrationController(
         if (onlyDiscovery && newlyLoadedCount > 0 && iteration < maxIterations) {
           Log.d(TAG, "Discovery iteration: loaded $newlyLoadedCount deferred skill(s), forcing replan")
           skills = skillsForPlanning()
-          val discoveryReplanPrompt = planner.buildPlanningPrompt(userMessage, skills, memoryContext)
+          val discoveryReplanPrompt = planner.buildPlanningPrompt(userMessage, skills, memoryContext, userPortraitProvider(), conversationContext)
           val discoveryReplanThinking = thinkingPolicy.planner(userMessage, iteration = iteration)
           _state.value = _state.value.copy(
             thinkingByPhase = _state.value.thinkingByPhase + ("replanning" to discoveryReplanThinking),

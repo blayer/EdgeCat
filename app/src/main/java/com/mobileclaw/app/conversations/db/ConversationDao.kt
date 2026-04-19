@@ -12,7 +12,10 @@ interface ConversationDao {
   @Insert(onConflict = OnConflictStrategy.ABORT)
   suspend fun insertConversation(conversation: ConversationEntity): Long
 
-  @Query("SELECT * FROM conversations ORDER BY pinned DESC, pinned_at DESC, updated_at DESC")
+  @Query(
+    "SELECT * FROM conversations WHERE message_count > 0 " +
+      "ORDER BY pinned DESC, pinned_at DESC, updated_at DESC"
+  )
   fun observeConversations(): Flow<List<ConversationEntity>>
 
   @Query("SELECT * FROM conversations WHERE id = :id LIMIT 1")
@@ -38,6 +41,9 @@ interface ConversationDao {
 
   @Query("DELETE FROM conversations WHERE id = :id")
   suspend fun deleteConversation(id: Long)
+
+  @Query("DELETE FROM conversations WHERE message_count = 0")
+  suspend fun deleteEmptyConversations()
 
   @Query("UPDATE conversations SET pinned = :pinned, pinned_at = :pinnedAt WHERE id = :id")
   suspend fun setPinned(id: Long, pinned: Boolean, pinnedAt: Long)

@@ -129,6 +129,15 @@ interface DataStoreRepository {
   fun getAgentThinkingMode(): Int
 
   fun setAgentThinkingMode(value: Int)
+
+  fun getUserPortrait(): String
+
+  fun setUserPortrait(value: String)
+
+  /** Returns 0..6; 0 means disabled. Stored proto zero maps to default 6. */
+  fun getAgentHistoryWindowSize(): Int
+
+  fun setAgentHistoryWindowSize(value: Int)
 }
 
 /** Repository for managing data using Proto DataStore. */
@@ -513,6 +522,33 @@ class DefaultDataStoreRepository(
   override fun setAgentThinkingMode(value: Int) {
     runBlocking {
       dataStore.updateData { settings -> settings.toBuilder().setAgentThinkingMode(value).build() }
+    }
+  }
+
+  override fun getUserPortrait(): String {
+    return runBlocking { dataStore.data.first().userPortrait }
+  }
+
+  override fun setUserPortrait(value: String) {
+    runBlocking {
+      dataStore.updateData { settings -> settings.toBuilder().setUserPortrait(value).build() }
+    }
+  }
+
+  override fun getAgentHistoryWindowSize(): Int {
+    // Stored as (actual + 1) so proto zero (unset) maps to default 6.
+    return runBlocking {
+      val raw = dataStore.data.first().agentHistoryWindowSize
+      if (raw == 0) 6 else (raw - 1).coerceIn(0, 6)
+    }
+  }
+
+  override fun setAgentHistoryWindowSize(value: Int) {
+    runBlocking {
+      val stored = value.coerceIn(0, 6) + 1
+      dataStore.updateData { settings ->
+        settings.toBuilder().setAgentHistoryWindowSize(stored).build()
+      }
     }
   }
 }
