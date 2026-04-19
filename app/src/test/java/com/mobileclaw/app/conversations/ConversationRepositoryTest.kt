@@ -87,6 +87,34 @@ class ConversationRepositoryTest {
   }
 
   @Test
+  fun `createConversation reaps stale empty conversations`() = runTest {
+    val empty1 = repo.createConversation()
+    val empty2 = repo.createConversation() // this reaps empty1
+    // empty1 should be gone, empty2 is new (also empty but just created)
+    assertEquals(null, repo.getConversation(empty1))
+    assertTrue(repo.getConversation(empty2) != null)
+  }
+
+  @Test
+  fun `createConversation keeps conversations with messages`() = runTest {
+    val id = repo.createConversation()
+    repo.appendMessage(id, ROLE_USER, "hello")
+    val empty = repo.createConversation() // reaps empties but id has messages
+    assertTrue(repo.getConversation(id) != null)
+    assertTrue(repo.getConversation(empty) != null)
+  }
+
+  @Test
+  fun `setPinned pins and unpins conversation`() = runTest {
+    val id = repo.createConversation()
+    repo.appendMessage(id, ROLE_USER, "test")
+    repo.setPinned(id, true)
+    assertTrue(repo.getConversation(id)!!.pinned)
+    repo.setPinned(id, false)
+    assertFalse(repo.getConversation(id)!!.pinned)
+  }
+
+  @Test
   fun `assistant-first message does not set title, user message later does`() = runTest {
     val id = repo.createConversation()
     repo.appendMessage(id, ROLE_ASSISTANT, "Hello")
