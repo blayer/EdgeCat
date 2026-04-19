@@ -28,7 +28,7 @@ jobs:
       - name: Run Android lint
         run: ./gradlew :app:lintDebug
 
-  test:
+  pre-merge-test:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -47,7 +47,7 @@ jobs:
 
   build:
     runs-on: ubuntu-latest
-    needs: [lint, test]
+    needs: [lint, pre-merge-test]
     steps:
       - uses: actions/checkout@v4
 
