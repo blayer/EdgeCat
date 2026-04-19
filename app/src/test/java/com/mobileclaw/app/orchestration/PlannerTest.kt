@@ -3,6 +3,7 @@ package com.mobileclaw.app.orchestration
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
@@ -412,6 +413,59 @@ class PlannerTest {
     )
     assertTrue("prompt should contain conversation context", prompt.contains("check weather in tokyo"))
     assertTrue("prompt should contain context header", prompt.contains("Recent conversation"))
+  }
+
+  @Test
+  fun `buildPlanningPrompt includes user portrait`() {
+    val prompt = planner.buildPlanningPrompt(
+      userMessage = "plan dinner",
+      skills = emptyList(),
+      userPortrait = "I'm vegetarian and live in SF",
+    )
+    assertTrue("prompt should contain portrait", prompt.contains("vegetarian"))
+    assertTrue("prompt should contain portrait header", prompt.contains("About the user"))
+  }
+
+  @Test
+  fun `buildPlanningPrompt omits empty portrait and context`() {
+    val prompt = planner.buildPlanningPrompt(
+      userMessage = "search weather",
+      skills = emptyList(),
+      userPortrait = "",
+      conversationContext = "",
+    )
+    assertFalse("no portrait header for empty portrait", prompt.contains("About the user"))
+    assertFalse("no context header for empty context", prompt.contains("Recent conversation"))
+  }
+
+  @Test
+  fun `classifyIntent routes referential pronouns to chat with prior turn`() {
+    for (msg in listOf(
+      "what about those?",
+      "and that one?",
+      "which one?",
+    )) {
+      assertEquals(
+        "chat for '$msg'",
+        "chat",
+        planner.classifyIntent(msg, hasPriorAssistantTurn = true),
+      )
+    }
+  }
+
+  @Test
+  fun `classifyIntent routes search-web keywords to task even with prior turn`() {
+    for (msg in listOf(
+      "search for restaurants nearby",
+      "find me a hotel in tokyo",
+      "look up the weather tomorrow",
+    )) {
+      assertEquals(
+        "task for '$msg'",
+        "task",
+        planner.classifyIntent(msg, hasPriorAssistantTurn = true),
+      )
+    }
   }
 
   // ─── Canonical prompt → plan shape ───

@@ -99,7 +99,7 @@ class Planner {
         "^why(\\s+not)?\\b",
         "^then\\s+what\\b",
         "^(what|which)\\s+(should|do|would|can)\\s+(we|i|you)\\b.*\\b(then|next|now|instead)\\b",
-        "\\b(that|those|these|it|they|them)\\s+(one|ones)?\\s*[?.!]?$",
+        "\\b(that|those|these|it|they|them|which)\\s+(one|ones)?\\s*[?.!]?$",
       )
       for (pattern in followUpMarkers) {
         if (Regex(pattern).containsMatchIn(lower)) {
