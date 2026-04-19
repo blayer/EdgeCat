@@ -100,6 +100,50 @@ def ensure_trace_dir(adb: list[str]) -> None:
     pass
 
 
+# Runtime-dangerous permissions declared in AndroidManifest.xml. EvalActivity
+# runs headlessly and cannot surface Android's permission dialogs, so any
+# native skill that touches a gated ContentProvider/API hangs until the task
+# timeout. Pre-granting via `pm grant` lets the skill succeed or fail fast
+# instead of silently blocking the whole run.
+RUNTIME_PERMISSIONS = [
+    "android.permission.RECORD_AUDIO",
+    "android.permission.POST_NOTIFICATIONS",
+    "android.permission.SEND_SMS",
+    "android.permission.READ_SMS",
+    "android.permission.READ_CALENDAR",
+    "android.permission.WRITE_CALENDAR",
+    "android.permission.READ_CONTACTS",
+    "android.permission.READ_MEDIA_IMAGES",
+    "android.permission.READ_EXTERNAL_STORAGE",
+    "android.permission.CALL_PHONE",
+    "android.permission.ACCESS_FINE_LOCATION",
+    "android.permission.ACCESS_COARSE_LOCATION",
+]
+
+# Special-case ops that are not granted via `pm grant` — these are AppOps.
+APPOPS_GRANTS = [
+    "WRITE_SETTINGS",
+]
+
+
+def preflight_permissions(adb: list[str]) -> None:
+    """Pre-grant runtime permissions so headless EvalActivity doesn't hang on
+    permission dialogs. Silently ignores permissions the device rejects (e.g.
+    POST_NOTIFICATIONS only exists on API 33+, READ_EXTERNAL_STORAGE only on
+    API <= 32)."""
+    granted = 0
+    skipped = 0
+    for perm in RUNTIME_PERMISSIONS:
+        code, out = adb_shell(adb, f"pm grant {PKG} {perm}", timeout=10)
+        if code == 0 and "Exception" not in out and "Failure" not in out:
+            granted += 1
+        else:
+            skipped += 1
+    for op in APPOPS_GRANTS:
+        adb_shell(adb, f"appops set {PKG} {op} allow", timeout=10)
+    print(f"Preflight: granted {granted} permissions ({skipped} skipped, n/a on this API)")
+
+
 def remove_trace_if_exists(adb: list[str], run_id: str) -> None:
     adb_shell(adb, f"rm -f {TRACE_DIR_ON_DEVICE}/{run_id}.jsonl")
 
@@ -465,11 +509,15 @@ def main() -> int:
     ap.add_argument("--label", default=None, help="Run label (default: current git branch)")
     ap.add_argument("--serial", default=None, help="ADB device serial")
     ap.add_argument("--out", default="runs", help="Output dir (under test/eval/)")
+    ap.add_argument("--skip-preflight", action="store_true",
+                    help="Skip pm grant preflight (use if permissions are managed externally)")
     args = ap.parse_args()
 
     adb = adb_base(args.serial)
     ensure_device(adb)
     ensure_trace_dir(adb)
+    if not args.skip_preflight:
+        preflight_permissions(adb)
 
     dataset_path = Path(args.dataset)
     if not dataset_path.is_absolute():
