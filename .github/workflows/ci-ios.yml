@@ -1,0 +1,21 @@
+name: CI / iOS
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'ios-app-wip/**'
+      - '.github/workflows/ci-ios.yml'
+
+concurrency:
+  group: ci-ios-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  ios-build:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Placeholder
+        run: echo "iOS CI will be configured when the project is set up"
