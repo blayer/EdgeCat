@@ -134,6 +134,7 @@ class Planner {
     memoryContext: String = "",
     userPortrait: String = "",
     conversationContext: String = "",
+    isOnline: Boolean = true,
   ): String {
     val skillList = renderSkillCatalog(skills)
 
@@ -148,7 +149,7 @@ You are a task planner. Given a user request and available skills, produce an ex
 
 Today: $dayOfWeek $dateStr $timeStr. Tomorrow: $tomorrowDate.
 ${dateNote(dateStr, tomorrowDate)}
-${if (userPortrait.isNotBlank()) "\nAbout the user:\n${userPortrait.trim()}\n" else ""}${if (conversationContext.isNotBlank()) "\nRecent conversation (use as context for the current request):\n${conversationContext.trim()}\n" else ""}
+${if (!isOnline) "\n⚠️ OFFLINE: The device has no internet connection. Do NOT plan any steps that require internet (web search, fetching URLs, email). Use only offline skills.\n" else ""}${if (userPortrait.isNotBlank()) "\nAbout the user:\n${userPortrait.trim()}\n" else ""}${if (conversationContext.isNotBlank()) "\nRecent conversation (use as context for the current request):\n${conversationContext.trim()}\n" else ""}
 Available skills:
 $skillList
 ${if (memoryContext.isNotEmpty()) "\n$memoryContext\n" else ""}

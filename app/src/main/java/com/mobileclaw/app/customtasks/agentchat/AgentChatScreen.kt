@@ -844,11 +844,15 @@ fun AgentChatScreen(
             }
           }
 
+          // Check connectivity once (fast OS call) before orchestration.
+          val isOnline = com.mobileclaw.app.orchestration.ConnectivityChecker.isOnline(context)
+          android.util.Log.d("AGOrchOverride", "Connectivity check: online=$isOnline")
+
           // Run orchestration (blocks until complete).
           coroutineScope.launch(kotlinx.coroutines.Dispatchers.Default) {
             android.util.Log.d("AGOrchOverride", "Launching controller.run()")
             try {
-              controller.run(text, recentContext)
+              controller.run(text, recentContext, isOnline)
               android.util.Log.d("AGOrchOverride", "controller.run() completed")
             } catch (e: Exception) {
               android.util.Log.e("AGOrchOverride", "controller.run() failed", e)
