@@ -8,6 +8,10 @@ concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: true
 
+defaults:
+  run:
+    working-directory: android-app
+
 jobs:
   lint:
     runs-on: ubuntu-latest
@@ -65,5 +69,5 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: app-debug-${{ github.sha }}
-          path: app/build/outputs/apk/debug/app-debug.apk
+          path: android-app/app/build/outputs/apk/debug/app-debug.apk
           retention-days: 14
