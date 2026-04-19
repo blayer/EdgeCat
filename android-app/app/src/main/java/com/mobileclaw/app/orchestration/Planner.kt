@@ -600,8 +600,10 @@ Respond with ONLY valid JSON:
     val stepRegex = Regex("(?:step|\\d+)[_\\s]*(\\d+)[:\\s]+(.+?)(?=(?:step|\\d+)[_\\s]*\\d+[:]|$)", setOf(RegexOption.IGNORE_CASE, RegexOption.DOT_MATCHES_ALL))
     val matches: List<MatchResult> = stepRegex.findAll(text).toList()
 
+    val inferredSkill = inferSkillFromGoal(originalGoal)
+
     val steps =
-      if (matches.isNotEmpty()) {
+      if (matches.isNotEmpty() && inferredSkill == null) {
         matches.mapIndexed { index: Int, match: MatchResult ->
           PlanStep(
             id = "step_${index + 1}",
@@ -610,19 +612,42 @@ Respond with ONLY valid JSON:
           )
         }
       } else {
-        // Last resort: treat the entire output as a single step.
+        // When we can infer a skill from the goal, prefer a single-step plan with
+        // the original goal as the description — garbled LLM output produces
+        // junk step descriptions (e.g. "0 PM.\",\n\"reasoning\"...") that are
+        // worse than just echoing what the user asked for.
         listOf(
           PlanStep(
             id = "step_1",
             description = "Execute user request: $originalGoal",
+            skillName = inferredSkill,
           )
         )
       }
 
     return ExecutionPlan(
       goal = originalGoal,
-      reasoning = "Plan extracted via fallback parsing",
+      reasoning = "Plan extracted via fallback parsing (inferredSkill=$inferredSkill)",
       steps = steps,
     )
+  }
+
+  /**
+   * When JSON parsing fails entirely, infer a single skill from the user's goal
+   * using simple keyword matching. This lets the orchestrator engage its
+   * arg-rescue path (e.g. [ExecutionOrchestrator.rescueCalendarFromDescription])
+   * instead of dropping to an LLM-only response that ignores the user's intent.
+   */
+  private fun inferSkillFromGoal(goal: String): String? {
+    val lower = goal.lowercase()
+    return when {
+      Regex("""\b(calendar|reminder|meeting|appointment|event)\b""").containsMatchIn(lower) -> "calendar"
+      Regex("""\b(alarm|timer|countdown|wake me|snooze)\b""").containsMatchIn(lower) -> "timer"
+      Regex("""\b(sms|text message|send .*\bto\b)\b""").containsMatchIn(lower) -> "sms"
+      Regex("""\bweather\b""").containsMatchIn(lower) -> "weather"
+      Regex("""\b(calculate|what is.*[+\-*/]|\d+\s*(?:plus|minus|times|divided))\b""").containsMatchIn(lower) -> "calculator"
+      Regex("""\b(search.*web|google|find online|latest news|look up)\b""").containsMatchIn(lower) -> "web_search"
+      else -> null
+    }
   }
 }

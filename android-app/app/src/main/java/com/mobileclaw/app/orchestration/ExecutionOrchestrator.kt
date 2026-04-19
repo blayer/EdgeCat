@@ -536,19 +536,35 @@ class ExecutionOrchestrator(
       }
     }
 
-    if (args["startDateTime"].isNullOrBlank()) {
-      val today = java.time.LocalDate.now()
-      val tomorrow = today.plusDays(1)
-      val targetDate = when {
-        Regex("""\btomorrow\b""").containsMatchIn(lower) -> tomorrow
-        Regex("""\btonight\b""").containsMatchIn(lower) -> today
-        Regex("""\btoday\b""").containsMatchIn(lower) -> today
-        else -> null
-      }
-      if (targetDate != null) {
-        val time = extractTime(lower) ?: "09:00"
-        args["startDateTime"] = "${targetDate}T$time"
-        Log.d(TAG, "Rescued startDateTime from description: ${args["startDateTime"]}")
+    // Derive an authoritative datetime from the description whenever it contains
+    // an unambiguous natural-language anchor ("tomorrow at 9am", "today 3pm"). We
+    // trust this over whatever the planner emitted, because garbled planner output
+    // ({"ddthh":"15","endDateTime":"202604020T15:300"}) may have passed earlier
+    // normalization with a wrong date (2026-04-02 instead of 2026-04-20).
+    val today = java.time.LocalDate.now()
+    val tomorrow = today.plusDays(1)
+    val targetDate = when {
+      Regex("""\btomorrow\b""").containsMatchIn(lower) -> tomorrow
+      Regex("""\btonight\b""").containsMatchIn(lower) -> today
+      Regex("""\btoday\b""").containsMatchIn(lower) -> today
+      else -> null
+    }
+    val explicitTime = extractTime(lower)
+    if (targetDate != null) {
+      val time = explicitTime ?: "09:00"
+      val derived = "${targetDate}T$time"
+      val existing = args["startDateTime"]
+      if (existing != derived) {
+        args["startDateTime"] = derived
+        Log.d(TAG, "Rescued startDateTime from description: $derived (was: $existing)")
+        // Re-derive endDateTime when we overrode the start — the old end would
+        // carry the wrong date/time from the planner's garbled input.
+        val endHour = ((time.substring(0, 2).toIntOrNull() ?: 0) + 1) % 24
+        val newEnd = "${targetDate}T${endHour.toString().padStart(2, '0')}:${time.substring(3, 5)}"
+        if (args["endDateTime"] != newEnd) {
+          args["endDateTime"] = newEnd
+          Log.d(TAG, "Re-derived endDateTime to $newEnd")
+        }
       }
     }
 
