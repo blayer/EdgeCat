@@ -77,7 +77,7 @@ class OrchestrationController(
    * This is a suspending function that runs the full orchestration loop. It updates [state] at each
    * phase so the UI can react.
    */
-  suspend fun run(userMessage: String, conversationContext: String = "") {
+  suspend fun run(userMessage: String, conversationContext: String = "", isOnline: Boolean = true) {
     cancelled.set(false)
     _state.value =
       OrchestrationState(
@@ -102,8 +102,12 @@ class OrchestrationController(
       }
 
       // ---- Phase 1: Plan ----
-      Log.d(TAG, "Phase 1: Planning for: $userMessage")
+      Log.d(TAG, "Phase 1: Planning for: $userMessage (online=$isOnline)")
       val rawSkills = toolExecutor.getAvailableSkills()
+        .let { all ->
+          if (isOnline) all
+          else all.filter { it.name !in ConnectivityChecker.INTERNET_SKILLS }
+        }
       // Deferred skills loaded via search-skills during this run — upgraded to "base" tier
       // so subsequent plans see their full details.
       val loadedDeferred = mutableSetOf<String>()
@@ -111,7 +115,7 @@ class OrchestrationController(
         if (loadedDeferred.contains(it.name)) it.copy(tier = "base") else it
       }
       var skills = skillsForPlanning()
-      val planPrompt = planner.buildPlanningPrompt(userMessage, skills, memoryContext, userPortraitProvider(), conversationContext)
+      val planPrompt = planner.buildPlanningPrompt(userMessage, skills, memoryContext, userPortraitProvider(), conversationContext, isOnline)
       val planningThinking = thinkingPolicy.planner(userMessage, iteration = 0)
       _state.value = _state.value.copy(
         thinkingByPhase = _state.value.thinkingByPhase + ("planning" to planningThinking),

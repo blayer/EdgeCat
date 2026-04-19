@@ -536,6 +536,55 @@ class PlannerTest {
 
   // ─── buildReplanPrompt ───
 
+  // ─── Offline-aware planning ───
+
+  @Test
+  fun `buildPlanningPrompt includes offline warning when not online`() {
+    val prompt = planner.buildPlanningPrompt(
+      userMessage = "search weather",
+      skills = emptyList(),
+      isOnline = false,
+    )
+    assertTrue("offline warning present", prompt.contains("OFFLINE"))
+    assertTrue("offline warning mentions no internet", prompt.contains("no internet"))
+  }
+
+  @Test
+  fun `buildPlanningPrompt has no offline warning when online`() {
+    val prompt = planner.buildPlanningPrompt(
+      userMessage = "search weather",
+      skills = emptyList(),
+      isOnline = true,
+    )
+    assertFalse("no offline warning when online", prompt.contains("OFFLINE"))
+  }
+
+  @Test
+  fun `INTERNET_SKILLS contains expected skills`() {
+    assertTrue(ConnectivityChecker.INTERNET_SKILLS.contains("search-web"))
+    assertTrue(ConnectivityChecker.INTERNET_SKILLS.contains("fetch-web-content"))
+    assertTrue(ConnectivityChecker.INTERNET_SKILLS.contains("open-url"))
+    assertTrue(ConnectivityChecker.INTERNET_SKILLS.contains("send-email"))
+    assertFalse(ConnectivityChecker.INTERNET_SKILLS.contains("calculator"))
+    assertFalse(ConnectivityChecker.INTERNET_SKILLS.contains("calendar"))
+  }
+
+  @Test
+  fun `internet skills can be filtered from skill list`() {
+    val allSkills = listOf(
+      SkillSummary(name = "search-web", description = "Search the web"),
+      SkillSummary(name = "calculator", description = "Math"),
+      SkillSummary(name = "fetch-web-content", description = "Fetch URL"),
+      SkillSummary(name = "calendar", description = "Calendar"),
+    )
+    val offlineSkills = allSkills.filter { it.name !in ConnectivityChecker.INTERNET_SKILLS }
+    assertEquals(2, offlineSkills.size)
+    assertEquals("calculator", offlineSkills[0].name)
+    assertEquals("calendar", offlineSkills[1].name)
+  }
+
+  // ─── buildReplanPrompt ───
+
   @Test
   fun `buildReplanPrompt includes previous results and evaluation`() {
     val prevPlan = ExecutionPlan(

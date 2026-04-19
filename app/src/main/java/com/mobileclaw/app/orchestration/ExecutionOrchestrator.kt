@@ -55,7 +55,6 @@ private val NATIVE_SKILL_TOOLS = mapOf(
   "take-photo" to "takePhoto",
   "list-downloads" to "listDownloads",
   "open-settings" to "openSettings",
-  "check-internet" to "checkInternet",
   "search-web" to "searchWeb",
   "search-skills" to "searchSkills",
 )
