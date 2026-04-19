@@ -79,6 +79,25 @@ class OrchestrationController(
     }
   }
 
+  // Variant that exposes the span handle so the block can tag per-subsystem
+  // attrs (prompt_chars, response_chars, thinking, iteration). Handle is nullable
+  // so this stays a no-op when tracing is off.
+  private suspend inline fun <T> phaseAttr(
+    kind: String,
+    name: String,
+    crossinline block: suspend (TraceRecorder.SpanHandle?) -> T,
+  ): T {
+    val handle = trace?.start(kind, name)
+    return try {
+      val r = block(handle)
+      handle?.end(status = "ok")
+      r
+    } catch (t: Throwable) {
+      handle?.end(status = "error", error = t.message)
+      throw t
+    }
+  }
+
   private val _state = MutableStateFlow(OrchestrationState())
   val state: StateFlow<OrchestrationState> = _state.asStateFlow()
 
@@ -135,11 +154,16 @@ class OrchestrationController(
       _state.value = _state.value.copy(
         thinkingByPhase = _state.value.thinkingByPhase + ("planning" to planningThinking),
       )
-      val plan = phase("planner", "plan") {
+      val plan = phaseAttr("planner", "plan") { h ->
+        h?.attr("prompt_chars", planPrompt.length)
+        h?.attr("thinking", planningThinking)
+        h?.attr("iteration", 0)
+        h?.attr("skill_catalog_size", skills.size)
         val planResponse = llmProvider.generateResponse(
           planPrompt,
           enableThinking = planningThinking,
         )
+        h?.attr("response_chars", planResponse.length)
         planner.parsePlan(planResponse, userMessage)
       }
 
@@ -229,11 +253,16 @@ class OrchestrationController(
           _state.value = _state.value.copy(
             thinkingByPhase = _state.value.thinkingByPhase + ("replanning" to discoveryReplanThinking),
           )
-          currentPlan = phase("planner", "replan.discovery.iter_$iteration") {
+          currentPlan = phaseAttr("planner", "replan.discovery.iter_$iteration") { h ->
+            h?.attr("prompt_chars", discoveryReplanPrompt.length)
+            h?.attr("thinking", discoveryReplanThinking)
+            h?.attr("iteration", iteration)
+            h?.attr("newly_loaded_skills", newlyLoadedCount)
             val discoveryReplanResponse = llmProvider.generateResponse(
               discoveryReplanPrompt,
               enableThinking = discoveryReplanThinking,
             )
+            h?.attr("response_chars", discoveryReplanResponse.length)
             planner.parsePlan(discoveryReplanResponse, userMessage)
           }
           _state.value = _state.value.copy(status = OrchestrationStatus.REPLANNING, plan = currentPlan)
@@ -255,16 +284,20 @@ class OrchestrationController(
           }
           triaged
         } else {
-          phase("evaluator", "judge.iter_$iteration") {
+          phaseAttr("evaluator", "judge.iter_$iteration") { h ->
             val evalPrompt = evaluator.buildEvaluationPrompt(userMessage, currentPlan, repairedResults)
             val evalThinking = thinkingPolicy.evaluator()
             _state.value = _state.value.copy(
               thinkingByPhase = _state.value.thinkingByPhase + ("evaluating" to evalThinking),
             )
+            h?.attr("prompt_chars", evalPrompt.length)
+            h?.attr("thinking", evalThinking)
+            h?.attr("iteration", iteration)
             val evalResponse = llmProvider.generateResponse(
               evalPrompt,
               enableThinking = evalThinking,
             )
+            h?.attr("response_chars", evalResponse.length)
             val combinedOutputs = repairedResults.values.joinToString("\n") { it.output }
             evaluator.parseEvaluation(evalResponse, combinedOutputs)
           }
@@ -343,11 +376,16 @@ class OrchestrationController(
         } else {
           replanPrompt
         }
-        currentPlan = phase("planner", "replan.iter_$iteration") {
+        currentPlan = phaseAttr("planner", "replan.iter_$iteration") { h ->
+          h?.attr("prompt_chars", fullReplanPrompt.length)
+          h?.attr("thinking", replanThinking)
+          h?.attr("iteration", iteration)
+          h?.attr("failed_step_count", stillFailedSteps.size)
           val replanResponse = llmProvider.generateResponse(
             fullReplanPrompt,
             enableThinking = replanThinking,
           )
+          h?.attr("response_chars", replanResponse.length)
           planner.parsePlan(replanResponse, userMessage)
         }
 
@@ -552,13 +590,21 @@ class OrchestrationController(
       thinkingByPhase = _state.value.thinkingByPhase + ("formatting" to formatThinking),
     )
     Log.d(TAG, "Formatting (complex=$complex, thinking=$formatThinking, input=${preprocessed.length} chars)")
-    val response = llmProvider.generateResponse(
-      prompt,
-      enableThinking = formatThinking,
-    )
-    val extracted = ResponseFormatter.extractMessage(response)
-    Log.d(TAG, "Formatter response raw=${response.length} chars, extracted=${extracted.length} chars")
-    return extracted
+    return phaseAttr("formatter", "llm") { h ->
+      h?.attr("prompt_chars", prompt.length)
+      h?.attr("thinking", formatThinking)
+      h?.attr("complex_output", complex)
+      h?.attr("preprocessed_chars", preprocessed.length)
+      val response = llmProvider.generateResponse(
+        prompt,
+        enableThinking = formatThinking,
+      )
+      h?.attr("response_chars", response.length)
+      val extracted = ResponseFormatter.extractMessage(response)
+      h?.attr("extracted_chars", extracted.length)
+      Log.d(TAG, "Formatter response raw=${response.length} chars, extracted=${extracted.length} chars")
+      extracted
+    }
   }
 
   /** Get basic device info for diagnostic context. */
