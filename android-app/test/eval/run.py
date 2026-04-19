@@ -567,6 +567,24 @@ def main() -> int:
     ap.add_argument("--enforce-latency-budget", action="store_true",
                     help="Count a task that exceeds its per-task budget_ms as TSR=0 "
                          "(default: budget bust is informational only)")
+    # Thermal throttling: memory notes ~30min of continuous Gemma inference
+    # degrades SoC throughput. Two levers here:
+    #   --cooldown-every / --cooldown-s: idle-sleep between batches so the SoC cools.
+    #   --thermal-stretch-after / --thermal-stretch-mult: give later tasks more
+    #     wall-clock time because throttled inference is slower per token even
+    #     when the orchestration is identical.
+    ap.add_argument("--cooldown-every", type=int, default=0,
+                    help="Sleep between every N tasks to let the SoC cool "
+                         "(default 0 = no cooldown). Typical: 5.")
+    ap.add_argument("--cooldown-s", type=int, default=45,
+                    help="Seconds to sleep at each cooldown point (default 45)")
+    ap.add_argument("--thermal-stretch-after", type=int, default=0,
+                    help="Task index (1-based) past which timeout_s/budget_ms are "
+                         "multiplied by --thermal-stretch-mult (default 0 = off). "
+                         "Typical: 5.")
+    ap.add_argument("--thermal-stretch-mult", type=float, default=1.5,
+                    help="Multiplier applied to timeout/budget past "
+                         "--thermal-stretch-after (default 1.5)")
     args = ap.parse_args()
 
     adb = adb_base(args.serial)
@@ -605,10 +623,31 @@ def main() -> int:
 
     print(f"Running {len(tasks)} task(s) → {out_dir}")
     rows: list[dict[str, Any]] = []
-    for task in tasks:
+    for idx, task in enumerate(tasks, start=1):
+        # Stretch timeout + budget for tasks past the thermal threshold so slower
+        # throttled inference doesn't look like an orchestration regression.
+        if args.thermal_stretch_after and idx > args.thermal_stretch_after:
+            base_to = int(task.get("timeout_s", 180))
+            base_bd = int(task.get("budget_ms", base_to * 500))
+            task = {
+                **task,
+                "timeout_s": int(base_to * args.thermal_stretch_mult),
+                "budget_ms": int(base_bd * args.thermal_stretch_mult),
+            }
         row = run_one(adb, task, out_dir, enforce_latency_budget=args.enforce_latency_budget)
         rows.append(row)
         (out_dir / "results.partial.json").write_text(json.dumps(rows, indent=2))
+        # Cooldown between batches. Skip after the final task — no point sleeping
+        # if we're done. Also skip if the task failed to start (am_start_failed),
+        # since the device wasn't actually working.
+        if (
+            args.cooldown_every
+            and args.cooldown_every > 0
+            and idx < len(tasks)
+            and idx % args.cooldown_every == 0
+        ):
+            print(f"  cooldown: sleeping {args.cooldown_s}s after task #{idx}")
+            time.sleep(args.cooldown_s)
 
     summary = compute_summary(rows)
     results = {
