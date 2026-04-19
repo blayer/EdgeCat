@@ -1,0 +1,88 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "MobileClawTask",
+  "description": "A single eval task for Mobile-Claw orchestration. One JSONL line per task.",
+  "type": "object",
+  "required": ["id", "prompt", "category", "complexity"],
+  "additionalProperties": false,
+  "properties": {
+    "id": {
+      "type": "string",
+      "description": "Stable task id, e.g. alarm-001"
+    },
+    "prompt": {
+      "type": "string",
+      "description": "The user message sent to Mobile-Claw"
+    },
+    "category": {
+      "type": "string",
+      "description": "Skill domain: calendar, alarm, sms, contacts, web, calculator, device, chat, multi, other"
+    },
+    "complexity": {
+      "type": "string",
+      "enum": ["single-skill", "multi-step", "replan-required", "refuse", "chat"]
+    },
+    "expected_skills": {
+      "type": "array",
+      "description": "Skill names the planner is expected to pick. Empty means any/none (chat/refuse).",
+      "items": { "type": "string" }
+    },
+    "expected_args_contract": {
+      "type": "object",
+      "description": "Optional per-skill arg shape checks. Keyed by skill name.",
+      "additionalProperties": true
+    },
+    "verifier": {
+      "type": "object",
+      "description": "How to check ground-truth success.",
+      "required": ["type"],
+      "properties": {
+        "type": {
+          "type": "string",
+          "enum": ["state", "output_regex", "llm_judge", "none"]
+        },
+        "check": {
+          "type": "string",
+          "description": "For state/output_regex: a verifier function reference or regex. Scorer resolves it."
+        },
+        "params": {
+          "type": "object",
+          "description": "Params passed to the verifier function.",
+          "additionalProperties": true
+        },
+        "rubric": {
+          "type": "string",
+          "description": "For llm_judge: the rubric text."
+        }
+      }
+    },
+    "should_refuse": {
+      "type": "boolean",
+      "description": "True if the agent should refuse (no matching skill / unsafe / unclear).",
+      "default": false
+    },
+    "timeout_s": {
+      "type": "integer",
+      "default": 180,
+      "minimum": 10
+    },
+    "setup": {
+      "type": "array",
+      "description": "Optional setup commands run on device before the task (adb shell snippets).",
+      "items": { "type": "string" }
+    },
+    "teardown": {
+      "type": "array",
+      "description": "Optional teardown commands run on device after the task.",
+      "items": { "type": "string" }
+    },
+    "notes": {
+      "type": "string",
+      "description": "Human notes about why this task exists / what it stresses."
+    },
+    "source": {
+      "type": "string",
+      "description": "hand-written | transcribed-TEST-PLAN | androidworld-derived | synthetic"
+    }
+  }
+}

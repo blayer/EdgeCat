@@ -195,7 +195,7 @@ data class Model(
    *
    * For testing purpose only.
    */
-  val localModelFilePathOverride: String = "",
+  var localModelFilePathOverride: String = "",
 
   // The following fields are only used for built-in tasks. Can ignore if you are creating your own
   // custom tasks.

@@ -45,7 +45,7 @@ interface DataStoreEntryPoint {
 }
 
 class AgentChatTask @Inject constructor() : CustomTask {
-  private val agentTools = AgentTools()
+  val agentTools = AgentTools()
 
   override val task: Task =
     Task(

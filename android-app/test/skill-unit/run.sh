@@ -2,9 +2,9 @@
 # Skill Unit Test Runner
 #
 # Usage:
-#   ./test/skill-unit/run.sh [-d <serial>]                     # Run all
-#   ./test/skill-unit/run.sh [-d <serial>] calendar             # One skill
-#   ./test/skill-unit/run.sh [-d <serial>] calendar/create      # One test
+#   ./android-app/test/skill-unit/run.sh [-d <serial>]                     # Run all
+#   ./android-app/test/skill-unit/run.sh [-d <serial>] calendar             # One skill
+#   ./android-app/test/skill-unit/run.sh [-d <serial>] calendar/create      # One test
 #
 # Structure: skill-unit/<skill>/<action>/test.sh
 
