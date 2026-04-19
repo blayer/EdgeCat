@@ -14,13 +14,13 @@ Usage:
     python test/eval/run.py [options]
 
     # First-time setup: open the app, pick and fully initialize a model, then:
-    python test/eval/run.py --dataset datasets/v1.jsonl --label main
+    python test/eval/run.py --dataset datasets/v1_basic.jsonl --label main
 
     # One task:
-    python test/eval/run.py --dataset datasets/v1.jsonl --task calc-001
+    python test/eval/run.py --dataset datasets/v1_basic.jsonl --task calc-001
 
     # With explicit device serial:
-    python test/eval/run.py --dataset datasets/v1.jsonl --serial R3CW30Q4WFM
+    python test/eval/run.py --dataset datasets/v1_basic.jsonl --serial R3CW30Q4WFM
 
 Output:
     runs/<label>-<ts>/
@@ -459,7 +459,7 @@ def run_one(adb: list[str], task: dict[str, Any], out_dir: Path) -> dict[str, An
 
 def main() -> int:
     ap = argparse.ArgumentParser()
-    ap.add_argument("--dataset", default="datasets/v1.jsonl",
+    ap.add_argument("--dataset", default="datasets/v1_basic.jsonl",
                     help="Path to JSONL dataset (relative to test/eval/ or absolute)")
     ap.add_argument("--task", help="Run only this task id")
     ap.add_argument("--label", default=None, help="Run label (default: current git branch)")
