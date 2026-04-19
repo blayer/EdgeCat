@@ -260,54 +260,150 @@ Respond with ONLY valid JSON:
   }
 
   /**
+   * Result of parsing an LLM planning response. Exposes which repair tier won so
+   * the caller can record it in the trace span for attribution.
+   */
+  data class PlanParseResult(
+    val plan: ExecutionPlan,
+    val repairApplied: String,
+  )
+
+  /**
    * Parse LLM output into an [ExecutionPlan].
    *
    * Tries JSON parsing first, then falls back to regex extraction for malformed output.
+   * Kept for call sites that don't care which tier won.
    */
-  fun parsePlan(llmOutput: String, originalGoal: String): ExecutionPlan {
-    // Try to extract JSON from the output (may be wrapped in markdown code blocks).
-    val jsonStr = extractJson(llmOutput)
-    if (jsonStr != null) {
-      try {
-        return parseJsonPlan(jsonStr, originalGoal)
-      } catch (e: Exception) {
-        // Small models commonly emit trailing commas and stray commas after string values.
-        // Try a light-touch cleanup before giving up on the strict JSON path.
-        val repaired = repairJson(jsonStr)
-        if (repaired != jsonStr) {
-          try {
-            return parseJsonPlan(repaired, originalGoal)
-          } catch (e2: Exception) {
-            Log.w(TAG, "JSON parsing failed after repair, trying regex fallback: ${e2.message}")
-          }
-        } else {
-          Log.w(TAG, "JSON parsing failed, trying regex fallback: ${e.message}")
-        }
-      }
-    }
-
-    // Regex fallback: try to extract steps from semi-structured text.
-    return regexFallbackParse(llmOutput, originalGoal)
-  }
+  fun parsePlan(llmOutput: String, originalGoal: String): ExecutionPlan =
+    parsePlanWithStatus(llmOutput, originalGoal).plan
 
   /**
-   * Light JSON repair for common small-model malformations:
-   * - trailing commas before `}` or `]`
-   * - stray double/extra commas (e.g. `"skillName":"x",    ,\n"toolArgs":`), which appear when the
-   *   model tries to emit a field and abandons it mid-token.
+   * Parse LLM output and report which repair tier produced the plan.
+   * Tiers in order (returned as [PlanParseResult.repairApplied]):
+   *   - "none": valid JSON on first pass
+   *   - "commas": light comma cleanup (trailing, stray)
+   *   - "quotes": normalize smart/single quotes to ASCII double quotes
+   *   - "unquoted-keys": add missing quotes around bareword keys
+   *   - "strip-comments": remove `// ...` and `# ...` comment lines
+   *   - "balance-braces": append missing closing `}` / `]` for truncated output
+   *   - "full": all of the above applied together
+   *   - "regex-fallback": none of the JSON tiers worked
    */
-  private fun repairJson(s: String): String {
+  fun parsePlanWithStatus(llmOutput: String, originalGoal: String): PlanParseResult {
+    val jsonStr = extractJson(llmOutput)
+    if (jsonStr != null) {
+      // Ordered list of (tier name, repair fn) pairs. Each is an independent
+      // transformation attempted on the ORIGINAL extracted JSON so an earlier
+      // tier's half-fix can't mask a later tier's success. "full" is the union
+      // of all fixes and wins for pathological cases where a single fix isn't
+      // sufficient.
+      val tiers = listOf<Pair<String, (String) -> String>>(
+        "commas" to ::repairCommas,
+        "quotes" to ::repairQuotes,
+        "unquoted-keys" to ::repairUnquotedKeys,
+        "strip-comments" to ::repairStripComments,
+        "balance-braces" to ::repairBalanceBraces,
+        "full" to ::repairAll,
+      )
+      val attempted = mutableListOf("none")
+      try {
+        return PlanParseResult(parseJsonPlan(jsonStr, originalGoal), "none")
+      } catch (e0: Exception) {
+        Log.d(TAG, "Plan JSON parse failed (raw): ${e0.message}; trying repairs")
+        for ((name, fn) in tiers) {
+          val repaired = fn(jsonStr)
+          if (repaired == jsonStr) continue
+          attempted.add(name)
+          try {
+            val plan = parseJsonPlan(repaired, originalGoal)
+            Log.d(TAG, "Plan JSON parse succeeded after repair tier='$name'")
+            return PlanParseResult(plan, name)
+          } catch (_: Exception) {
+            // Next tier.
+          }
+        }
+        Log.w(TAG, "All JSON repair tiers failed (tried=$attempted), using regex fallback: ${e0.message}")
+      }
+    }
+    return PlanParseResult(regexFallbackParse(llmOutput, originalGoal), "regex-fallback")
+  }
+
+  // ---- Repair tiers ----
+
+  /** Small-model comma malformations: trailing commas and stray comma-only gaps. */
+  private fun repairCommas(s: String): String {
     var out = s
-    // Collapse stray comma-only lines: `, <ws> ,` → `,`
     var prev: String
     do {
       prev = out
       out = Regex(""",\s*,""").replace(out, ",")
     } while (out != prev)
-    // Remove trailing commas: ,} or ,]
     out = Regex(""",(\s*[}\]])""").replace(out) { it.groupValues[1] }
     return out
   }
+
+  /** Normalize curly/single quotes the model sometimes emits instead of ASCII ". */
+  private fun repairQuotes(s: String): String {
+    var out = s
+      .replace('\u201C', '"')   // left double
+      .replace('\u201D', '"')   // right double
+      .replace('\u2018', '"')   // left single → double (JSON has no single-quote strings)
+      .replace('\u2019', '"')   // right single
+    // If the extracted blob is entirely wrapped with single quotes on keys/values and
+    // contains no unescaped double quotes, promote singles to doubles. Guarded on the
+    // ratio so we don't stomp legitimate apostrophes inside descriptions.
+    val singles = out.count { it == '\'' }
+    val doubles = out.count { it == '"' }
+    if (singles > 4 && doubles == 0) {
+      out = out.replace('\'', '"')
+    }
+    return out
+  }
+
+  /** Add quotes around bareword keys: {goal: "x"} → {"goal": "x"}. */
+  private fun repairUnquotedKeys(s: String): String {
+    // After { or , (whitespace ok), match an unquoted identifier followed by : — quote it.
+    return Regex("""([{,]\s*)([A-Za-z_][A-Za-z0-9_]*)(\s*:)""")
+      .replace(s) { m -> "${m.groupValues[1]}\"${m.groupValues[2]}\"${m.groupValues[3]}" }
+  }
+
+  /** Strip `// ...` and `# ...` comment lines some thinking-mode outputs inject. */
+  private fun repairStripComments(s: String): String {
+    // Only strip when the comment starts a line (guards against `"url":"http://..."`).
+    return s.lineSequence()
+      .map { line ->
+        val trimmed = line.trimStart()
+        if (trimmed.startsWith("//") || trimmed.startsWith("#")) "" else line
+      }
+      .joinToString("\n")
+  }
+
+  /** Append missing closing braces/brackets when the model truncated mid-object. */
+  private fun repairBalanceBraces(s: String): String {
+    // Count structural chars only — naive (ignores chars inside strings) but close enough
+    // for small plans where the problem is a clean truncation at the end.
+    val opens = s.count { it == '{' }
+    val closes = s.count { it == '}' }
+    val openBr = s.count { it == '[' }
+    val closeBr = s.count { it == ']' }
+    if (opens <= closes && openBr <= closeBr) return s
+    val sb = StringBuilder(s.trimEnd().trimEnd(','))
+    repeat(openBr - closeBr) { sb.append(']') }
+    repeat(opens - closes) { sb.append('}') }
+    return sb.toString()
+  }
+
+  /** All repairs stacked — used as the final tier for pathological outputs. */
+  private fun repairAll(s: String): String =
+    repairBalanceBraces(
+      repairStripComments(
+        repairUnquotedKeys(
+          repairQuotes(
+            repairCommas(s)
+          )
+        )
+      )
+    )
 
   /**
    * Topologically sort plan steps and group independent steps into parallel batches.
@@ -430,8 +526,14 @@ Respond with ONLY valid JSON:
     val codeBlockRegex = Regex("```(?:json)?\\s*\\n?(\\{.*\\})\\s*```", RegexOption.DOT_MATCHES_ALL)
     codeBlockRegex.find(text)?.let { return it.groupValues[1].trim() }
 
-    // Try raw JSON object — greedy match to capture nested braces.
-    val jsonRegex = Regex("(\\{\\s*\"goal\".*\\})", RegexOption.DOT_MATCHES_ALL)
+    // Try raw JSON object — greedy match to capture nested braces. Accept ASCII,
+    // smart double, or single quotes around the leading "goal" marker because
+    // small models sometimes emit curly quotes or single quotes; the repair
+    // pipeline normalizes them later.
+    val jsonRegex = Regex(
+      "(\\{\\s*[\"\u201C\u201D\u2018\u2019']goal.*\\})",
+      RegexOption.DOT_MATCHES_ALL,
+    )
     jsonRegex.find(text)?.let { return it.groupValues[1].trim() }
 
     return null

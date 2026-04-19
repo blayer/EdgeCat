@@ -164,7 +164,9 @@ class OrchestrationController(
           enableThinking = planningThinking,
         )
         h?.attr("response_chars", planResponse.length)
-        planner.parsePlan(planResponse, userMessage)
+        val parsed = planner.parsePlanWithStatus(planResponse, userMessage)
+        h?.attr("json_repair", parsed.repairApplied)
+        parsed.plan
       }
 
       Log.d(TAG, "Plan created with ${plan.steps.size} steps")
@@ -263,7 +265,9 @@ class OrchestrationController(
               enableThinking = discoveryReplanThinking,
             )
             h?.attr("response_chars", discoveryReplanResponse.length)
-            planner.parsePlan(discoveryReplanResponse, userMessage)
+            val parsed = planner.parsePlanWithStatus(discoveryReplanResponse, userMessage)
+            h?.attr("json_repair", parsed.repairApplied)
+            parsed.plan
           }
           _state.value = _state.value.copy(status = OrchestrationStatus.REPLANNING, plan = currentPlan)
           continue
@@ -386,7 +390,9 @@ class OrchestrationController(
             enableThinking = replanThinking,
           )
           h?.attr("response_chars", replanResponse.length)
-          planner.parsePlan(replanResponse, userMessage)
+          val parsed = planner.parsePlanWithStatus(replanResponse, userMessage)
+          h?.attr("json_repair", parsed.repairApplied)
+          parsed.plan
         }
 
         Log.d(TAG, "Revised plan has ${currentPlan.steps.size} steps")
