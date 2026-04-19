@@ -1,11 +1,14 @@
-name: CI
+name: CI / Android
 
 on:
   pull_request:
     branches: [main]
+    paths:
+      - 'android-app/**'
+      - '.github/workflows/ci-android.yml'
 
 concurrency:
-  group: ci-${{ github.ref }}
+  group: ci-android-${{ github.ref }}
   cancel-in-progress: true
 
 defaults:
@@ -13,7 +16,7 @@ defaults:
     working-directory: android-app
 
 jobs:
-  lint:
+  android-lint:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -30,7 +33,7 @@ jobs:
       - name: Run Android lint
         run: ./gradlew :app:lintDebug
 
-  pre-merge-test:
+  android-test:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -47,9 +50,9 @@ jobs:
       - name: Run unit tests
         run: ./gradlew :app:testDebugUnitTest
 
-  build:
+  android-build:
     runs-on: ubuntu-latest
-    needs: [lint, pre-merge-test]
+    needs: [android-lint, android-test]
     steps:
       - uses: actions/checkout@v4
 
