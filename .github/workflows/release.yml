@@ -15,6 +15,7 @@ on:
 
 permissions:
   contents: write
+  pull-requests: write
 
 jobs:
   release:
@@ -47,3 +48,17 @@ jobs:
           prerelease: ${{ inputs.prerelease }}
           generate_release_notes: true
           files: dist/mobile-claw-${{ inputs.tag }}.apk
+
+      - name: Comment on merged PR
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          PR_NUMBER=$(gh pr list --state merged --base main --limit 1 --json number --jq '.[0].number')
+          if [ -n "$PR_NUMBER" ]; then
+            gh pr comment "$PR_NUMBER" --body "$(cat <<EOF
+          🚀 **Released as [${{ inputs.tag }}](https://github.com/${{ github.repository }}/releases/tag/${{ inputs.tag }})**
+
+          📦 [Download APK](https://github.com/${{ github.repository }}/releases/download/${{ inputs.tag }}/mobile-claw-${{ inputs.tag }}.apk)
+          EOF
+          )"
+          fi
