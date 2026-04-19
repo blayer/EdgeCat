@@ -84,12 +84,18 @@ def evaluator_rubber_stamp(trace: dict[str, Any], state_verifier_passed: bool | 
 
 
 def replan_convergence(trace: dict[str, Any]) -> tuple[float, str]:
-    """For runs that needed replanning, did they converge within maxIterations?"""
+    """For runs that needed replanning, did they converge within maxIterations?
+
+    EvalActivity translates OrchestrationStatus.COMPLETED → "ok" in the trace;
+    runs that hit maxIterations without converging emit "incomplete". Accept
+    both "ok" and the legacy "COMPLETED" so the scorer works regardless of
+    whichever the orchestration layer writes.
+    """
     run = trace.get("run", {})
     final_status = run.get("final_status", "")
     iteration = run.get("iteration", 0)
     if iteration <= 1:
         return 1.0, "single iteration — no replan needed"
-    if final_status == "COMPLETED":
+    if final_status in ("ok", "COMPLETED"):
         return 1.0, f"converged at iteration {iteration}"
     return 0.0, f"failed after {iteration} iterations (status={final_status})"
