@@ -2,8 +2,8 @@
 """A/B diff between two Mobile-Claw eval runs.
 
 Usage:
-    python test/eval/compare.py <baseline_run_dir> <candidate_run_dir>
-    python test/eval/compare.py runs/main-20260418-090000 runs/exp-20260418-120000
+    python android-app/test/eval/compare.py <baseline_run_dir> <candidate_run_dir>
+    python android-app/test/eval/compare.py runs/main-20260418-090000 runs/exp-20260418-120000
 
 Each argument is a run directory produced by run.py (must contain results.json).
 Prints a markdown delta table to stdout and writes it to

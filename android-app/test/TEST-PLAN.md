@@ -5,10 +5,10 @@ Run them in order — if a level fails, fix before proceeding.
 
 ```bash
 # Full run (all 3 levels):
-./test/run-all.sh [-d <device-serial>]
+./android-app/test/run-all.sh [-d <device-serial>]
 
 # Levels 1-2 only (no device):
-./test/run-all.sh --skip-device
+./android-app/test/run-all.sh --skip-device
 
 # Individual levels:
 ./gradlew testDebugUnitTest --tests "com.mobileclaw.app.orchestration.*" --tests "com.mobileclaw.app.customtasks.*"   # Level 1
@@ -82,13 +82,13 @@ Test workflow:
 4. Send prompt and verify response
 5. Capture screenshot
 
-Per-skill unit tests live in `test/skill-unit/<skill>/<action>.sh`.
+Per-skill unit tests live in `android-app/test/skill-unit/<skill>/<action>.sh`.
 **Not** part of the main test flow — run manually when skills are updated:
 
 ```bash
-./test/skill-unit/run.sh                    # all skills
-./test/skill-unit/run.sh calendar           # one skill (all actions)
-./test/skill-unit/run.sh calendar/create    # one action
+./android-app/test/skill-unit/run.sh                    # all skills
+./android-app/test/skill-unit/run.sh calendar           # one skill (all actions)
+./android-app/test/skill-unit/run.sh calendar/create    # one action
 ```
 
 ### Orchestration Scenarios

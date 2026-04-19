@@ -11,16 +11,16 @@ Preconditions (enforced, not worked around):
     the run must reflect production configuration.
 
 Usage:
-    python test/eval/run.py [options]
+    python android-app/test/eval/run.py [options]
 
     # First-time setup: open the app, pick and fully initialize a model, then:
-    python test/eval/run.py --dataset datasets/v1_basic.jsonl --label main
+    python android-app/test/eval/run.py --dataset datasets/v1_basic.jsonl --label main
 
     # One task:
-    python test/eval/run.py --dataset datasets/v1_basic.jsonl --task calc-001
+    python android-app/test/eval/run.py --dataset datasets/v1_basic.jsonl --task calc-001
 
     # With explicit device serial:
-    python test/eval/run.py --dataset datasets/v1_basic.jsonl --serial R3CW30Q4WFM
+    python android-app/test/eval/run.py --dataset datasets/v1_basic.jsonl --serial R3CW30Q4WFM
 
 Output:
     runs/<label>-<ts>/

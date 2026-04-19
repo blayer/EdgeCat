@@ -186,15 +186,15 @@ app/src/main/java/com/mobileclaw/app/
 │   └── AgentChatTaskModule.kt        ← system prompt, model init
 └── memory/                           ← episodic memory
 app/src/main/assets/skills/           ← packaged SKILL.md + JS
-test/                                 ← on-device test harness
+android-app/test/                     ← on-device test harness
 ```
 
 ## Running on-device tests
 
 ```bash
-cd test
+cd android-app/test
 ./orchestration.sh local-search           # single scenario
 ./orchestration.sh                        # all scenarios from TEST-PLAN.md
 ```
 
-Each scenario validates plan creation, execution, and final-answer pattern on a connected Android device. Screenshots land in `test/screenshots/`.
+Each scenario validates plan creation, execution, and final-answer pattern on a connected Android device. Screenshots land in `android-app/test/screenshots/`.

@@ -78,7 +78,7 @@
 
         <!-- Hidden, UI-free eval entry point. No MAIN/LAUNCHER filter so it never appears
              in the app drawer. Triggered via adb with a custom action + prompt extras; see
-             test/eval/run.py. Kept in all build types intentionally — the eval harness is
+             android-app/test/eval/run.py. Kept in all build types intentionally — the eval harness is
              used during development and QA on production-config devices. -->
         <activity
             android:name="com.mobileclaw.app.eval.EvalActivity"
