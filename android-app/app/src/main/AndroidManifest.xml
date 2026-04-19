@@ -76,6 +76,25 @@
             </intent-filter>
         </activity>
 
+        <!-- Hidden, UI-free eval entry point. No MAIN/LAUNCHER filter so it never appears
+             in the app drawer. Triggered via adb with a custom action + prompt extras; see
+             test/eval/run.py. Kept in all build types intentionally — the eval harness is
+             used during development and QA on production-config devices. -->
+        <activity
+            android:name="com.mobileclaw.app.eval.EvalActivity"
+            android:exported="true"
+            android:theme="@style/Theme.MobileClaw"
+            android:screenOrientation="portrait"
+            android:configChanges="uiMode"
+            android:excludeFromRecents="true"
+            android:noHistory="true"
+            tools:ignore="DiscouragedApi,LockedOrientationActivity">
+            <intent-filter>
+                <action android:name="com.mobileclaw.app.EVAL_RUN" />
+                <category android:name="android.intent.category.DEFAULT" />
+            </intent-filter>
+        </activity>
+
         <provider
             android:name="androidx.core.content.FileProvider"
             android:authorities="${applicationId}.provider"
