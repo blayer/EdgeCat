@@ -66,6 +66,11 @@
       "default": 180,
       "minimum": 10
     },
+    "budget_ms": {
+      "type": "integer",
+      "description": "Latency budget in ms. A task that completes past this is reported as budget_bust (informational by default; use --enforce-latency-budget to count as TSR=0). Defaults to timeout_s * 500 (half the hard timeout).",
+      "minimum": 1000
+    },
     "setup": {
       "type": "array",
       "description": "Optional setup commands run on device before the task (adb shell snippets).",
