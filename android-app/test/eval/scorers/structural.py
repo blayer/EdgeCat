@@ -49,6 +49,49 @@ def tool_correctness(trace: dict[str, Any], expected_skills: list[str]) -> tuple
     return score, f"expected={sorted(expected)} actual={sorted(actual)} hits={sorted(hits)}"
 
 
+def step_order_lcs(trace: dict[str, Any], expected_skills: list[str]) -> tuple[float, str]:
+    """How well does the plan's skill sequence preserve the expected order?
+
+    Scored as LCS(expected, actual) / len(expected). A plan that contains every
+    expected skill in order scores 1.0 regardless of extra interleaved steps;
+    out-of-order plans lose credit proportional to the inversion.
+
+    Complements tool_correctness (unordered set match) — a plan can pass
+    tool_correctness but flunk this one by getting the dependency order wrong
+    (e.g. search-web before get-location on a "food around me" task).
+
+    Conventions match tool_correctness:
+      - empty expected → 1.0 (chat/refuse cases handled elsewhere)
+      - names are normalized with underscore→dash so tool_name/skill_name variants match
+      - duplicated skills in actual are considered separately (an extra occurrence can
+        satisfy an expected occurrence), so a bloated plan still scores well on order
+    """
+    if not expected_skills:
+        return 1.0, "no expected_skills declared"
+    run = trace.get("run", {})
+    plan = run.get("plan") or {}
+    actual_seq: list[str] = []
+    for s in plan.get("steps", []):
+        name = s.get("skill_name") or s.get("tool_name")
+        if name:
+            actual_seq.append(name.replace("_", "-"))
+    expected_seq = [e.replace("_", "-") for e in expected_skills]
+    if not actual_seq:
+        return 0.0, f"expected={expected_seq} actual=[] lcs=0"
+
+    m, n = len(expected_seq), len(actual_seq)
+    dp = [[0] * (n + 1) for _ in range(m + 1)]
+    for i in range(1, m + 1):
+        for j in range(1, n + 1):
+            if expected_seq[i - 1] == actual_seq[j - 1]:
+                dp[i][j] = dp[i - 1][j - 1] + 1
+            else:
+                dp[i][j] = max(dp[i - 1][j], dp[i][j - 1])
+    lcs_len = dp[m][n]
+    score = lcs_len / m
+    return score, f"expected={expected_seq} actual={actual_seq} lcs={lcs_len}/{m}"
+
+
 def refusal_accuracy(trace: dict[str, Any], should_refuse: bool) -> tuple[float, str]:
     """Did the agent correctly refuse (or not refuse) per the task spec?"""
     run = trace.get("run", {})
