@@ -3,9 +3,15 @@
 /local.properties
 /.idea
 .DS_Store
-/build
+**/build/
 /captures
 .externalNativeBuild
 .cxx
 local.properties
-/app/build
+
+# Python
+__pycache__/
+*.pyc
+
+# Eval run artifacts (generated per-run by android-app/test/eval/run.py)
+android-app/test/eval/runs/
