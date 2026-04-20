@@ -95,6 +95,22 @@
             </intent-filter>
         </activity>
 
+        <!-- Hidden entry point for sideloading a pre-staged model into the canonical download
+             layout under the app UID. Avoids the `shell`-owned sideload trap that breaks
+             subsequent downloads under Samsung's FUSE scoped storage. See
+             com.mobileclaw.app.ingest.ModelIngestActivity kdoc for usage. -->
+        <activity
+            android:name="com.mobileclaw.app.ingest.ModelIngestActivity"
+            android:exported="true"
+            android:theme="@android:style/Theme.Translucent.NoTitleBar"
+            android:excludeFromRecents="true"
+            android:noHistory="true">
+            <intent-filter>
+                <action android:name="com.mobileclaw.app.MODEL_INGEST" />
+                <category android:name="android.intent.category.DEFAULT" />
+            </intent-filter>
+        </activity>
+
         <provider
             android:name="androidx.core.content.FileProvider"
             android:authorities="${applicationId}.provider"
