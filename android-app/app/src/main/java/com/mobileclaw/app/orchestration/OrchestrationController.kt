@@ -59,12 +59,44 @@ class OrchestrationController(
   private val maxRepairAttempts: Int = 2,
   thinkingMode: ThinkingMode = ThinkingMode.AUTO,
   private val userPortraitProvider: () -> String = { "" },
+  private val trace: TraceRecorder? = null,
 ) {
   private val thinkingPolicy = ThinkingPolicy(thinkingMode)
   private val planner = Planner()
   private val orchestrator = ExecutionOrchestrator(llmProvider, toolExecutor, thinkingPolicy)
   private val evaluator = SelfEvaluator()
   private val skillCreator = SkillCreator()
+
+  private suspend inline fun <T> phase(kind: String, name: String, crossinline block: suspend () -> T): T {
+    val handle = trace?.start(kind, name)
+    return try {
+      val r = block()
+      handle?.end(status = "ok")
+      r
+    } catch (t: Throwable) {
+      handle?.end(status = "error", error = t.message)
+      throw t
+    }
+  }
+
+  // Variant that exposes the span handle so the block can tag per-subsystem
+  // attrs (prompt_chars, response_chars, thinking, iteration). Handle is nullable
+  // so this stays a no-op when tracing is off.
+  private suspend inline fun <T> phaseAttr(
+    kind: String,
+    name: String,
+    crossinline block: suspend (TraceRecorder.SpanHandle?) -> T,
+  ): T {
+    val handle = trace?.start(kind, name)
+    return try {
+      val r = block(handle)
+      handle?.end(status = "ok")
+      r
+    } catch (t: Throwable) {
+      handle?.end(status = "error", error = t.message)
+      throw t
+    }
+  }
 
   private val _state = MutableStateFlow(OrchestrationState())
   val state: StateFlow<OrchestrationState> = _state.asStateFlow()
@@ -87,11 +119,13 @@ class OrchestrationController(
 
     try {
       // ---- Phase 0: Recall memory ----
-      val memoryContext = try {
-        memoryRepository?.recallForPlanning(userMessage) ?: ""
-      } catch (e: Exception) {
-        Log.w(TAG, "Memory recall failed, continuing without memory", e)
-        ""
+      val memoryContext = phase("memory", "recall") {
+        try {
+          memoryRepository?.recallForPlanning(userMessage) ?: ""
+        } catch (e: Exception) {
+          Log.w(TAG, "Memory recall failed, continuing without memory", e)
+          ""
+        }
       }
       val memoryFound = memoryContext.isNotEmpty()
       _state.value = _state.value.copy(memoryRecalled = memoryFound)
@@ -120,11 +154,20 @@ class OrchestrationController(
       _state.value = _state.value.copy(
         thinkingByPhase = _state.value.thinkingByPhase + ("planning" to planningThinking),
       )
-      val planResponse = llmProvider.generateResponse(
-        planPrompt,
-        enableThinking = planningThinking,
-      )
-      val plan = planner.parsePlan(planResponse, userMessage)
+      val plan = phaseAttr("planner", "plan") { h ->
+        h?.attr("prompt_chars", planPrompt.length)
+        h?.attr("thinking", planningThinking)
+        h?.attr("iteration", 0)
+        h?.attr("skill_catalog_size", skills.size)
+        val planResponse = llmProvider.generateResponse(
+          planPrompt,
+          enableThinking = planningThinking,
+        )
+        h?.attr("response_chars", planResponse.length)
+        val parsed = planner.parsePlanWithStatus(planResponse, userMessage)
+        h?.attr("json_repair", parsed.repairApplied)
+        parsed.plan
+      }
 
       Log.d(TAG, "Plan created with ${plan.steps.size} steps")
       _state.value =
@@ -155,14 +198,23 @@ class OrchestrationController(
 
         // Execute.
         val batches = planner.getExecutionBatches(currentPlan)
-        val results =
+        val results = phase("orchestrator", "execute_plan.iter_$iteration") {
           orchestrator.executePlan(currentPlan, batches) { stepResult ->
             // Update state as each step completes.
             _state.value =
               _state.value.copy(
                 stepResults = _state.value.stepResults + (stepResult.stepId to stepResult)
               )
+            trace?.start("step", stepResult.stepId)?.apply {
+              attr("skill", stepResult.stepId)
+              attr("status", stepResult.status.name)
+              attr("duration_ms", stepResult.durationMs)
+              if (!stepResult.error.isNullOrEmpty()) attr("error", stepResult.error)
+              end(status = if (stepResult.status == StepStatus.COMPLETED) "ok" else "error",
+                  error = stepResult.error)
+            }
           }
+        }
 
         val repairedResults = results
         _state.value = _state.value.copy(stepResults = repairedResults)
@@ -203,11 +255,20 @@ class OrchestrationController(
           _state.value = _state.value.copy(
             thinkingByPhase = _state.value.thinkingByPhase + ("replanning" to discoveryReplanThinking),
           )
-          val discoveryReplanResponse = llmProvider.generateResponse(
-            discoveryReplanPrompt,
-            enableThinking = discoveryReplanThinking,
-          )
-          currentPlan = planner.parsePlan(discoveryReplanResponse, userMessage)
+          currentPlan = phaseAttr("planner", "replan.discovery.iter_$iteration") { h ->
+            h?.attr("prompt_chars", discoveryReplanPrompt.length)
+            h?.attr("thinking", discoveryReplanThinking)
+            h?.attr("iteration", iteration)
+            h?.attr("newly_loaded_skills", newlyLoadedCount)
+            val discoveryReplanResponse = llmProvider.generateResponse(
+              discoveryReplanPrompt,
+              enableThinking = discoveryReplanThinking,
+            )
+            h?.attr("response_chars", discoveryReplanResponse.length)
+            val parsed = planner.parsePlanWithStatus(discoveryReplanResponse, userMessage)
+            h?.attr("json_repair", parsed.repairApplied)
+            parsed.plan
+          }
           _state.value = _state.value.copy(status = OrchestrationStatus.REPLANNING, plan = currentPlan)
           continue
         }
@@ -220,19 +281,30 @@ class OrchestrationController(
         val triaged = triageEvaluation(userMessage, currentPlan, repairedResults)
         val evaluation = if (triaged != null) {
           Log.d(TAG, "Short-circuit eval: ${triaged.assessment}")
+          trace?.start("evaluator", "triage")?.apply {
+            attr("goal_achieved", triaged.goalAchieved)
+            attr("should_replan", triaged.shouldReplan)
+            end(status = "ok")
+          }
           triaged
         } else {
-          val evalPrompt = evaluator.buildEvaluationPrompt(userMessage, currentPlan, repairedResults)
-          val evalThinking = thinkingPolicy.evaluator()
-          _state.value = _state.value.copy(
-            thinkingByPhase = _state.value.thinkingByPhase + ("evaluating" to evalThinking),
-          )
-          val evalResponse = llmProvider.generateResponse(
-            evalPrompt,
-            enableThinking = evalThinking,
-          )
-          val combinedOutputs = repairedResults.values.joinToString("\n") { it.output }
-          evaluator.parseEvaluation(evalResponse, combinedOutputs)
+          phaseAttr("evaluator", "judge.iter_$iteration") { h ->
+            val evalPrompt = evaluator.buildEvaluationPrompt(userMessage, currentPlan, repairedResults)
+            val evalThinking = thinkingPolicy.evaluator()
+            _state.value = _state.value.copy(
+              thinkingByPhase = _state.value.thinkingByPhase + ("evaluating" to evalThinking),
+            )
+            h?.attr("prompt_chars", evalPrompt.length)
+            h?.attr("thinking", evalThinking)
+            h?.attr("iteration", iteration)
+            val evalResponse = llmProvider.generateResponse(
+              evalPrompt,
+              enableThinking = evalThinking,
+            )
+            h?.attr("response_chars", evalResponse.length)
+            val combinedOutputs = repairedResults.values.joinToString("\n") { it.output }
+            evaluator.parseEvaluation(evalResponse, combinedOutputs)
+          }
         }
 
         Log.d(TAG, "Evaluation: goalAchieved=${evaluation.goalAchieved}, shouldReplan=${evaluation.shouldReplan}")
@@ -251,7 +323,9 @@ class OrchestrationController(
         if (evaluation.goalAchieved) {
           Log.d(TAG, "Goal achieved on iteration $iteration")
           _state.value = _state.value.copy(status = OrchestrationStatus.FORMATTING)
-          val (finalOutput, isHtml) = buildFinalOutput(userMessage, currentPlan, repairedResults, evaluation)
+          val (finalOutput, isHtml) = phase("formatter", "build_final_output") {
+            buildFinalOutput(userMessage, currentPlan, repairedResults, evaluation)
+          }
           _state.value =
             _state.value.copy(
               status = OrchestrationStatus.COMPLETED,
@@ -265,7 +339,9 @@ class OrchestrationController(
         if (!evaluation.shouldReplan || iteration == maxIterations) {
           Log.d(TAG, "Stopping: shouldReplan=${evaluation.shouldReplan}, iteration=$iteration/$maxIterations")
           _state.value = _state.value.copy(status = OrchestrationStatus.FORMATTING)
-          val (finalOutput, isHtml) = buildFinalOutput(userMessage, currentPlan, repairedResults, evaluation)
+          val (finalOutput, isHtml) = phase("formatter", "build_final_output") {
+            buildFinalOutput(userMessage, currentPlan, repairedResults, evaluation)
+          }
           _state.value =
             _state.value.copy(
               status = OrchestrationStatus.COMPLETED,
@@ -304,11 +380,20 @@ class OrchestrationController(
         } else {
           replanPrompt
         }
-        val replanResponse = llmProvider.generateResponse(
-          fullReplanPrompt,
-          enableThinking = replanThinking,
-        )
-        currentPlan = planner.parsePlan(replanResponse, userMessage)
+        currentPlan = phaseAttr("planner", "replan.iter_$iteration") { h ->
+          h?.attr("prompt_chars", fullReplanPrompt.length)
+          h?.attr("thinking", replanThinking)
+          h?.attr("iteration", iteration)
+          h?.attr("failed_step_count", stillFailedSteps.size)
+          val replanResponse = llmProvider.generateResponse(
+            fullReplanPrompt,
+            enableThinking = replanThinking,
+          )
+          h?.attr("response_chars", replanResponse.length)
+          val parsed = planner.parsePlanWithStatus(replanResponse, userMessage)
+          h?.attr("json_repair", parsed.repairApplied)
+          parsed.plan
+        }
 
         Log.d(TAG, "Revised plan has ${currentPlan.steps.size} steps")
       }
@@ -511,13 +596,21 @@ class OrchestrationController(
       thinkingByPhase = _state.value.thinkingByPhase + ("formatting" to formatThinking),
     )
     Log.d(TAG, "Formatting (complex=$complex, thinking=$formatThinking, input=${preprocessed.length} chars)")
-    val response = llmProvider.generateResponse(
-      prompt,
-      enableThinking = formatThinking,
-    )
-    val extracted = ResponseFormatter.extractMessage(response)
-    Log.d(TAG, "Formatter response raw=${response.length} chars, extracted=${extracted.length} chars")
-    return extracted
+    return phaseAttr("formatter", "llm") { h ->
+      h?.attr("prompt_chars", prompt.length)
+      h?.attr("thinking", formatThinking)
+      h?.attr("complex_output", complex)
+      h?.attr("preprocessed_chars", preprocessed.length)
+      val response = llmProvider.generateResponse(
+        prompt,
+        enableThinking = formatThinking,
+      )
+      h?.attr("response_chars", response.length)
+      val extracted = ResponseFormatter.extractMessage(response)
+      h?.attr("extracted_chars", extracted.length)
+      Log.d(TAG, "Formatter response raw=${response.length} chars, extracted=${extracted.length} chars")
+      extracted
+    }
   }
 
   /** Get basic device info for diagnostic context. */

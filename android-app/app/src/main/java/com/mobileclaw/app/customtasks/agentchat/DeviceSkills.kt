@@ -31,7 +31,9 @@ import androidx.core.content.ContextCompat
 import com.mobileclaw.app.common.AgentAction
 import com.mobileclaw.app.common.RequestPermissionAgentAction
 import com.mobileclaw.app.common.SkillProgressAgentAction
+import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.channels.SendChannel
+import kotlinx.coroutines.withTimeout
 import java.io.File
 import java.text.SimpleDateFormat
 import java.util.Calendar
@@ -39,6 +41,7 @@ import java.util.Locale
 import java.util.TimeZone
 
 private const val TAG = "AGDeviceSkills"
+private const val PERMISSION_UI_TIMEOUT_MS = 30_000L
 
 /**
  * Native Android device skills — separate from JS/MCP skills.
@@ -65,7 +68,17 @@ class DeviceSkills(
       rationale = rationale,
     )
     actionChannel.send(action)
-    return action.result.await()
+    // Bounded wait: if no UI resolves this within PERMISSION_UI_TIMEOUT_MS (e.g. headless
+    // EvalActivity, backgrounded process, crashed dialog), fast-fail instead of hanging
+    // the whole orchestration loop. Production UI normally resolves in <1s once the
+    // permission dialog appears; 30s is well above that and below typical per-task budgets.
+    return try {
+      withTimeout(PERMISSION_UI_TIMEOUT_MS) { action.result.await() }
+    } catch (_: TimeoutCancellationException) {
+      Log.w(TAG, "Permission request for $missing timed out after ${PERMISSION_UI_TIMEOUT_MS}ms; " +
+        "treating as denied (no UI available?)")
+      false
+    }
   }
 
   private suspend fun sendProgress(label: String, inProgress: Boolean, title: String = "", desc: String = "") {

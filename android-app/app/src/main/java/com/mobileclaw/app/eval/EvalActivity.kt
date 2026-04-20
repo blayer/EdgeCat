@@ -254,6 +254,7 @@ private fun EvalRunner(
       maxRepairAttempts = dataStoreRepo.getAgentMaxRepairAttempts(),
       thinkingMode = ThinkingMode.fromInt(dataStoreRepo.getAgentThinkingMode()),
       userPortraitProvider = { dataStoreRepo.getUserPortrait() },
+      trace = trace,
     )
 
     // Persist the user's prompt through the real Conversation path so context matches production.

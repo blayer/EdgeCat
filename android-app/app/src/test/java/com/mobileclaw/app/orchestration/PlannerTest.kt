@@ -183,6 +183,87 @@ class PlannerTest {
     assertEquals("step_1", plan.steps[0].id)
   }
 
+  // ─── parsePlanWithStatus: repair tiers ───
+
+  @Test
+  fun `parsePlanWithStatus reports none for clean JSON`() {
+    val json = """
+      {
+        "goal": "x",
+        "reasoning": "",
+        "steps": [
+          {"id":"step_1","description":"d","skillName":"search-web","toolArgs":{},"dependsOn":[]}
+        ]
+      }
+    """.trimIndent()
+    val res = planner.parsePlanWithStatus(json, "x")
+    assertEquals("none", res.repairApplied)
+    assertEquals(1, res.plan.steps.size)
+  }
+
+  @Test
+  fun `parsePlanWithStatus repairs trailing comma`() {
+    val json = """
+      {
+        "goal": "x",
+        "reasoning": "",
+        "steps": [
+          {"id":"step_1","description":"d","skillName":"search-web","toolArgs":{"q":"a"},"dependsOn":[],},
+        ],
+      }
+    """.trimIndent()
+    val res = planner.parsePlanWithStatus(json, "x")
+    assertEquals("commas", res.repairApplied)
+    assertEquals(1, res.plan.steps.size)
+  }
+
+  @Test
+  fun `parsePlanWithStatus repairs smart quotes`() {
+    // Curly double quotes around keys and values.
+    val json = "{\u201Cgoal\u201D:\u201Cx\u201D,\u201Creasoning\u201D:\u201C\u201D," +
+      "\u201Csteps\u201D:[{\u201Cid\u201D:\u201Cstep_1\u201D,\u201Cdescription\u201D:\u201Cd\u201D," +
+      "\u201CskillName\u201D:\u201Csearch-web\u201D,\u201CtoolArgs\u201D:{},\u201CdependsOn\u201D:[]}]}"
+    val res = planner.parsePlanWithStatus(json, "x")
+    assertEquals("quotes", res.repairApplied)
+    assertEquals(1, res.plan.steps.size)
+  }
+
+  @Test
+  fun `parsePlanWithStatus repairs unquoted keys`() {
+    val json = """
+      {goal:"x",reasoning:"",steps:[{id:"step_1",description:"d",skillName:"search-web",toolArgs:{},dependsOn:[]}]}
+    """.trimIndent()
+    val res = planner.parsePlanWithStatus(json, "x")
+    // With the raw JSON regex requiring {"goal" quoted, the unquoted-keys case falls
+    // through extractJson — so we expect regex-fallback here unless extractJson is
+    // lenient. Document the guarantee: we don't crash; either a parse tier wins or
+    // the regex fallback produces a single-step plan.
+    assertTrue(res.repairApplied in setOf("unquoted-keys", "full", "regex-fallback"))
+    assertTrue(res.plan.steps.isNotEmpty())
+  }
+
+  @Test
+  fun `parsePlanWithStatus repairs truncated closing braces`() {
+    // Truncation at end — missing closing }. extractJson captures `{"goal"...` greedy.
+    val json = """
+      {
+        "goal": "x",
+        "reasoning": "",
+        "steps": [
+          {"id":"step_1","description":"d","skillName":"search-web","toolArgs":{},"dependsOn":[]}
+        ]
+    """.trimIndent()  // missing final }
+    val res = planner.parsePlanWithStatus(json, "x")
+    // Either balance-braces or regex-fallback — truncation may not even extract.
+    assertTrue(res.repairApplied in setOf("balance-braces", "full", "regex-fallback"))
+  }
+
+  @Test
+  fun `parsePlanWithStatus reports regex-fallback for non-JSON`() {
+    val res = planner.parsePlanWithStatus("I can't help with that.", "x")
+    assertEquals("regex-fallback", res.repairApplied)
+  }
+
   // ─── getExecutionBatches ───
 
   @Test

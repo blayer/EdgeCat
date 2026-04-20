@@ -100,6 +100,50 @@ def ensure_trace_dir(adb: list[str]) -> None:
     pass
 
 
+# Runtime-dangerous permissions declared in AndroidManifest.xml. EvalActivity
+# runs headlessly and cannot surface Android's permission dialogs, so any
+# native skill that touches a gated ContentProvider/API hangs until the task
+# timeout. Pre-granting via `pm grant` lets the skill succeed or fail fast
+# instead of silently blocking the whole run.
+RUNTIME_PERMISSIONS = [
+    "android.permission.RECORD_AUDIO",
+    "android.permission.POST_NOTIFICATIONS",
+    "android.permission.SEND_SMS",
+    "android.permission.READ_SMS",
+    "android.permission.READ_CALENDAR",
+    "android.permission.WRITE_CALENDAR",
+    "android.permission.READ_CONTACTS",
+    "android.permission.READ_MEDIA_IMAGES",
+    "android.permission.READ_EXTERNAL_STORAGE",
+    "android.permission.CALL_PHONE",
+    "android.permission.ACCESS_FINE_LOCATION",
+    "android.permission.ACCESS_COARSE_LOCATION",
+]
+
+# Special-case ops that are not granted via `pm grant` — these are AppOps.
+APPOPS_GRANTS = [
+    "WRITE_SETTINGS",
+]
+
+
+def preflight_permissions(adb: list[str]) -> None:
+    """Pre-grant runtime permissions so headless EvalActivity doesn't hang on
+    permission dialogs. Silently ignores permissions the device rejects (e.g.
+    POST_NOTIFICATIONS only exists on API 33+, READ_EXTERNAL_STORAGE only on
+    API <= 32)."""
+    granted = 0
+    skipped = 0
+    for perm in RUNTIME_PERMISSIONS:
+        code, out = adb_shell(adb, f"pm grant {PKG} {perm}", timeout=10)
+        if code == 0 and "Exception" not in out and "Failure" not in out:
+            granted += 1
+        else:
+            skipped += 1
+    for op in APPOPS_GRANTS:
+        adb_shell(adb, f"appops set {PKG} {op} allow", timeout=10)
+    print(f"Preflight: granted {granted} permissions ({skipped} skipped, n/a on this API)")
+
+
 def remove_trace_if_exists(adb: list[str], run_id: str) -> None:
     adb_shell(adb, f"rm -f {TRACE_DIR_ON_DEVICE}/{run_id}.jsonl")
 
@@ -227,13 +271,21 @@ def _failure_row(task: dict[str, Any], error: str, detail: str) -> dict[str, Any
             "thermal_events": 0,
             "peak_mem_mb": 0,
             "tokens_per_sec": 0.0,
+            "budget_ms": int(task.get("budget_ms", int(task.get("timeout_s", 180)) * 500)),
+            "latency_ok": None,
+            "latency_overshoot_ms": 0,
         },
         "iteration": 0,
         "final_status": "error",
     }
 
 
-def score_task(task: dict[str, Any], trace: dict[str, Any], adb: list[str]) -> dict[str, Any]:
+def score_task(
+    task: dict[str, Any],
+    trace: dict[str, Any],
+    adb: list[str],
+    enforce_latency_budget: bool = False,
+) -> dict[str, Any]:
     """Run all scorers against a single trace. Returns a per-task result row."""
     result: dict[str, Any] = {
         "task_id": task["id"],
@@ -257,6 +309,16 @@ def score_task(task: dict[str, Any], trace: dict[str, Any], adb: list[str]) -> d
     peak_mb = s_perf.peak_memory_mb(trace)
     tps = s_perf.tokens_per_sec(trace)
 
+    # Latency budget gate: informational by default, TSR-affecting when
+    # --enforce-latency-budget is set. Default budget is half the hard timeout
+    # (so a 120s timeout → 60s budget) — tasks that cut it fine should still
+    # flag even if they squeak under the wall-clock timeout.
+    timeout_s = int(task.get("timeout_s", 180))
+    budget_ms = int(task.get("budget_ms", timeout_s * 500))
+    total_ms = int(lat.get("total_ms", 0))
+    latency_ok = (total_ms <= budget_ms) if total_ms > 0 else True
+    latency_overshoot_ms = max(0, total_ms - budget_ms)
+
     if state_passed is True:
         tsr = 1.0
     elif state_passed is False:
@@ -265,6 +327,9 @@ def score_task(task: dict[str, Any], trace: dict[str, Any], adb: list[str]) -> d
         run = trace.get("run") or {}
         eval_res = run.get("evaluation") or {}
         tsr = 1.0 if eval_res.get("goal_achieved") else 0.0
+
+    if enforce_latency_budget and tsr == 1.0 and not latency_ok:
+        tsr = 0.0
 
     result.update({
         "tsr": tsr,
@@ -292,6 +357,9 @@ def score_task(task: dict[str, Any], trace: dict[str, Any], adb: list[str]) -> d
             "thermal_events": therm_count,
             "peak_mem_mb": peak_mb,
             "tokens_per_sec": round(tps, 2),
+            "budget_ms": budget_ms,
+            "latency_ok": latency_ok,
+            "latency_overshoot_ms": latency_overshoot_ms,
         },
         "iteration": (trace.get("run") or {}).get("iteration", 0),
         "final_status": (trace.get("run") or {}).get("final_status"),
@@ -325,6 +393,10 @@ def compute_summary(rows: list[dict[str, Any]]) -> dict[str, Any]:
     latencies = [r["perf"]["latency"].get("total_ms", 0) for r in rows if r.get("perf")]
     thermal_total = sum(r["perf"]["thermal_events"] for r in rows if r.get("perf"))
     mem_peaks = [r["perf"]["peak_mem_mb"] for r in rows if r.get("perf")]
+    budget_hits = [r["perf"].get("latency_ok") for r in rows
+                   if r.get("perf") and r["perf"].get("latency_ok") is not None]
+    budget_hit_rate = (sum(1 for ok in budget_hits if ok) / len(budget_hits)
+                       if budget_hits else 0.0)
 
     by_tier: dict[str, list[float]] = {}
     for r in rows:
@@ -362,6 +434,7 @@ def compute_summary(rows: list[dict[str, Any]]) -> dict[str, Any]:
             "latency_ms": pct(latencies),
             "thermal_throttle_events": thermal_total,
             "peak_mem_mb": (max(mem_peaks) if mem_peaks else 0),
+            "latency_budget_hit_rate": round(budget_hit_rate, 3),
         },
         "by_complexity": tier_stats,
     }
@@ -387,6 +460,7 @@ def render_report_md(run_label: str, summary: dict[str, Any], rows: list[dict[st
     lines += [
         f"- Latency p50: {lat['p50']} ms",
         f"- Latency p95: {lat['p95']} ms",
+        f"- Latency budget hit rate: {summary['perf'].get('latency_budget_hit_rate', 0):.1%}",
         f"- Thermal throttle events: {summary['perf']['thermal_throttle_events']}",
         f"- Peak memory: {summary['perf']['peak_mem_mb']} MB",
         "",
@@ -408,13 +482,36 @@ def render_report_md(run_label: str, summary: dict[str, Any], rows: list[dict[st
                 f"state={r['state_verifier']['detail']}; "
                 f"tool={r['details'].get('tool_correctness')}"
             )
+    # Budget busts are reported separately so the signal isn't lost when
+    # latency enforcement is off (the default).
+    busts = [
+        r for r in rows
+        if r.get("perf") and r["perf"].get("latency_ok") is False
+    ]
+    lines += ["", "## Latency budget busts", ""]
+    if not busts:
+        lines.append("_none_")
+    else:
+        for r in busts:
+            lat = r["perf"]["latency"].get("total_ms", 0)
+            budget = r["perf"].get("budget_ms", 0)
+            passed = "pass" if r.get("tsr", 0) >= 1.0 else "fail"
+            lines.append(
+                f"- **{r['task_id']}**: {lat} ms vs {budget} ms budget "
+                f"(+{r['perf'].get('latency_overshoot_ms', 0)} ms, task {passed})"
+            )
     return "\n".join(lines) + "\n"
 
 
 # ---------------------------------------------------------- Main
 
 
-def run_one(adb: list[str], task: dict[str, Any], out_dir: Path) -> dict[str, Any]:
+def run_one(
+    adb: list[str],
+    task: dict[str, Any],
+    out_dir: Path,
+    enforce_latency_budget: bool = False,
+) -> dict[str, Any]:
     task_id = task["id"]
     print(f"\n[{task_id}] {task['prompt']}")
     timeout = int(task.get("timeout_s", 180))
@@ -447,7 +544,7 @@ def run_one(adb: list[str], task: dict[str, Any], out_dir: Path) -> dict[str, An
         print(f"  eval failed: {reason}")
         return _failure_row(task, f"eval_failure:{reason}", reason)
 
-    row = score_task(task, trace, adb)
+    row = score_task(task, trace, adb, enforce_latency_budget=enforce_latency_budget)
 
     for cmd in (task.get("teardown") or []):
         adb_shell(adb, cmd, timeout=30)
@@ -465,11 +562,36 @@ def main() -> int:
     ap.add_argument("--label", default=None, help="Run label (default: current git branch)")
     ap.add_argument("--serial", default=None, help="ADB device serial")
     ap.add_argument("--out", default="runs", help="Output dir (under test/eval/)")
+    ap.add_argument("--skip-preflight", action="store_true",
+                    help="Skip pm grant preflight (use if permissions are managed externally)")
+    ap.add_argument("--enforce-latency-budget", action="store_true",
+                    help="Count a task that exceeds its per-task budget_ms as TSR=0 "
+                         "(default: budget bust is informational only)")
+    # Thermal throttling: memory notes ~30min of continuous Gemma inference
+    # degrades SoC throughput. Two levers here:
+    #   --cooldown-every / --cooldown-s: idle-sleep between batches so the SoC cools.
+    #   --thermal-stretch-after / --thermal-stretch-mult: give later tasks more
+    #     wall-clock time because throttled inference is slower per token even
+    #     when the orchestration is identical.
+    ap.add_argument("--cooldown-every", type=int, default=0,
+                    help="Sleep between every N tasks to let the SoC cool "
+                         "(default 0 = no cooldown). Typical: 5.")
+    ap.add_argument("--cooldown-s", type=int, default=45,
+                    help="Seconds to sleep at each cooldown point (default 45)")
+    ap.add_argument("--thermal-stretch-after", type=int, default=0,
+                    help="Task index (1-based) past which timeout_s/budget_ms are "
+                         "multiplied by --thermal-stretch-mult (default 0 = off). "
+                         "Typical: 5.")
+    ap.add_argument("--thermal-stretch-mult", type=float, default=1.5,
+                    help="Multiplier applied to timeout/budget past "
+                         "--thermal-stretch-after (default 1.5)")
     args = ap.parse_args()
 
     adb = adb_base(args.serial)
     ensure_device(adb)
     ensure_trace_dir(adb)
+    if not args.skip_preflight:
+        preflight_permissions(adb)
 
     dataset_path = Path(args.dataset)
     if not dataset_path.is_absolute():
@@ -501,10 +623,31 @@ def main() -> int:
 
     print(f"Running {len(tasks)} task(s) → {out_dir}")
     rows: list[dict[str, Any]] = []
-    for task in tasks:
-        row = run_one(adb, task, out_dir)
+    for idx, task in enumerate(tasks, start=1):
+        # Stretch timeout + budget for tasks past the thermal threshold so slower
+        # throttled inference doesn't look like an orchestration regression.
+        if args.thermal_stretch_after and idx > args.thermal_stretch_after:
+            base_to = int(task.get("timeout_s", 180))
+            base_bd = int(task.get("budget_ms", base_to * 500))
+            task = {
+                **task,
+                "timeout_s": int(base_to * args.thermal_stretch_mult),
+                "budget_ms": int(base_bd * args.thermal_stretch_mult),
+            }
+        row = run_one(adb, task, out_dir, enforce_latency_budget=args.enforce_latency_budget)
         rows.append(row)
         (out_dir / "results.partial.json").write_text(json.dumps(rows, indent=2))
+        # Cooldown between batches. Skip after the final task — no point sleeping
+        # if we're done. Also skip if the task failed to start (am_start_failed),
+        # since the device wasn't actually working.
+        if (
+            args.cooldown_every
+            and args.cooldown_every > 0
+            and idx < len(tasks)
+            and idx % args.cooldown_every == 0
+        ):
+            print(f"  cooldown: sleeping {args.cooldown_s}s after task #{idx}")
+            time.sleep(args.cooldown_s)
 
     summary = compute_summary(rows)
     results = {
