@@ -28,7 +28,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
-import com.mobileclaw.app.conversations.ConversationRepository
 import com.mobileclaw.app.customtasks.agentchat.AgentTools
 import com.mobileclaw.app.customtasks.agentchat.LlmInferenceProviderImpl
 import com.mobileclaw.app.customtasks.agentchat.SkillManagerViewModel
@@ -77,9 +76,13 @@ private const val TRACE_DIR = "/sdcard/claw-traces"
  *   - Reads the selected model from the shared Task singletons (must be loaded in main UI first).
  *   - Refuses to run if no model has been initialized (writes a failure trace and exits).
  *     No hardcoded fallback — production config only.
- *   - Creates a fresh Conversation row, runs the full orchestrator loop with an
- *     isolated InMemoryMemoryRepository, writes the trace to /sdcard/claw-traces/<run_id>.jsonl,
- *     then deletes the Conversation and finishes.
+ *   - Runs the full orchestrator loop with an isolated InMemoryMemoryRepository, writes the trace
+ *     to /sdcard/claw-traces/<run_id>.jsonl, and finishes.
+ *
+ * No Conversation row is written to the chat DB — eval messages would otherwise leak into the
+ * main app's conversation history if cleanup was skipped (activity killed mid-run, am force-stop
+ * between tasks, etc.). The orchestrator doesn't need DB-backed persistence; memory is isolated
+ * via InMemoryMemoryRepository, and the trace file is the record of truth.
  */
 @AndroidEntryPoint
 class EvalActivity : ComponentActivity() {
@@ -87,7 +90,6 @@ class EvalActivity : ComponentActivity() {
   @EntryPoint
   @InstallIn(SingletonComponent::class)
   interface Deps {
-    fun conversationRepository(): ConversationRepository
     fun dataStoreRepository(): DataStoreRepository
     fun customTasks(): Set<@JvmSuppressWildcards CustomTask>
   }
@@ -153,7 +155,6 @@ private fun EvalRunner(
 
   LaunchedEffect(runId) {
     val deps = EntryPointAccessors.fromApplication(context, EvalActivity.Deps::class.java)
-    val conversationRepo = deps.conversationRepository()
     val dataStoreRepo = deps.dataStoreRepository()
     // IMPORTANT: use the same CustomTask instances ModelManagerViewModel works on.
     // Hilt's @IntoSet provider is unscoped, so accessing via a separate EntryPoint returns
@@ -232,11 +233,9 @@ private fun EvalRunner(
       model
     }
 
-    // Fresh conversation per task; deleted at end regardless of success/failure.
-    val conversationId = conversationRepo.createConversation()
-    chatVm.currentConversationId = conversationId
-    Log.d(TAG, "Created conversation id=$conversationId for eval task")
-
+    // Intentionally no Conversation row: leaving chatVm.currentConversationId null makes
+    // persistUserMessage / persistAssistantMessage early-return, so eval runs never write to the
+    // chat DB and cannot leak into the main app's history list.
     val trace = TraceRecorder.forRunId(context, runId)
     val memory = InMemoryMemoryRepository()
     val agentTools = AgentTools().apply {
@@ -256,9 +255,6 @@ private fun EvalRunner(
       userPortraitProvider = { dataStoreRepo.getUserPortrait() },
       trace = trace,
     )
-
-    // Persist the user's prompt through the real Conversation path so context matches production.
-    chatVm.persistUserMessage(prompt)
 
     try {
       controller.run(prompt)
@@ -291,13 +287,6 @@ private fun EvalRunner(
     )
     Log.d(TAG, "Flushed trace for runId=$runId, status=$terminalStatus")
 
-    // Teardown: delete the conversation so no eval state leaks across tasks.
-    try {
-      conversationRepo.deleteConversation(conversationId)
-      Log.d(TAG, "Deleted conversation id=$conversationId")
-    } catch (e: Exception) {
-      Log.w(TAG, "Failed to delete conversation $conversationId", e)
-    }
     memory.clearAll()
     onComplete()
   }
