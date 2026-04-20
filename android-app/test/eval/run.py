@@ -254,6 +254,7 @@ def _failure_row(task: dict[str, Any], error: str, detail: str) -> dict[str, Any
         "scores": {
             "plan_validity": 0.0,
             "tool_correctness": 0.0,
+            "step_order": 0.0,
             "refusal_accuracy": 0.0,
             "replan_convergence": 0.0,
             "evaluator_rubber_stamp_ok": 0.0,
@@ -262,6 +263,7 @@ def _failure_row(task: dict[str, Any], error: str, detail: str) -> dict[str, Any
         "details": {
             "plan_validity": None,
             "tool_correctness": None,
+            "step_order": None,
             "refusal_accuracy": None,
             "replan_convergence": None,
             "rubber_stamp": None,
@@ -296,6 +298,7 @@ def score_task(
 
     pv_score, pv_detail = s_struct.plan_validity(trace)
     tc_score, tc_detail = s_struct.tool_correctness(trace, task.get("expected_skills") or [])
+    so_score, so_detail = s_struct.step_order_lcs(trace, task.get("expected_skills") or [])
     rf_score, rf_detail = s_struct.refusal_accuracy(trace, task.get("should_refuse", False))
     rc_score, rc_detail = s_struct.replan_convergence(trace)
 
@@ -336,6 +339,7 @@ def score_task(
         "scores": {
             "plan_validity": pv_score,
             "tool_correctness": tc_score,
+            "step_order": so_score,
             "refusal_accuracy": rf_score,
             "replan_convergence": rc_score,
             "evaluator_rubber_stamp_ok": rs_score,
@@ -348,6 +352,7 @@ def score_task(
         "details": {
             "plan_validity": pv_detail,
             "tool_correctness": tc_detail,
+            "step_order": so_detail,
             "refusal_accuracy": rf_detail,
             "replan_convergence": rc_detail,
             "rubber_stamp": rs_detail,
@@ -406,13 +411,19 @@ def compute_summary(rows: list[dict[str, Any]]) -> dict[str, Any]:
     tsr = avg(["tsr"])
     plan_validity = avg(["scores", "plan_validity"])
     tool_correctness = avg(["scores", "tool_correctness"])
+    step_order = avg(["scores", "step_order"])
     refusal = avg(["scores", "refusal_accuracy"])
     rubber_stamp_ok = avg(["scores", "evaluator_rubber_stamp_ok"])
     replan = avg(["scores", "replan_convergence"])
 
+    # OQI weights (sum=1.0). step_order carved out of tool_correctness' old 0.15
+    # share since the two measure related aspects of planner quality — set match
+    # vs sequence fidelity — and inflating total weight would break comparisons
+    # against pre-trajectory runs on TSR-identical workloads.
     oqi = (
         0.40 * tsr
-        + 0.15 * tool_correctness
+        + 0.10 * tool_correctness
+        + 0.05 * step_order
         + 0.10 * refusal
         + 0.15 * rubber_stamp_ok
         + 0.10 * plan_validity
@@ -426,6 +437,7 @@ def compute_summary(rows: list[dict[str, Any]]) -> dict[str, Any]:
         "subsystem": {
             "planner_plan_validity": round(plan_validity, 3),
             "planner_tool_correctness": round(tool_correctness, 3),
+            "planner_step_order": round(step_order, 3),
             "planner_refusal_accuracy": round(refusal, 3),
             "evaluator_non_rubber_stamp": round(rubber_stamp_ok, 3),
             "replan_convergence": round(replan, 3),
