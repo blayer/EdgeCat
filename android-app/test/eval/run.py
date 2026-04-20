@@ -241,6 +241,79 @@ def parse_trace(path: Path) -> dict[str, Any]:
 # ---------------------------------------------------------- Scoring pipeline
 
 
+def extract_failure_info(trace: dict[str, Any]) -> dict[str, Any]:
+    """Pick the first non-COMPLETED plan step and the evaluator's disagreement
+    (if any) out of a trace, so the report can point at *where* a task broke
+    instead of just reporting aggregate scores.
+
+    Returned shape (all optional):
+      failed_step: {id, skill, description, status, error} | None
+      eval_assessment: str | None     (only when evaluation.goal_achieved is False)
+      eval_missing: list[str]
+      eval_failed_criteria: list[str]
+    """
+    run = trace.get("run") or {}
+    plan = run.get("plan") or {}
+    step_results = run.get("step_results") or {}
+
+    failed_step: dict[str, Any] | None = None
+    # Walk plan.steps (ordered list) rather than step_results (dict) so we
+    # deterministically report the earliest failing step, even on runtimes
+    # where dict insertion order isn't preserved.
+    for step in plan.get("steps") or []:
+        sid = step.get("id")
+        if not sid:
+            continue
+        sr = step_results.get(sid)
+        if sr is None:
+            # Planned but never executed — treat as the failure point (the
+            # prior step likely aborted or the orchestrator gave up).
+            failed_step = {
+                "id": sid,
+                "skill": step.get("skill_name") or step.get("tool_name"),
+                "description": step.get("description"),
+                "status": "NOT_EXECUTED",
+                "error": None,
+            }
+            break
+        status = (sr.get("status") or "").upper()
+        err = sr.get("error")
+        if status != "COMPLETED" or err:
+            failed_step = {
+                "id": sid,
+                "skill": step.get("skill_name") or step.get("tool_name"),
+                "description": step.get("description"),
+                "status": status or "UNKNOWN",
+                "error": err,
+            }
+            break
+
+    eval_res = run.get("evaluation") or {}
+    eval_assessment: str | None = None
+    eval_missing: list[str] = []
+    eval_failed_criteria: list[str] = []
+    if eval_res and eval_res.get("goal_achieved") is False:
+        eval_assessment = eval_res.get("assessment")
+        eval_missing = list(eval_res.get("missing_items") or [])
+        eval_failed_criteria = list(eval_res.get("failed_criteria") or [])
+
+    return {
+        "failed_step": failed_step,
+        "eval_assessment": eval_assessment,
+        "eval_missing": eval_missing,
+        "eval_failed_criteria": eval_failed_criteria,
+    }
+
+
+def _empty_failure_info() -> dict[str, Any]:
+    return {
+        "failed_step": None,
+        "eval_assessment": None,
+        "eval_missing": [],
+        "eval_failed_criteria": [],
+    }
+
+
 def _failure_row(task: dict[str, Any], error: str, detail: str) -> dict[str, Any]:
     """Build a zero-score row shaped like score_task output, so summary/report code
     doesn't need to special-case failures."""
@@ -268,6 +341,7 @@ def _failure_row(task: dict[str, Any], error: str, detail: str) -> dict[str, Any
             "replan_convergence": None,
             "rubber_stamp": None,
         },
+        "failure_info": _empty_failure_info(),
         "perf": {
             "latency": {"total_ms": 0},
             "thermal_events": 0,
@@ -357,6 +431,7 @@ def score_task(
             "replan_convergence": rc_detail,
             "rubber_stamp": rs_detail,
         },
+        "failure_info": extract_failure_info(trace),
         "perf": {
             "latency": lat,
             "thermal_events": therm_count,
@@ -489,11 +564,34 @@ def render_report_md(run_label: str, summary: dict[str, Any], rows: list[dict[st
         lines.append("_none_")
     else:
         for r in failures:
-            lines.append(
-                f"- **{r['task_id']}** ({r['complexity']}): "
-                f"state={r['state_verifier']['detail']}; "
-                f"tool={r['details'].get('tool_correctness')}"
-            )
+            head = f"- **{r['task_id']}** ({r.get('complexity')})"
+            err = r.get("error")
+            if err:
+                head += f" — **{err}**"
+            lines.append(head)
+            sv = r.get("state_verifier") or {}
+            if sv.get("detail"):
+                lines.append(f"    - state: {sv['detail']}")
+            details = r.get("details") or {}
+            if details.get("tool_correctness"):
+                lines.append(f"    - tool: {details['tool_correctness']}")
+            fi = r.get("failure_info") or {}
+            fs = fi.get("failed_step")
+            if fs:
+                skill = fs.get("skill") or "?"
+                status = fs.get("status") or "?"
+                bits = [f"failed step: {fs.get('id')} ({skill}) — {status}"]
+                if fs.get("error"):
+                    bits.append(f"error: {fs['error']}")
+                if fs.get("description"):
+                    bits.append(f"desc: {fs['description']}")
+                lines.append(f"    - {'; '.join(bits)}")
+            if fi.get("eval_assessment"):
+                lines.append(f"    - evaluator: {fi['eval_assessment']}")
+            if fi.get("eval_missing"):
+                lines.append(f"    - missing: {fi['eval_missing']}")
+            if fi.get("eval_failed_criteria"):
+                lines.append(f"    - failed criteria: {fi['eval_failed_criteria']}")
     # Budget busts are reported separately so the signal isn't lost when
     # latency enforcement is off (the default).
     busts = [
