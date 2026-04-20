@@ -502,6 +502,84 @@ class ExecutionOrchestrator(
     }
   }
 
+  /**
+   * Last-resort rescue from the plan step's natural-language description. Called after
+   * [normalizeCalendarArgs] when the planner emitted garbage keys so badly that no
+   * valid datetime or title survived. Small models frequently mangle calendar args
+   * on first try — e.g. {"ddthh":"5","create":"Team Meeting"} — but the step
+   * description ("Create calendar event called Team Meeting tomorrow at 3pm") is
+   * always clean because it's just echoing the user prompt.
+   *
+   * Extracts:
+   *  - title: via "called X" / "titled X" / "named X" / quoted-string patterns
+   *  - startDateTime: via natural-language date-time phrases ("tomorrow at 3pm")
+   *  - endDateTime: defaults to startDateTime + 1 hour if still missing
+   */
+  internal fun rescueCalendarFromDescription(args: MutableMap<String, String>, description: String) {
+    val desc = description
+    val lower = desc.lowercase()
+
+    if (args["title"].isNullOrBlank()) {
+      val patterns = listOf(
+        Regex("""(?:called|titled|named|labeled)\s+['"]?([^'"\n]+?)['"]?(?:\s+(?:at|on|for|in|tomorrow|today|tonight|next|this)\b|$)""", RegexOption.IGNORE_CASE),
+        Regex("""['"]([^'"]+)['"]"""),
+        Regex("""(?:reminder|event|meeting)\s+(?:to|for|about)\s+(.+?)(?:\s+(?:at|on|for|in|tomorrow|today|tonight)\b|$)""", RegexOption.IGNORE_CASE),
+      )
+      for (pattern in patterns) {
+        val m = pattern.find(desc) ?: continue
+        val candidate = m.groupValues[1].trim().trimEnd('.', ',', '!', '?')
+        if (candidate.length in 2..80) {
+          args["title"] = candidate
+          Log.d(TAG, "Rescued title from description: '$candidate'")
+          break
+        }
+      }
+    }
+
+    // Derive an authoritative datetime from the description whenever it contains
+    // an unambiguous natural-language anchor ("tomorrow at 9am", "today 3pm"). We
+    // trust this over whatever the planner emitted, because garbled planner output
+    // ({"ddthh":"15","endDateTime":"202604020T15:300"}) may have passed earlier
+    // normalization with a wrong date (2026-04-02 instead of 2026-04-20).
+    val today = java.time.LocalDate.now()
+    val tomorrow = today.plusDays(1)
+    val targetDate = when {
+      Regex("""\btomorrow\b""").containsMatchIn(lower) -> tomorrow
+      Regex("""\btonight\b""").containsMatchIn(lower) -> today
+      Regex("""\btoday\b""").containsMatchIn(lower) -> today
+      else -> null
+    }
+    val explicitTime = extractTime(lower)
+    if (targetDate != null) {
+      val time = explicitTime ?: "09:00"
+      val derived = "${targetDate}T$time"
+      val existing = args["startDateTime"]
+      if (existing != derived) {
+        args["startDateTime"] = derived
+        Log.d(TAG, "Rescued startDateTime from description: $derived (was: $existing)")
+        // Re-derive endDateTime when we overrode the start — the old end would
+        // carry the wrong date/time from the planner's garbled input.
+        val endHour = ((time.substring(0, 2).toIntOrNull() ?: 0) + 1) % 24
+        val newEnd = "${targetDate}T${endHour.toString().padStart(2, '0')}:${time.substring(3, 5)}"
+        if (args["endDateTime"] != newEnd) {
+          args["endDateTime"] = newEnd
+          Log.d(TAG, "Re-derived endDateTime to $newEnd")
+        }
+      }
+    }
+
+    if (!args["startDateTime"].isNullOrBlank() && args["endDateTime"].isNullOrBlank()) {
+      val start = args["startDateTime"]!!
+      val hourMatch = Regex("""T(\d{2}):(\d{2})""").find(start)
+      if (hourMatch != null) {
+        val hour = hourMatch.groupValues[1].toIntOrNull() ?: 0
+        val newHour = ((hour + 1) % 24).toString().padStart(2, '0')
+        args["endDateTime"] = start.replace(hourMatch.value, "T$newHour:${hourMatch.groupValues[2]}")
+        Log.d(TAG, "Defaulted endDateTime to start+1h: ${args["endDateTime"]}")
+      }
+    }
+  }
+
   /** Execute a native app skill step (calculator, web search, device skills, etc.). */
   private suspend fun executeNativeToolStep(
     step: PlanStep,
@@ -644,6 +722,7 @@ class ExecutionOrchestrator(
       fixDateArgs(args, "startdate")
       fixDateArgs(args, "enddate")
       normalizeCalendarArgs(args)
+      rescueCalendarFromDescription(args, step.description)
     }
 
     val result = toolExecutor.executeTool(toolName, args)

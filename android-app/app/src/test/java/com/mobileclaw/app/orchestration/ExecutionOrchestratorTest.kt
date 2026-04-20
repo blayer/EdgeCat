@@ -145,4 +145,61 @@ class ExecutionOrchestratorTest {
     assertEquals("2026-04-06T15:00", args["startDateTime"])
     assertEquals("2026-04-06T16:00", args["endDateTime"])
   }
+
+  // ─── rescueCalendarFromDescription ───
+
+  @Test
+  fun `rescue title from called-X pattern`() {
+    val args = mutableMapOf<String, String>()
+    orchestrator.rescueCalendarFromDescription(
+      args,
+      "Create a calendar event for tomorrow at 3pm called Team Meeting",
+    )
+    assertEquals("Team Meeting", args["title"])
+  }
+
+  @Test
+  fun `rescue title from quoted pattern`() {
+    val args = mutableMapOf<String, String>()
+    orchestrator.rescueCalendarFromDescription(
+      args,
+      "Create calendar event \"Project Kickoff\" tomorrow 9am",
+    )
+    assertEquals("Project Kickoff", args["title"])
+  }
+
+  @Test
+  fun `rescue startDateTime from tomorrow-at-time pattern`() {
+    val args = mutableMapOf<String, String>()
+    orchestrator.rescueCalendarFromDescription(
+      args,
+      "Set a reminder for tomorrow at 9am to buy groceries",
+    )
+    val start = args["startDateTime"]!!
+    assertTrue(start.endsWith("T09:00"))
+    assertTrue(start.matches(Regex("""\d{4}-\d{2}-\d{2}T09:00""")))
+  }
+
+  @Test
+  fun `rescue defaults endDateTime to start plus one hour`() {
+    val args = mutableMapOf<String, String>()
+    orchestrator.rescueCalendarFromDescription(
+      args,
+      "Create event tomorrow at 3pm called Team Meeting",
+    )
+    val start = args["startDateTime"]!!
+    val end = args["endDateTime"]!!
+    assertTrue(start.endsWith("T15:00"))
+    assertTrue(end.endsWith("T16:00"))
+  }
+
+  @Test
+  fun `rescue does not overwrite existing title`() {
+    val args = mutableMapOf("title" to "Existing")
+    orchestrator.rescueCalendarFromDescription(
+      args,
+      "Create event called Team Meeting tomorrow",
+    )
+    assertEquals("Existing", args["title"])
+  }
 }
