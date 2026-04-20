@@ -166,6 +166,12 @@ class DownloadWorker(context: Context, params: WorkerParameters) :
             connection.connect()
             Log.d(TAG, "response code: ${connection.responseCode}")
 
+            // Whether the current response is a true resume (206 with Content-Range) vs a full
+            // restart (200). We need this both to size-verify at the end and to pick append vs
+            // truncate for the output stream: if the server ignores our Range header and returns
+            // 200, appending would concatenate fresh bytes onto the stale tmp and produce a
+            // same-sized-but-corrupt file (this bit us on Gemma once).
+            val resumedFromByte: Long
             if (
               connection.responseCode == HttpURLConnection.HTTP_OK ||
                 connection.responseCode == HttpURLConnection.HTTP_PARTIAL
@@ -184,16 +190,27 @@ class DownloadWorker(context: Context, params: WorkerParameters) :
                   "Content-Range: $contentRange. Start bytes: ${startByte}, end bytes: $endByte",
                 )
 
+                resumedFromByte = startByte
                 downloadedBytes += startByte
               } else {
-                Log.d(TAG, "Download starts from beginning.")
+                resumedFromByte = 0L
+                if (outputFileBytes > 0) {
+                  Log.w(
+                    TAG,
+                    "Server returned 200 despite Range header; discarding ${outputFileBytes} stale tmp bytes to avoid concatenation corruption",
+                  )
+                } else {
+                  Log.d(TAG, "Download starts from beginning.")
+                }
               }
             } else {
               throw IOException("HTTP error code: ${connection.responseCode}")
             }
 
             val inputStream = connection.inputStream
-            val outputStream = FileOutputStream(outputTmpFile, true /* append */)
+            // Append only when genuinely resuming; otherwise truncate so a stale tmp can't
+            // contaminate the new download.
+            val outputStream = FileOutputStream(outputTmpFile, resumedFromByte > 0L)
 
             val buffer = ByteArray(DEFAULT_BUFFER_SIZE)
             var bytesRead: Int
@@ -248,6 +265,22 @@ class DownloadWorker(context: Context, params: WorkerParameters) :
 
             outputStream.close()
             inputStream.close()
+
+            // Integrity check: the on-disk tmp size must equal the resume offset plus the bytes
+            // the server said it was sending. Catches truncated downloads and — together with the
+            // append-vs-truncate fix above — the concatenation-corruption mode where a same-sized
+            // file was actually two partial downloads glued together.
+            val responseContentLength = connection.contentLengthLong
+            if (responseContentLength >= 0) {
+              val expectedFinalBytes = resumedFromByte + responseContentLength
+              val actualFinalBytes = outputTmpFile.length()
+              if (actualFinalBytes != expectedFinalBytes) {
+                outputTmpFile.delete()
+                throw IOException(
+                  "Download size mismatch for ${file.fileName}: expected ${expectedFinalBytes} bytes, got ${actualFinalBytes}. Deleted tmp so next attempt starts fresh."
+                )
+              }
+            }
 
             // Rename the tmp file to the original file name by removing the tmp file ext.
             val originalFilePath = outputTmpFile.absolutePath.replace(".$TMP_FILE_EXT", "")
