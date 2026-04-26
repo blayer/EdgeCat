@@ -1,0 +1,131 @@
+name: MobileClaw
+
+options:
+  bundleIdPrefix: com.mobileclaw
+  deploymentTarget:
+    iOS: "17.0"
+  createIntermediateGroups: true
+  generateEmptyDirectories: true
+  groupSortPosition: top
+
+settings:
+  base:
+    SWIFT_VERSION: "5.10"
+    DEVELOPMENT_TEAM: ""              # fill in before signing
+    ENABLE_BITCODE: NO
+    # Relaxed for the WIP scaffold so first-builds on Xcode 26 don't fail on
+    # Swift 6 concurrency warnings. Tighten once Phase A is stable.
+    SWIFT_TREAT_WARNINGS_AS_ERRORS: NO
+    GCC_TREAT_WARNINGS_AS_ERRORS: NO
+    # Our LiteRT-LM dylibs are arm64-only (built from Bazel for both ios_arm64
+    # and ios_sim_arm64). Skip the x86_64 simulator slice that Xcode tries to
+    # build by default on Apple Silicon.
+    EXCLUDED_ARCHS[sdk=iphonesimulator*]: x86_64
+
+targets:
+  MobileClaw:
+    type: application
+    platform: iOS
+    sources:
+      - path: MobileClaw
+    resources:
+      - MobileClaw/Resources/Assets.xcassets
+    info:
+      path: MobileClaw/Resources/Info.plist
+      properties:
+        CFBundleDisplayName: Mobile-Claw
+        CFBundleShortVersionString: 0.1.0
+        CFBundleVersion: "1"
+        UILaunchScreen: {}
+        UIFileSharingEnabled: true
+        LSSupportsOpeningDocumentsInPlace: true
+        UIApplicationSceneManifest:
+          UIApplicationSupportsMultipleScenes: false
+        UISupportedInterfaceOrientations:
+          - UIInterfaceOrientationPortrait
+          - UIInterfaceOrientationLandscapeLeft
+          - UIInterfaceOrientationLandscapeRight
+        # Privacy strings — present from day one so we don't have to revisit Info.plist
+        # every time we add a skill in Phase D. The strings are user-facing rationales.
+        NSContactsUsageDescription: "Mobile-Claw uses your contacts when you ask the assistant to call or message someone."
+        NSCalendarsUsageDescription: "Mobile-Claw reads and creates calendar events at your request."
+        NSRemindersUsageDescription: "Mobile-Claw creates reminders at your request."
+        NSPhotoLibraryUsageDescription: "Mobile-Claw reads photos when you ask the assistant to find or share images."
+        NSLocationWhenInUseUsageDescription: "Mobile-Claw reads your location when the assistant needs nearby context."
+        NSCameraUsageDescription: "Mobile-Claw uses the camera for barcode scanning and photo input to the assistant."
+        NSMicrophoneUsageDescription: "Mobile-Claw uses the microphone for voice input to the assistant."
+        NSFaceIDUsageDescription: "Mobile-Claw can use Face ID to protect saved conversations."
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.mobileclaw.app
+        TARGETED_DEVICE_FAMILY: "1,2"
+        INFOPLIST_KEY_UIRequiresFullScreen: NO
+    dependencies:
+      - target: LiteRtLmBridge
+        embed: true
+        codeSign: true
+      # Embed the two iOS arm64 dylibs into MobileClaw.app/Frameworks/ so dyld
+      # can resolve @rpath at runtime. The framework target itself links them
+      # at build time via OTHER_LDFLAGS; we set link=false here to avoid
+      # double-linking from the app.
+      - framework: LiteRtLmBridge/Vendor/litert_lm/libLiteRtLm.dylib
+        embed: true
+        codeSign: true
+        link: false
+      - framework: LiteRtLmBridge/Vendor/ios/libGemmaModelConstraintProvider.dylib
+        embed: true
+        codeSign: true
+        link: false
+
+  LiteRtLmBridge:
+    type: framework
+    platform: iOS
+    sources:
+      - path: LiteRtLmBridge
+        excludes:
+          - "Vendor/**"           # vendored dylibs are linked, not compiled in
+          - "include/**"          # public headers are added with explicit visibility below
+          - "module.modulemap"
+      - path: LiteRtLmBridge/include
+        headerVisibility: public
+    settings:
+      base:
+        DEFINES_MODULE: YES
+        CLANG_ENABLE_MODULES: YES
+        GENERATE_INFOPLIST_FILE: YES
+        MODULEMAP_FILE: $(SRCROOT)/LiteRtLmBridge/module.modulemap
+        HEADER_SEARCH_PATHS:
+          - $(SRCROOT)/LiteRtLmBridge/include
+          - $(SRCROOT)/LiteRtLmBridge/Vendor/litert_lm
+        LIBRARY_SEARCH_PATHS:
+          - $(SRCROOT)/LiteRtLmBridge/Vendor/litert_lm
+          - $(SRCROOT)/LiteRtLmBridge/Vendor/ios
+        OTHER_LDFLAGS:
+          # Dynamically links the iOS arm64 dylib produced by Bazel
+          # (//c:libLiteRtLm.dylib --config=ios_arm64). The dylib statically
+          # bundles the LiteRT runtime + Rust template engine + cxxbridge
+          # runtime; rules_rust drives the final link so the alloc shim
+          # resolves correctly. Runtime dep on libGemmaModelConstraintProvider
+          # is embedded alongside via @rpath.
+          - -lLiteRtLm
+          - -lGemmaModelConstraintProvider
+        # Public header so the app target can `import LiteRtLmBridge`.
+        SWIFT_INCLUDE_PATHS: $(SRCROOT)/LiteRtLmBridge/include
+        PRODUCT_BUNDLE_IDENTIFIER: com.mobileclaw.litertlmbridge
+
+schemes:
+  MobileClaw:
+    build:
+      targets:
+        MobileClaw: all
+        LiteRtLmBridge: all
+    run:
+      config: Debug
+    test:
+      config: Debug
+    profile:
+      config: Release
+    analyze:
+      config: Debug
+    archive:
+      config: Release

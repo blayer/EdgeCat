@@ -1,0 +1,5 @@
+framework module LiteRtLmBridge {
+    umbrella header "LiteRtLmBridge.h"
+    export *
+    module * { export * }
+}
