@@ -8,7 +8,12 @@ import SwiftUI
 struct SettingsView: View {
     @Environment(\.dismiss) private var dismiss
     @State private var hfToken: String = HuggingFaceAuth.token() ?? ""
-    @AppStorage("MOBILECLAW_AGENTIC_MODE") private var agenticMode: Bool = false
+    @AppStorage(SamplerSettings.agenticKey) private var agenticMode: Bool = false
+    @AppStorage(SamplerSettings.topKKey) private var topK: Int = SamplerSettings.defaults.topK
+    @AppStorage(SamplerSettings.topPKey) private var topP: Double = SamplerSettings.defaults.topP
+    @AppStorage(SamplerSettings.temperatureKey) private var temperature: Double = SamplerSettings.defaults.temperature
+    @AppStorage(SamplerSettings.maxTokensKey) private var maxTokens: Int = SamplerSettings.defaults.maxTokens
+    @AppStorage(SamplerSettings.systemPromptKey) private var systemPrompt: String = ""
 
     var body: some View {
         NavigationStack {
@@ -19,6 +24,49 @@ struct SettingsView: View {
                     Text("Behavior")
                 } footer: {
                     Text("Routes user messages through the Planner → Executor → Evaluator loop. Equivalent to Android's agentic-mode toggle on ModelPageAppBar.")
+                        .font(.caption)
+                }
+
+                Section {
+                    HStack {
+                        Text("Top-K"); Spacer()
+                        Text("\(topK)").foregroundStyle(.secondary).monospacedDigit()
+                    }
+                    Slider(value: Binding(get: { Double(topK) }, set: { topK = Int($0) }),
+                           in: 1...100, step: 1)
+                    HStack {
+                        Text("Top-P"); Spacer()
+                        Text(String(format: "%.2f", topP)).foregroundStyle(.secondary).monospacedDigit()
+                    }
+                    Slider(value: $topP, in: 0...1)
+                    HStack {
+                        Text("Temperature"); Spacer()
+                        Text(String(format: "%.2f", temperature)).foregroundStyle(.secondary).monospacedDigit()
+                    }
+                    Slider(value: $temperature, in: 0...2)
+                    Stepper("Max tokens: \(maxTokens)",
+                            value: $maxTokens, in: 128...4096, step: 128)
+                    Button("Reset to model defaults") {
+                        let d = SamplerSettings.defaults
+                        topK = d.topK; topP = d.topP
+                        temperature = d.temperature; maxTokens = d.maxTokens
+                    }
+                    .foregroundStyle(.red)
+                } header: {
+                    Text("Sampler")
+                } footer: {
+                    Text("Applied on the next chat session. The Gemma 4 metadata recommends Top-P with topK=1, p=0.95, temperature=1.")
+                        .font(.caption)
+                }
+
+                Section {
+                    TextEditor(text: $systemPrompt)
+                        .frame(minHeight: 80)
+                        .font(.callout)
+                } header: {
+                    Text("System prompt")
+                } footer: {
+                    Text("Prepended to every conversation. Leave blank for default.")
                         .font(.caption)
                 }
 

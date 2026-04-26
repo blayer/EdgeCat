@@ -48,13 +48,22 @@ public final class ChatViewModel {
         let assistantId = UUID()
         messages.append(ChatMessage(id: assistantId, role: .assistant, text: "", kind: .loading))
         isStreaming = true
+        let started = DispatchTime.now()
 
         streamTask = Task { [weak self] in
             guard let self else { return }
             do {
                 if loadStatus == nil {
                     self.loadStatus = "Loading model…"
-                    try await engine.initialize(config: LlmInitConfig(modelPath: modelURL, maxTokens: 1024))
+                    let s = SamplerSettings.current()
+                    try await engine.initialize(config: LlmInitConfig(
+                        modelPath: modelURL,
+                        maxTokens: s.maxTokens,
+                        topK: s.topK,
+                        topP: Float(s.topP),
+                        temperature: Float(s.temperature),
+                        systemInstruction: s.systemPrompt.isEmpty ? nil : s.systemPrompt
+                    ))
                     self.loadStatus = "Ready"
                 }
 
@@ -97,8 +106,17 @@ public final class ChatViewModel {
             } catch {
                 self.update(id: assistantId, text: "Error: \(error.localizedDescription)", kind: .error)
             }
+            let elapsed = Int64(Double(DispatchTime.now().uptimeNanoseconds - started.uptimeNanoseconds) / 1_000_000)
+            self.setLatency(id: assistantId, ms: elapsed)
             self.isStreaming = false
         }
+    }
+
+    /// Re-sends a previous user message verbatim — mirrors Android's
+    /// "Run again" affordance below user bubbles.
+    public func runAgain(_ message: ChatMessage) {
+        guard message.role == .user else { return }
+        send(message.text)
     }
 
     public func stop() {
@@ -131,5 +149,10 @@ public final class ChatViewModel {
         messages[idx].text = text
         messages[idx].kind = kind
         if let thought { messages[idx].thought = thought }
+    }
+
+    private func setLatency(id: UUID, ms: Int64) {
+        guard let idx = messages.firstIndex(where: { $0.id == id }) else { return }
+        messages[idx].latencyMs = ms
     }
 }

@@ -39,7 +39,9 @@ struct ChatView: View {
                                 .padding(.top, 96)
                         } else {
                             ForEach(viewModel.messages) { message in
-                                MessageRow(message: message).id(message.id)
+                                MessageRow(message: message,
+                                           onRunAgain: { viewModel.runAgain(message) })
+                                    .id(message.id)
                             }
                         }
                     }
@@ -103,6 +105,7 @@ struct ChatView: View {
 
 private struct MessageRow: View {
     let message: ChatMessage
+    let onRunAgain: () -> Void
     var body: some View {
         let isUser = message.role == .user
         HStack(alignment: .bottom) {
@@ -118,11 +121,31 @@ private struct MessageRow: View {
                     ThinkingPanel(text: thought)
                 }
                 bubble
+                if isUser {
+                    Button(action: onRunAgain) {
+                        Label("Run again", systemImage: "arrow.clockwise")
+                            .font(.caption2)
+                    }
+                    .buttonStyle(.plain)
+                    .foregroundStyle(AppColors.onSurfaceVariant)
+                    .padding(.trailing, 6)
+                }
+                if !isUser, let ms = message.latencyMs, ms > 0 {
+                    Text(formatLatency(ms))
+                        .font(.caption2)
+                        .foregroundStyle(AppColors.onSurfaceVariant)
+                        .padding(.leading, 6)
+                }
             }
             if !isUser { Spacer(minLength: 48) }
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 6)
+    }
+
+    private func formatLatency(_ ms: Int64) -> String {
+        if ms < 1000 { return "\(ms) ms" }
+        return String(format: "%.1f s", Double(ms) / 1000)
     }
 
     @ViewBuilder
