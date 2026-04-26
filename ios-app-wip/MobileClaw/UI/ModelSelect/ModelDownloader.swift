@@ -3,9 +3,8 @@ import Observation
 
 // 1:1 functional port of android-app/.../ui/modelmanager/ModelManagerViewModel.kt's
 // download surface — URLSession-based, with bytesDownloaded / progress /
-// status published as observable state. iOS-specific HF auth (OAuth via
-// ASWebAuthenticationSession) lands when we port the gated-model path; for
-// now, only public models without HF login work.
+// status published as observable state. Uses a background URLSessionConfiguration
+// so multi-GB Gemma 4 E4B downloads survive app suspension / lock screen.
 
 @MainActor
 @Observable
@@ -41,8 +40,15 @@ public final class ModelDownloader: NSObject, URLSessionDownloadDelegate {
         bytesDownloaded = 0
         status = .downloading(0)
 
-        let config = URLSessionConfiguration.default
+        // Background config so the download survives the app being suspended
+        // or the device locking. The URLSession needs a unique identifier per
+        // session — re-using the same identifier across instances would
+        // attach to an existing background task instead of starting fresh.
+        let config = URLSessionConfiguration.background(
+            withIdentifier: "com.mobileclaw.app.modelDownloader.\(model.id)")
         config.allowsCellularAccess = true
+        config.isDiscretionary = false
+        config.sessionSendsLaunchEvents = true
         let session = URLSession(configuration: config, delegate: self, delegateQueue: nil)
         var request = URLRequest(url: src)
         request.setValue("Mobile-Claw/0.1", forHTTPHeaderField: "User-Agent")

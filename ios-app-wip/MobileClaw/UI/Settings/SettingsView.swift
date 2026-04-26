@@ -144,6 +144,14 @@ struct SettingsView: View {
                             }
                         }
                     }
+                    if !HuggingFaceOAuthSession.clientId.isEmpty {
+                        Button("Sign in with HuggingFace") {
+                            Task {
+                                try? await HuggingFaceOAuthSession.signIn()
+                                hfToken = HuggingFaceAuth.token() ?? ""
+                            }
+                        }
+                    }
                 } header: {
                     Text("HuggingFace token")
                 } footer: {

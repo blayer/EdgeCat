@@ -68,9 +68,9 @@ targets:
         # ADB intent entry point. Trigger via:
         #   xcrun simctl openurl <udid> "mobileclaw://eval?prompt=hi&model=gemma-4-E2B-it.litertlm"
         CFBundleURLTypes:
-          - CFBundleURLName: com.mobileclaw.app.eval
+          - CFBundleURLName: com.mobileclaw.app.url
             CFBundleURLSchemes:
-              - mobileclaw
+              - mobileclaw   # handles both eval ("mobileclaw://eval...") + HF OAuth callback ("mobileclaw://hf-callback")
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.mobileclaw.app
