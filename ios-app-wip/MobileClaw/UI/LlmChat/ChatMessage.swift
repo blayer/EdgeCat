@@ -8,14 +8,19 @@ public enum MessageRole: String, Sendable {
 }
 
 public struct ChatMessage: Identifiable, Sendable, Equatable {
-    public enum Kind: Sendable, Equatable { case text, loading, error }
+    public enum Kind: Sendable, Equatable { case text, loading, error, thinking }
     public let id: UUID
     public let role: MessageRole
     public var text: String
     public var kind: Kind
+    /// Optional thinking-channel content (Gemma's CoT). Renders in a
+    /// collapsible panel above the text bubble when non-empty.
+    public var thought: String?
     public let createdAt: Date
 
-    public init(id: UUID = UUID(), role: MessageRole, text: String, kind: Kind = .text, createdAt: Date = Date()) {
-        self.id = id; self.role = role; self.text = text; self.kind = kind; self.createdAt = createdAt
+    public init(id: UUID = UUID(), role: MessageRole, text: String, kind: Kind = .text,
+                thought: String? = nil, createdAt: Date = Date()) {
+        self.id = id; self.role = role; self.text = text; self.kind = kind
+        self.thought = thought; self.createdAt = createdAt
     }
 }

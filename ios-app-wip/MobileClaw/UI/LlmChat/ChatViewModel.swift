@@ -50,15 +50,22 @@ public final class ChatViewModel {
                 }
                 let stream = engine.runInference(prompt: trimmed)
                 var buffer = ""
+                var thought = ""
                 for try await token in stream {
                     if token.isFinal { break }
                     if !token.text.isEmpty {
                         buffer.append(token.text)
-                        self.update(id: assistantId, text: buffer, kind: .text)
+                    }
+                    if let t = token.thought, !t.isEmpty {
+                        thought.append(t)
+                    }
+                    if !buffer.isEmpty || !thought.isEmpty {
+                        self.update(id: assistantId, text: buffer, kind: .text,
+                                    thought: thought.isEmpty ? nil : thought)
                     }
                 }
                 if buffer.isEmpty {
-                    self.update(id: assistantId, text: "(no response)", kind: .text)
+                    self.update(id: assistantId, text: "(no response)", kind: .text, thought: nil)
                 } else {
                     try? store.appendMessage(to: conversation, role: "assistant", content: buffer)
                 }
@@ -84,9 +91,10 @@ public final class ChatViewModel {
         }
     }
 
-    private func update(id: UUID, text: String, kind: ChatMessage.Kind) {
+    private func update(id: UUID, text: String, kind: ChatMessage.Kind, thought: String? = nil) {
         guard let idx = messages.firstIndex(where: { $0.id == id }) else { return }
         messages[idx].text = text
         messages[idx].kind = kind
+        if let thought { messages[idx].thought = thought }
     }
 }

@@ -114,6 +114,9 @@ private struct MessageRow: View {
                         .foregroundStyle(AppColors.onSurfaceVariant)
                         .padding(.leading, 6)
                 }
+                if !isUser, let thought = message.thought, !thought.isEmpty {
+                    ThinkingPanel(text: thought)
+                }
                 bubble
             }
             if !isUser { Spacer(minLength: 48) }
@@ -139,7 +142,7 @@ private struct MessageRow: View {
                 .padding(.horizontal, 14)
                 .padding(.vertical, 10)
                 .background(MessageBubbleShape(hardCornerAtLeft: message.role != .user).fill(AppColors.errorContainer))
-        case .text:
+        case .text, .thinking:
             let isUser = message.role == .user
             Text(message.text)
                 .font(.body)
