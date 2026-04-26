@@ -144,7 +144,11 @@ private struct MessageRow: View {
                 .background(MessageBubbleShape(hardCornerAtLeft: message.role != .user).fill(AppColors.errorContainer))
         case .text, .thinking:
             let isUser = message.role == .user
-            Text(message.text)
+            // Assistant messages render with inline markdown (bold/italic/code/
+            // links) — same behavior as android-app/.../MarkdownText.kt.
+            // User messages stay literal so prompts containing markdown
+            // characters aren't mangled.
+            renderText(message.text, isUser: isUser)
                 .font(.body)
                 .textSelection(.enabled)
                 .foregroundStyle(isUser ? AppColors.onUserBubble : AppColors.onAgentBubble)
@@ -154,6 +158,19 @@ private struct MessageRow: View {
                     MessageBubbleShape(hardCornerAtLeft: !isUser)
                         .fill(isUser ? AppColors.userBubble : AppColors.agentBubble)
                 )
+        }
+    }
+
+    @ViewBuilder
+    private func renderText(_ text: String, isUser: Bool) -> some View {
+        if isUser {
+            Text(text)
+        } else if let attr = try? AttributedString(markdown: text,
+                                                   options: AttributedString.MarkdownParsingOptions(
+                                                    interpretedSyntax: .inlineOnlyPreservingWhitespace)) {
+            Text(attr)
+        } else {
+            Text(text)
         }
     }
 }
