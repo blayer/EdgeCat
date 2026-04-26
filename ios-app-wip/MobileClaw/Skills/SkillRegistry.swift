@@ -52,6 +52,12 @@ public final class SkillRegistry: ToolExecutor, @unchecked Sendable {
             SmsSkill(),
             FlashlightSkill(),
             ShareContentSkill(),
+            // JS-backed skills (Resources/skills/<name>/scripts/index.html
+            // loaded into WKWebView, invoked via JsSkillRunner)
+            JsSkill(name: "query-wikipedia",
+                    description: "Look up a topic on Wikipedia and return a summary.",
+                    jsFunction: "queryWikipedia",
+                    bundleDir: "query-wikipedia"),
             // Not supported on iOS — return structured errors for the evaluator
             DoNotDisturbSkill(),
             SetAlarmSkill(),

@@ -28,9 +28,16 @@ targets:
     platform: iOS
     sources:
       - path: MobileClaw
+        excludes:
+          # `skills/` is added to the bundle as a folder reference below;
+          # excluding it from sources prevents Xcode from emitting duplicate
+          # copy actions ("Multiple commands produce …/index.html").
+          - "Resources/skills/**"
     resources:
       - MobileClaw/Resources/Assets.xcassets
       - MobileClaw/Resources/model_allowlist.json
+      - path: MobileClaw/Resources/skills
+        type: folder
     info:
       path: MobileClaw/Resources/Info.plist
       properties:
