@@ -1,18 +1,23 @@
 import SwiftUI
+import SwiftData
 
 // 1:1 port of android-app/.../ui/common/chat/ChatView.kt + ChatPanel.kt for
-// Phase A scope (text-only). Mirrors Android's:
-//   Scaffold(topBar = ModelPageAppBar) -> Box -> Column -> LazyColumn(messages) + MessageInputText
-// User bubbles are right-aligned with primary fill, agent bubbles left-aligned
-// with surfaceVariant — bubble shape has a hard corner on the speaker side.
+// Phase B scope (text-only, persistence-aware). Loads message history from
+// the SwiftData Conversation, streams new turns via LiteRtLmEngine, and
+// saves each completed user/assistant pair back to the store.
 
 struct ChatView: View {
     @State private var viewModel: ChatViewModel
     @State private var input: String = ""
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.modelContext) private var context
 
-    init(modelURL: URL) {
-        _viewModel = State(initialValue: ChatViewModel(modelURL: modelURL))
+    init(conversation: Conversation) {
+        // ConversationStore needs the same context the conversation lives in;
+        // SwiftData exposes that via the entity's modelContext property at runtime.
+        let ctx = conversation.modelContext ?? ModelContext(try! ModelContainer(for: Conversation.self, StoredMessage.self))
+        let store = ConversationStore(context: ctx)
+        _viewModel = State(initialValue: ChatViewModel(conversation: conversation, store: store))
     }
 
     var body: some View {
@@ -97,7 +102,7 @@ struct ChatView: View {
 // MARK: - Message row + bubble
 
 private struct MessageRow: View {
-    let message: Message
+    let message: ChatMessage
     var body: some View {
         let isUser = message.role == .user
         HStack(alignment: .bottom) {

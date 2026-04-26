@@ -7,7 +7,7 @@ public enum MessageRole: String, Sendable {
     case user, assistant, system
 }
 
-public struct Message: Identifiable, Sendable, Equatable {
+public struct ChatMessage: Identifiable, Sendable, Equatable {
     public enum Kind: Sendable, Equatable { case text, loading, error }
     public let id: UUID
     public let role: MessageRole
