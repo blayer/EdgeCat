@@ -20,18 +20,27 @@ static NSError *MakeError(LRTLMErrorCode code, NSString *msg) {
 
 #pragma mark - JSON message builders
 
-static NSString *BuildMessageJson(NSString *text, NSArray<NSString *> *imagePaths) {
+static NSString *BuildMessageJson(NSString *text,
+                                  NSArray<NSString *> *imagePaths,
+                                  NSArray<NSString *> *audioPaths) {
     // Format mirrors runtime/conversation/model_data_processor/data_utils.h:
     //   text-only:     {"role":"user","content":"hi"}
-    //   multimodal:    {"role":"user","content":[{"type":"image","path":"..."}, {"type":"text","text":"..."}]}
-    if (imagePaths.count == 0) {
+    //   multimodal:    {"role":"user","content":[
+    //                      {"type":"image","path":"..."},
+    //                      {"type":"audio","path":"..."},
+    //                      {"type":"text","text":"..."}]}
+    if (imagePaths.count == 0 && audioPaths.count == 0) {
         NSData *data = [NSJSONSerialization dataWithJSONObject:@{@"role": @"user", @"content": text ?: @""}
                                                        options:0 error:nil];
         return data ? [[NSString alloc] initWithData:data encoding:NSUTF8StringEncoding] : @"{}";
     }
-    NSMutableArray<NSDictionary *> *content = [NSMutableArray arrayWithCapacity:imagePaths.count + 1];
+    NSMutableArray<NSDictionary *> *content =
+        [NSMutableArray arrayWithCapacity:imagePaths.count + audioPaths.count + 1];
     for (NSString *p in imagePaths) {
         [content addObject:@{@"type": @"image", @"path": p}];
+    }
+    for (NSString *p in audioPaths) {
+        [content addObject:@{@"type": @"audio", @"path": p}];
     }
     if (text.length > 0) {
         [content addObject:@{@"type": @"text", @"text": text}];
@@ -133,18 +142,26 @@ void StreamCallbackThunk(void *userData, const char *chunk, bool isFinal, const 
 - (void)sendMessage:(NSString *)text
             onToken:(void (^)(NSString *, NSString * _Nullable))onToken
              onDone:(void (^)(NSError * _Nullable))onDone {
-    [self sendMessage:text imagePaths:nil onToken:onToken onDone:onDone];
+    [self sendMessage:text imagePaths:nil audioPaths:nil onToken:onToken onDone:onDone];
 }
 
 - (void)sendMessage:(NSString *)text
          imagePaths:(NSArray<NSString *> *)imagePaths
             onToken:(void (^)(NSString *, NSString * _Nullable))onToken
              onDone:(void (^)(NSError * _Nullable))onDone {
+    [self sendMessage:text imagePaths:imagePaths audioPaths:nil onToken:onToken onDone:onDone];
+}
+
+- (void)sendMessage:(NSString *)text
+         imagePaths:(NSArray<NSString *> *)imagePaths
+         audioPaths:(NSArray<NSString *> *)audioPaths
+            onToken:(void (^)(NSString *, NSString * _Nullable))onToken
+             onDone:(void (^)(NSError * _Nullable))onDone {
     if (!_conversation) {
         if (onDone) onDone(MakeError(LRTLMErrorCodeInferenceFailed, @"Conversation already closed"));
         return;
     }
-    NSString *messageJson = BuildMessageJson(text, imagePaths);
+    NSString *messageJson = BuildMessageJson(text, imagePaths, audioPaths);
     auto *ctx = new StreamContext{[onToken copy], [onDone copy]};
     int rc = litert_lm_conversation_send_message_stream(
         _conversation,

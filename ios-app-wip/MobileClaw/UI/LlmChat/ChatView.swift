@@ -11,6 +11,7 @@ struct ChatView: View {
     @State private var viewModel: ChatViewModel
     @State private var input: String = ""
     @State private var attachedImages: [Data] = []
+    @State private var attachedAudio: [Data] = []
     @State private var showSettings = false
     @State private var showModelSwitch = false
     @Environment(\.dismiss) private var dismiss
@@ -75,12 +76,14 @@ struct ChatView: View {
             MessageInputText(
                 text: $input,
                 attachedImages: $attachedImages,
+                attachedAudio: $attachedAudio,
                 isStreaming: viewModel.isStreaming,
-                canSend: !input.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !attachedImages.isEmpty,
+                canSend: !input.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                          || !attachedImages.isEmpty || !attachedAudio.isEmpty,
                 onSend: submit,
                 onStop: viewModel.stop,
                 showImageButton: true,
-                showAudioButton: false    // Phase F2 audio recording is the next batch
+                showAudioButton: true
             )
         }
         .background(AppColors.surface.ignoresSafeArea())
@@ -111,9 +114,11 @@ struct ChatView: View {
     private func submit() {
         let text = input
         let images = attachedImages
+        let audio = attachedAudio
         input = ""
         attachedImages = []
-        viewModel.send(text, imageData: images)
+        attachedAudio = []
+        viewModel.send(text, imageData: images, audioData: audio)
     }
 }
 

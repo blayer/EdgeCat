@@ -30,9 +30,10 @@ public final class ConversationStore {
     }
 
     public func appendMessage(to conv: Conversation, role: String, content: String,
-                              images: [Data] = []) throws {
+                              images: [Data] = [], audio: [Data] = []) throws {
         let stored = StoredMessage(role: role, content: content, conversation: conv,
-                                   imageBlobs: images.isEmpty ? nil : images)
+                                   imageBlobs: images.isEmpty ? nil : images,
+                                   audioBlobs: audio.isEmpty ? nil : audio)
         context.insert(stored)
         conv.messageCount += 1
         conv.lastMessagePreview = String(content.prefix(120))

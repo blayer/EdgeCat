@@ -34,31 +34,47 @@ public final class LiteRtLmEngine: LlmModelHelper {
     }
 
     public func runInference(prompt: String) -> AsyncThrowingStream<ChatToken, Error> {
-        runInference(prompt: prompt, imageData: [])
+        runInference(prompt: prompt, imageData: [], audioData: [])
     }
 
     public func runInference(prompt: String, imageData: [Data]) -> AsyncThrowingStream<ChatToken, Error> {
+        runInference(prompt: prompt, imageData: imageData, audioData: [])
+    }
+
+    public func runInference(prompt: String, imageData: [Data], audioData: [Data])
+        -> AsyncThrowingStream<ChatToken, Error> {
         AsyncThrowingStream { continuation in
             guard let conversation else {
                 continuation.finish(throwing: LiteRtLmError.notInitialized)
                 return
             }
-            // Write images to NSTemporaryDirectory; the bridge passes paths to
-            // the C API (path form is more efficient than base64 blobs per
+            // Write images + audio to NSTemporaryDirectory; the bridge passes
+            // paths to the C API (path form is more efficient than base64 per
             // runtime/conversation/model_data_processor/data_utils.h).
             var tempPaths: [String] = []
+            var imagePaths: [String] = []
             for data in imageData {
                 let url = URL(fileURLWithPath: NSTemporaryDirectory())
                     .appendingPathComponent("mc-img-\(UUID().uuidString).png")
-                if (try? data.write(to: url)) != nil { tempPaths.append(url.path) }
+                if (try? data.write(to: url)) != nil {
+                    imagePaths.append(url.path); tempPaths.append(url.path)
+                }
+            }
+            var audioPaths: [String] = []
+            for data in audioData {
+                let url = URL(fileURLWithPath: NSTemporaryDirectory())
+                    .appendingPathComponent("mc-aud-\(UUID().uuidString).m4a")
+                if (try? data.write(to: url)) != nil {
+                    audioPaths.append(url.path); tempPaths.append(url.path)
+                }
             }
             conversation.sendMessage(prompt,
-                                     imagePaths: tempPaths.isEmpty ? nil : tempPaths,
+                                     imagePaths: imagePaths.isEmpty ? nil : imagePaths,
+                                     audioPaths: audioPaths.isEmpty ? nil : audioPaths,
                                      onToken: { chunk, thought in
                 continuation.yield(ChatToken(text: chunk, thought: thought, isFinal: false))
             },
                                      onDone: { error in
-                // Best-effort cleanup once inference is done.
                 for p in tempPaths { try? FileManager.default.removeItem(atPath: p) }
                 if let error {
                     continuation.finish(throwing: LiteRtLmError.bridge(error as NSError))

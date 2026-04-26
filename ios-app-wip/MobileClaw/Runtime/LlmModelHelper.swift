@@ -44,6 +44,10 @@ public protocol LlmModelHelper: AnyObject {
     /// vision-capable models. Empty `imageData` is equivalent to plain
     /// runInference(prompt:).
     func runInference(prompt: String, imageData: [Data]) -> AsyncThrowingStream<ChatToken, Error>
+    /// Full multimodal variant — text + images + audio. Each audio Data is
+    /// expected to be M4A bytes (AVAudioRecorder default).
+    func runInference(prompt: String, imageData: [Data], audioData: [Data])
+        -> AsyncThrowingStream<ChatToken, Error>
     func resetConversation(systemInstruction: String?) throws
     func stopResponse()
     func cleanUp()
@@ -52,5 +56,9 @@ public protocol LlmModelHelper: AnyObject {
 public extension LlmModelHelper {
     func runInference(prompt: String, imageData: [Data]) -> AsyncThrowingStream<ChatToken, Error> {
         runInference(prompt: prompt)
+    }
+    func runInference(prompt: String, imageData: [Data], audioData: [Data])
+        -> AsyncThrowingStream<ChatToken, Error> {
+        runInference(prompt: prompt, imageData: imageData)
     }
 }

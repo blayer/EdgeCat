@@ -41,6 +41,15 @@ typedef NS_ENUM(NSInteger, LRTLMBackend) {
          imagePaths:(nullable NSArray<NSString *> *)imagePaths
             onToken:(void (^)(NSString * _Nonnull chunk, NSString * _Nullable thought))onToken
              onDone:(void (^)(NSError * _Nullable error))onDone;
+
+/// Full multimodal variant — text + image paths + audio paths. Audio items
+/// follow the same JSON shape as image items:
+///   {"type":"audio","path":"/path/to/audio.m4a"}
+- (void)sendMessage:(NSString *)text
+         imagePaths:(nullable NSArray<NSString *> *)imagePaths
+         audioPaths:(nullable NSArray<NSString *> *)audioPaths
+            onToken:(void (^)(NSString * _Nonnull chunk, NSString * _Nullable thought))onToken
+             onDone:(void (^)(NSError * _Nullable error))onDone;
 - (void)cancel;
 - (void)close;
 @end

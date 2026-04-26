@@ -38,13 +38,19 @@ public final class ChatViewModel {
         loadHistoryFromStore()
     }
 
-    public func send(_ prompt: String, imageData: [Data] = []) {
+    public func send(_ prompt: String, imageData: [Data] = [], audioData: [Data] = []) {
         let trimmed = prompt.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard (!trimmed.isEmpty || !imageData.isEmpty), !isStreaming else { return }
+        let hasAttachments = !imageData.isEmpty || !audioData.isEmpty
+        guard (!trimmed.isEmpty || hasAttachments), !isStreaming else { return }
 
-        let userText = trimmed.isEmpty && !imageData.isEmpty ? "(image)" : trimmed
-        messages.append(ChatMessage(role: .user, text: userText, images: imageData))
-        try? store.appendMessage(to: conversation, role: "user", content: userText, images: imageData)
+        let userText: String
+        if !trimmed.isEmpty { userText = trimmed }
+        else if !imageData.isEmpty { userText = "(image)" }
+        else { userText = "(audio)" }
+        messages.append(ChatMessage(role: .user, text: userText,
+                                    images: imageData, audio: audioData))
+        try? store.appendMessage(to: conversation, role: "user", content: userText,
+                                 images: imageData, audio: audioData)
 
         let assistantId = UUID()
         messages.append(ChatMessage(id: assistantId, role: .assistant, text: "", kind: .loading))
@@ -90,7 +96,9 @@ public final class ChatViewModel {
                     return
                 }
 
-                let stream = engine.runInference(prompt: trimmed, imageData: imageData)
+                let stream = engine.runInference(prompt: trimmed,
+                                                  imageData: imageData,
+                                                  audioData: audioData)
                 var buffer = ""
                 var thought = ""
                 for try await token in stream {
@@ -191,6 +199,7 @@ public final class ChatViewModel {
             let role: MessageRole = (msg.role == "assistant") ? .assistant : .user
             return ChatMessage(role: role, text: msg.content, kind: .text,
                                images: msg.imageBlobs ?? [],
+                               audio: msg.audioBlobs ?? [],
                                createdAt: msg.createdAt)
         }
     }
