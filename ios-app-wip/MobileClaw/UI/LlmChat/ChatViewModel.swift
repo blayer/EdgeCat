@@ -73,9 +73,13 @@ public final class ChatViewModel {
                 // Used by env var MOBILECLAW_AGENTIC=1 today; surfaces as a
                 // top-bar toggle in a follow-up commit.
                 if self.agenticMode {
+                    let s = SamplerSettings.current()
                     let provider = LiteRtLmInferenceProvider(engine: self.engine)
                     let tools = SkillRegistry.defaultSet()
-                    let controller = OrchestrationController(llm: provider, tools: tools)
+                    let policy = ThinkingPolicy(mode: ThinkingMode.from(s.agentThinkingMode))
+                    let controller = OrchestrationController(
+                        llm: provider, tools: tools, policy: policy,
+                        maxIterations: s.agentMaxLoops)
                     let final = try await controller.handle(userMessage: trimmed)
                     self.update(id: assistantId, text: final, kind: .text, thought: nil)
                     try? store.appendMessage(to: conversation, role: "assistant", content: final)

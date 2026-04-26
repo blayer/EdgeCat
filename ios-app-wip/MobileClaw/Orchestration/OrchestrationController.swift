@@ -18,23 +18,27 @@ public final class OrchestrationController {
     private let toolExecutor: ToolExecutor
     private let trace: TraceRecorder
 
+    public let maxIterations: Int
+
     public init(llm: LlmInferenceProvider,
                 tools: ToolExecutor,
                 policy: ThinkingPolicy = ThinkingPolicy(mode: .auto),
-                trace: TraceRecorder = TraceRecorder()) {
+                trace: TraceRecorder = TraceRecorder(),
+                maxIterations: Int = 3) {
         self.planner = Planner(llm: llm, policy: policy)
         self.executor = ExecutionOrchestrator(executor: tools, trace: trace)
         self.evaluator = SelfEvaluator(llm: llm, policy: policy)
         self.formatter = ResponseFormatter(llm: llm, policy: policy)
         self.toolExecutor = tools
         self.trace = trace
+        self.maxIterations = maxIterations
     }
 
     /// Run one user message through the orchestration loop.
     public func handle(userMessage: String) async throws -> String {
         var s = OrchestrationState()
         s.iteration = 0
-        s.maxIterations = 3
+        s.maxIterations = maxIterations
         state = s
 
         let skills = toolExecutor.getAvailableSkills()

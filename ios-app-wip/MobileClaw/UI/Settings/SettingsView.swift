@@ -14,6 +14,11 @@ struct SettingsView: View {
     @AppStorage(SamplerSettings.temperatureKey) private var temperature: Double = SamplerSettings.defaults.temperature
     @AppStorage(SamplerSettings.maxTokensKey) private var maxTokens: Int = SamplerSettings.defaults.maxTokens
     @AppStorage(SamplerSettings.systemPromptKey) private var systemPrompt: String = ""
+    @AppStorage(SamplerSettings.agentMaxLoopsKey) private var agentMaxLoops: Int = SamplerSettings.agentDefaults.maxLoops
+    @AppStorage(SamplerSettings.agentMaxRepairKey) private var agentMaxRepair: Int = SamplerSettings.agentDefaults.maxRepair
+    @AppStorage(SamplerSettings.agentSkillTimeoutKey) private var agentSkillTimeout: Int = SamplerSettings.agentDefaults.skillTimeoutSecs
+    @AppStorage(SamplerSettings.agentThinkingModeKey) private var agentThinkingMode: Int = SamplerSettings.agentDefaults.thinkingMode
+    @AppStorage(SamplerSettings.agentHistoryWindowKey) private var agentHistoryWindow: Int = SamplerSettings.agentDefaults.historyWindow
 
     var body: some View {
         NavigationStack {
@@ -67,6 +72,28 @@ struct SettingsView: View {
                     Text("System prompt")
                 } footer: {
                     Text("Prepended to every conversation. Leave blank for default.")
+                        .font(.caption)
+                }
+
+                Section {
+                    Stepper("Max planning loops: \(agentMaxLoops)",
+                            value: $agentMaxLoops, in: 1...10)
+                    Stepper("Max repair attempts: \(agentMaxRepair)",
+                            value: $agentMaxRepair, in: 0...5)
+                    Stepper("Skill timeout: \(agentSkillTimeout)s",
+                            value: $agentSkillTimeout, in: 10...300, step: 10)
+                    Picker("Thinking mode", selection: $agentThinkingMode) {
+                        Text("Auto").tag(0)
+                        Text("Off").tag(1)
+                        Text("Aggressive").tag(2)
+                    }
+                    .pickerStyle(.segmented)
+                    Stepper("Conversation history window: \(agentHistoryWindow)",
+                            value: $agentHistoryWindow, in: 1...20)
+                } header: {
+                    Text("Agent")
+                } footer: {
+                    Text("Applied when Agentic mode is on. Mirrors the Agent tab on Android's ModelPageAppBar.")
                         .font(.caption)
                 }
 
