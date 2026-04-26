@@ -9,6 +9,7 @@ import SwiftData
 struct ConversationListView: View {
     @Environment(\.modelContext) private var context
     @Query(sort: \Conversation.updatedAt, order: .reverse) private var conversationsRaw: [Conversation]
+    @State private var showSettings = false
 
     let onConversationOpened: (Conversation) -> Void
     let onOpenModelSelect: () -> Void
@@ -29,7 +30,7 @@ struct ConversationListView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            ConversationListHeader()
+            ConversationListHeader(onSettings: { showSettings = true })
             Divider()
             if conversations.isEmpty {
                 EmptyState()
@@ -60,6 +61,7 @@ struct ConversationListView: View {
                 .padding(.trailing, 16)
                 .padding(.bottom, 16)
         }
+        .sheet(isPresented: $showSettings) { SettingsView() }
     }
 
     private func createConversation() {
@@ -84,13 +86,25 @@ struct ConversationListView: View {
 // MARK: - Pieces
 
 private struct ConversationListHeader: View {
+    let onSettings: () -> Void
     var body: some View {
-        Text("Conversations")
-            .font(.headline)
-            .foregroundStyle(AppColors.onSurface)
-            .frame(maxWidth: .infinity)
-            .padding(.vertical, 14)
-            .background(AppColors.surface)
+        ZStack {
+            Text("Conversations")
+                .font(.headline)
+                .foregroundStyle(AppColors.onSurface)
+            HStack {
+                Spacer()
+                Button(action: onSettings) {
+                    Image(systemName: "gearshape")
+                        .font(.system(size: 17, weight: .semibold))
+                        .foregroundStyle(AppColors.onSurface)
+                }
+                .padding(.trailing, 16)
+            }
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, 14)
+        .background(AppColors.surface)
     }
 }
 

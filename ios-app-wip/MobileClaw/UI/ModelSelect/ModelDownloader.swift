@@ -46,6 +46,10 @@ public final class ModelDownloader: NSObject, URLSessionDownloadDelegate {
         let session = URLSession(configuration: config, delegate: self, delegateQueue: nil)
         var request = URLRequest(url: src)
         request.setValue("Mobile-Claw/0.1", forHTTPHeaderField: "User-Agent")
+        // Attach HF user access token for gated models (Gemma 3n family etc.).
+        if let token = HuggingFaceAuth.token() {
+            request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        }
         let task = session.downloadTask(with: request)
         self.task = task
         task.resume()

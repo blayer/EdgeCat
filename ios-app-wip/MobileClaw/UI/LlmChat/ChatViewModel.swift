@@ -22,10 +22,13 @@ public final class ChatViewModel {
     private var streamTask: Task<Void, Never>?
 
     /// When true, route user messages through the orchestration loop
-    /// (Planner → Executor → Evaluator) instead of direct chat. Flip via
-    /// MOBILECLAW_AGENTIC=1 launch env var, or expose as a top-bar toggle
-    /// in a follow-up.
-    public var agenticMode: Bool = ProcessInfo.processInfo.environment["MOBILECLAW_AGENTIC"] == "1"
+    /// (Planner → Executor → Evaluator) instead of direct chat. Sources, in
+    /// priority order: launch env var MOBILECLAW_AGENTIC=1, then the
+    /// SettingsView toggle backed by UserDefaults.
+    public var agenticMode: Bool {
+        if ProcessInfo.processInfo.environment["MOBILECLAW_AGENTIC"] == "1" { return true }
+        return UserDefaults.standard.bool(forKey: "MOBILECLAW_AGENTIC_MODE")
+    }
 
     public init(conversation: Conversation, store: ConversationStore, engine: LiteRtLmEngine = LiteRtLmEngine()) {
         self.conversation = conversation
