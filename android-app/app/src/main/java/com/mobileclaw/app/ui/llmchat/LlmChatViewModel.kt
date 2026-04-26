@@ -201,11 +201,32 @@ open class LlmChatViewModelBase(
       var firstRun = true
       val start = System.currentTimeMillis()
 
+      // Resolve whether this call is allowed to surface a thinking bubble. Reasoning-tuned
+      // models (Gemma 3 E2B) emit a `thought` channel even when the caller asked for a plain
+      // response, so we must also suppress the UI here — otherwise the thought stream leaks
+      // into non-agentic chat and into the agentic "chat-intent" fast-path.
+      val enableThinking =
+        allowThinking &&
+          model.getBooleanConfigValue(key = ConfigKeys.ENABLE_THINKING, defaultValue = false)
+
       try {
         val resultListener: (String, Boolean, String?) -> Unit =
           { partialResult, done, partialThinkingResult ->
+            // When thinking is disabled, we hide the thought channel from the UI — but the
+            // runtime is still emitting those tokens and the real answer hasn't started yet.
+            // Swallow these chunks instead of tearing down the loading bubble to an empty text
+            // message; otherwise the user sees a silent blank reply until the model stops
+            // thinking and real text begins.
+            val isThinkingOnlyChunk =
+              !enableThinking &&
+                partialResult.isEmpty() &&
+                !done &&
+                partialThinkingResult != null &&
+                partialThinkingResult.isNotEmpty()
             if (partialResult.startsWith("<ctrl")) {
               // Do nothing. Ignore control tokens.
+            } else if (isThinkingOnlyChunk) {
+              // Keep the loading indicator visible; the real answer will follow.
             } else {
               // Remove the last message if it is a "loading" message.
               // This will only be done once.
@@ -215,7 +236,7 @@ open class LlmChatViewModelBase(
                 removeLastMessage(model = model)
               }
 
-              val thinkingText = partialThinkingResult
+              val thinkingText = if (enableThinking) partialThinkingResult else null
               val isThinking = thinkingText != null && thinkingText.isNotEmpty()
               var currentLastMessage = getLastMessage(model = model)
 
@@ -337,7 +358,12 @@ open class LlmChatViewModelBase(
         val enableThinking =
           allowThinking &&
             model.getBooleanConfigValue(key = ConfigKeys.ENABLE_THINKING, defaultValue = false)
-        val extraContext = if (enableThinking) mapOf("enable_thinking" to "true") else null
+        // Always pass the flag explicitly. Omitting it lets reasoning-tuned models (e.g. Gemma 3
+        // E2B) default to thinking-on, and the runtime keeps the last value if a prior turn in the
+        // same session set it — so after a round of agentic inference with thinking=true, a plain
+        // "say hi" in non-agentic mode would still emit a thought channel.
+        val extraContext =
+          mapOf("enable_thinking" to if (enableThinking) "true" else "false")
 
         model.runtimeHelper.runInference(
           model = model,
@@ -421,7 +447,8 @@ open class LlmChatViewModelBase(
     )
     instance.conversation = freshConversation
 
-    val extraContext = if (enableThinking) mapOf("enable_thinking" to "true") else emptyMap()
+    val extraContext =
+      mapOf("enable_thinking" to if (enableThinking) "true" else "false")
 
     return suspendCancellableCoroutine { continuation ->
       val buffer = StringBuilder()
