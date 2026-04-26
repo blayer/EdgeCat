@@ -34,16 +34,32 @@ public final class LiteRtLmEngine: LlmModelHelper {
     }
 
     public func runInference(prompt: String) -> AsyncThrowingStream<ChatToken, Error> {
+        runInference(prompt: prompt, imageData: [])
+    }
+
+    public func runInference(prompt: String, imageData: [Data]) -> AsyncThrowingStream<ChatToken, Error> {
         AsyncThrowingStream { continuation in
             guard let conversation else {
                 continuation.finish(throwing: LiteRtLmError.notInitialized)
                 return
             }
+            // Write images to NSTemporaryDirectory; the bridge passes paths to
+            // the C API (path form is more efficient than base64 blobs per
+            // runtime/conversation/model_data_processor/data_utils.h).
+            var tempPaths: [String] = []
+            for data in imageData {
+                let url = URL(fileURLWithPath: NSTemporaryDirectory())
+                    .appendingPathComponent("mc-img-\(UUID().uuidString).png")
+                if (try? data.write(to: url)) != nil { tempPaths.append(url.path) }
+            }
             conversation.sendMessage(prompt,
+                                     imagePaths: tempPaths.isEmpty ? nil : tempPaths,
                                      onToken: { chunk, thought in
                 continuation.yield(ChatToken(text: chunk, thought: thought, isFinal: false))
             },
                                      onDone: { error in
+                // Best-effort cleanup once inference is done.
+                for p in tempPaths { try? FileManager.default.removeItem(atPath: p) }
                 if let error {
                     continuation.finish(throwing: LiteRtLmError.bridge(error as NSError))
                 } else {

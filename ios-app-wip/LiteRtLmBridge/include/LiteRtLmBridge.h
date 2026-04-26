@@ -32,6 +32,15 @@ typedef NS_ENUM(NSInteger, LRTLMBackend) {
 - (void)sendMessage:(NSString *)text
             onToken:(void (^)(NSString * _Nonnull chunk, NSString * _Nullable thought))onToken
              onDone:(void (^)(NSError * _Nullable error))onDone;
+/// Multimodal variant — text + zero or more image file paths. The bridge
+/// builds a JSON message of the form
+///   {"role":"user","content":[{"type":"image","path":"..."}, ..., {"type":"text","text":"..."}]}
+/// Image paths must point at readable PNG/JPEG files on disk; callers
+/// typically write a UIImage to NSTemporaryDirectory and pass that path.
+- (void)sendMessage:(NSString *)text
+         imagePaths:(nullable NSArray<NSString *> *)imagePaths
+            onToken:(void (^)(NSString * _Nonnull chunk, NSString * _Nullable thought))onToken
+             onDone:(void (^)(NSError * _Nullable error))onDone;
 - (void)cancel;
 - (void)close;
 @end

@@ -1,29 +1,54 @@
 import SwiftUI
+import SwiftData
 
-// Phase A SwiftUI port of android-app/.../ui/llmchat/LlmChatScreen.kt.
-// Text-only chat with streaming and a stop button.
+// 1:1 port of android-app/.../ui/common/chat/ChatView.kt + ChatPanel.kt for
+// Phase B scope (text-only, persistence-aware). Loads message history from
+// the SwiftData Conversation, streams new turns via LiteRtLmEngine, and
+// saves each completed user/assistant pair back to the store.
 
 struct ChatView: View {
     @State private var viewModel: ChatViewModel
     @State private var input: String = ""
-    @FocusState private var inputFocused: Bool
+    @State private var attachedImages: [Data] = []
+    @Environment(\.dismiss) private var dismiss
+    @Environment(\.modelContext) private var context
 
-    init(modelURL: URL) {
-        _viewModel = State(initialValue: ChatViewModel(modelURL: modelURL))
+    init(conversation: Conversation) {
+        // ConversationStore needs the same context the conversation lives in;
+        // SwiftData exposes that via the entity's modelContext property at runtime.
+        let ctx = conversation.modelContext ?? ModelContext(try! ModelContainer(for: Conversation.self, StoredMessage.self))
+        let store = ConversationStore(context: ctx)
+        _viewModel = State(initialValue: ChatViewModel(conversation: conversation, store: store))
     }
 
     var body: some View {
         VStack(spacing: 0) {
+            ModelPageAppBarContent(
+                modelName: viewModel.modelURL.deletingPathExtension().lastPathComponent,
+                isStreaming: viewModel.isStreaming,
+                onBack: { dismiss() },
+                onReset: { viewModel.resetSession() }
+            )
+            Divider()
+
             ScrollViewReader { proxy in
                 ScrollView {
-                    LazyVStack(alignment: .leading, spacing: 12) {
-                        ForEach(viewModel.messages) { msg in
-                            MessageBubble(message: msg).id(msg.id)
+                    LazyVStack(alignment: .leading, spacing: 0) {
+                        if viewModel.messages.isEmpty {
+                            EmptyChatState()
+                                .frame(maxWidth: .infinity)
+                                .padding(.top, 96)
+                        } else {
+                            ForEach(viewModel.messages) { message in
+                                MessageRow(message: message,
+                                           onRunAgain: { viewModel.runAgain(message) })
+                                    .id(message.id)
+                            }
                         }
                     }
-                    .padding(.horizontal)
-                    .padding(.vertical, 12)
+                    .padding(.vertical, 8)
                 }
+                .background(AppColors.surface)
                 .onChange(of: viewModel.messages.last?.text) { _, _ in
                     if let last = viewModel.messages.last {
                         withAnimation(.linear(duration: 0.15)) {
@@ -31,90 +56,199 @@ struct ChatView: View {
                         }
                     }
                 }
+                .onChange(of: viewModel.messages.count) { _, _ in
+                    if let last = viewModel.messages.last {
+                        withAnimation(.easeOut(duration: 0.2)) {
+                            proxy.scrollTo(last.id, anchor: .bottom)
+                        }
+                    }
+                }
             }
 
             if let status = viewModel.loadStatus, status != "Ready" {
-                Text(status).font(.caption).foregroundStyle(.secondary).padding(.bottom, 4)
+                Text(status)
+                    .font(.caption)
+                    .foregroundStyle(AppColors.onSurfaceVariant)
+                    .padding(.vertical, 4)
+                    .frame(maxWidth: .infinity)
+                    .background(AppColors.surfaceVariant.opacity(0.5))
             }
 
-            HStack(alignment: .bottom, spacing: 8) {
-                TextField("Message", text: $input, axis: .vertical)
-                    .textFieldStyle(.roundedBorder)
-                    .lineLimit(1...5)
-                    .focused($inputFocused)
-                    .submitLabel(.send)
-                    .onSubmit(submit)
-                if viewModel.isStreaming {
-                    Button(action: viewModel.stop) {
-                        Image(systemName: "stop.circle.fill").font(.title)
-                    }
-                } else {
-                    Button(action: submit) {
-                        Image(systemName: "arrow.up.circle.fill").font(.title)
-                    }
-                    .disabled(input.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-                }
-            }
-            .padding(.horizontal)
-            .padding(.vertical, 8)
-            .background(.bar)
+            Divider()
+            MessageInputText(
+                text: $input,
+                attachedImages: $attachedImages,
+                isStreaming: viewModel.isStreaming,
+                canSend: !input.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !attachedImages.isEmpty,
+                onSend: submit,
+                onStop: viewModel.stop,
+                showImageButton: true,
+                showAudioButton: false    // Phase C audio recording still pending
+            )
         }
-        .navigationTitle(viewModel.modelURL.deletingPathExtension().lastPathComponent)
-        .navigationBarTitleDisplayMode(.inline)
+        .background(AppColors.surface.ignoresSafeArea())
+        .navigationBarHidden(true)
+        .onAppear {
+            if let auto = ProcessInfo.processInfo.environment["MOBILECLAW_AUTO_SEND"],
+               !auto.isEmpty, viewModel.messages.isEmpty {
+                viewModel.send(auto)
+            }
+        }
     }
 
     private func submit() {
         let text = input
+        let images = attachedImages
         input = ""
-        viewModel.send(text)
+        attachedImages = []
+        viewModel.send(text, imageData: images)
     }
 }
 
-private struct MessageBubble: View {
-    let message: Message
+// MARK: - Message row + bubble
 
+private struct MessageRow: View {
+    let message: ChatMessage
+    let onRunAgain: () -> Void
     var body: some View {
-        HStack {
-            if message.role == .user { Spacer(minLength: 40) }
-            VStack(alignment: message.role == .user ? .trailing : .leading, spacing: 4) {
-                content
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 8)
-                    .background(bubbleColor)
-                    .foregroundStyle(textColor)
-                    .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+        let isUser = message.role == .user
+        HStack(alignment: .bottom) {
+            if isUser { Spacer(minLength: 48) }
+            VStack(alignment: isUser ? .trailing : .leading, spacing: 4) {
+                if !isUser {
+                    Text("Assistant")
+                        .font(.caption2.weight(.semibold))
+                        .foregroundStyle(AppColors.onSurfaceVariant)
+                        .padding(.leading, 6)
+                }
+                if !isUser, let thought = message.thought, !thought.isEmpty {
+                    ThinkingPanel(text: thought)
+                }
+                if !message.images.isEmpty {
+                    ScrollView(.horizontal, showsIndicators: false) {
+                        HStack(spacing: 6) {
+                            ForEach(Array(message.images.enumerated()), id: \.offset) { _, data in
+                                if let img = UIImage(data: data) {
+                                    Image(uiImage: img)
+                                        .resizable()
+                                        .scaledToFill()
+                                        .frame(maxWidth: 160, maxHeight: 160)
+                                        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+                                }
+                            }
+                        }
+                    }
+                }
+                if !message.text.isEmpty || message.kind != .text {
+                    bubble
+                }
+                if isUser {
+                    Button(action: onRunAgain) {
+                        Label("Run again", systemImage: "arrow.clockwise")
+                            .font(.caption2)
+                    }
+                    .buttonStyle(.plain)
+                    .foregroundStyle(AppColors.onSurfaceVariant)
+                    .padding(.trailing, 6)
+                }
+                if !isUser, let ms = message.latencyMs, ms > 0 {
+                    Text(formatLatency(ms))
+                        .font(.caption2)
+                        .foregroundStyle(AppColors.onSurfaceVariant)
+                        .padding(.leading, 6)
+                }
             }
-            if message.role != .user { Spacer(minLength: 40) }
+            if !isUser { Spacer(minLength: 48) }
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 6)
+    }
+
+    private func formatLatency(_ ms: Int64) -> String {
+        if ms < 1000 { return "\(ms) ms" }
+        return String(format: "%.1f s", Double(ms) / 1000)
+    }
+
+    @ViewBuilder
+    private var bubble: some View {
+        switch message.kind {
+        case .loading:
+            HStack(spacing: 6) {
+                TypingIndicator()
+            }
+            .padding(.horizontal, 14)
+            .padding(.vertical, 12)
+            .background(MessageBubbleShape(hardCornerAtLeft: true).fill(AppColors.agentBubble))
+        case .error:
+            Text(message.text)
+                .font(.callout)
+                .foregroundStyle(AppColors.onErrorContainer)
+                .padding(.horizontal, 14)
+                .padding(.vertical, 10)
+                .background(MessageBubbleShape(hardCornerAtLeft: message.role != .user).fill(AppColors.errorContainer))
+        case .text, .thinking:
+            let isUser = message.role == .user
+            // Assistant messages render with inline markdown (bold/italic/code/
+            // links) — same behavior as android-app/.../MarkdownText.kt.
+            // User messages stay literal so prompts containing markdown
+            // characters aren't mangled.
+            renderText(message.text, isUser: isUser)
+                .font(.body)
+                .textSelection(.enabled)
+                .foregroundStyle(isUser ? AppColors.onUserBubble : AppColors.onAgentBubble)
+                .padding(.horizontal, 14)
+                .padding(.vertical, 10)
+                .background(
+                    MessageBubbleShape(hardCornerAtLeft: !isUser)
+                        .fill(isUser ? AppColors.userBubble : AppColors.agentBubble)
+                )
         }
     }
 
     @ViewBuilder
-    private var content: some View {
-        switch message.kind {
-        case .loading:
-            HStack(spacing: 6) {
-                ProgressView().controlSize(.small)
-                Text("…").foregroundStyle(.secondary)
-            }
-        case .error:
-            Text(message.text).font(.callout)
-        case .text:
-            Text(message.text).font(.body).textSelection(.enabled)
+    private func renderText(_ text: String, isUser: Bool) -> some View {
+        if isUser {
+            Text(text)
+        } else if let attr = try? AttributedString(markdown: text,
+                                                   options: AttributedString.MarkdownParsingOptions(
+                                                    interpretedSyntax: .inlineOnlyPreservingWhitespace)) {
+            Text(attr)
+        } else {
+            Text(text)
         }
     }
+}
 
-    private var bubbleColor: Color {
-        switch (message.role, message.kind) {
-        case (.user, _): return .accentColor
-        case (_, .error): return .red.opacity(0.15)
-        default: return Color(.secondarySystemBackground)
+private struct TypingIndicator: View {
+    @State private var phase: Int = 0
+    private let timer = Timer.publish(every: 0.35, on: .main, in: .common).autoconnect()
+    var body: some View {
+        HStack(spacing: 4) {
+            ForEach(0..<3) { i in
+                Circle()
+                    .fill(AppColors.onSurfaceVariant)
+                    .frame(width: 6, height: 6)
+                    .opacity(phase == i ? 1 : 0.3)
+            }
         }
+        .onReceive(timer) { _ in phase = (phase + 1) % 3 }
     }
-    private var textColor: Color {
-        switch (message.role, message.kind) {
-        case (.user, _): return .white
-        case (_, .error): return .red
-        default: return .primary
+}
+
+private struct EmptyChatState: View {
+    var body: some View {
+        VStack(spacing: 12) {
+            Image(systemName: "sparkles")
+                .font(.system(size: 56))
+                .foregroundStyle(AppColors.primary.opacity(0.5))
+            Text("Start a conversation")
+                .font(.title3.weight(.semibold))
+                .foregroundStyle(AppColors.onSurface)
+            Text("Send a message to chat with the model on-device.")
+                .font(.callout)
+                .foregroundStyle(AppColors.onSurfaceVariant)
+                .multilineTextAlignment(.center)
+                .padding(.horizontal, 48)
         }
     }
 }

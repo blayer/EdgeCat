@@ -40,7 +40,17 @@ public struct ChatToken: Sendable {
 public protocol LlmModelHelper: AnyObject {
     func initialize(config: LlmInitConfig) async throws
     func runInference(prompt: String) -> AsyncThrowingStream<ChatToken, Error>
+    /// Multimodal variant — pass image data (PNG/JPEG bytes) for Gemma 4 / 3n
+    /// vision-capable models. Empty `imageData` is equivalent to plain
+    /// runInference(prompt:).
+    func runInference(prompt: String, imageData: [Data]) -> AsyncThrowingStream<ChatToken, Error>
     func resetConversation(systemInstruction: String?) throws
     func stopResponse()
     func cleanUp()
+}
+
+public extension LlmModelHelper {
+    func runInference(prompt: String, imageData: [Data]) -> AsyncThrowingStream<ChatToken, Error> {
+        runInference(prompt: prompt)
+    }
 }

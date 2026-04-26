@@ -28,8 +28,16 @@ targets:
     platform: iOS
     sources:
       - path: MobileClaw
+        excludes:
+          # `skills/` is added to the bundle as a folder reference below;
+          # excluding it from sources prevents Xcode from emitting duplicate
+          # copy actions ("Multiple commands produce …/index.html").
+          - "Resources/skills/**"
     resources:
       - MobileClaw/Resources/Assets.xcassets
+      - MobileClaw/Resources/model_allowlist.json
+      - path: MobileClaw/Resources/skills
+        type: folder
     info:
       path: MobileClaw/Resources/Info.plist
       properties:
@@ -55,6 +63,13 @@ targets:
         NSCameraUsageDescription: "Mobile-Claw uses the camera for barcode scanning and photo input to the assistant."
         NSMicrophoneUsageDescription: "Mobile-Claw uses the microphone for voice input to the assistant."
         NSFaceIDUsageDescription: "Mobile-Claw can use Face ID to protect saved conversations."
+        # Eval harness URL scheme — mirrors android-app/.../EvalActivity's
+        # ADB intent entry point. Trigger via:
+        #   xcrun simctl openurl <udid> "mobileclaw://eval?prompt=hi&model=gemma-4-E2B-it.litertlm"
+        CFBundleURLTypes:
+          - CFBundleURLName: com.mobileclaw.app.eval
+            CFBundleURLSchemes:
+              - mobileclaw
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.mobileclaw.app
@@ -64,15 +79,16 @@ targets:
       - target: LiteRtLmBridge
         embed: true
         codeSign: true
-      # Embed the two iOS arm64 dylibs into MobileClaw.app/Frameworks/ so dyld
-      # can resolve @rpath at runtime. The framework target itself links them
-      # at build time via OTHER_LDFLAGS; we set link=false here to avoid
-      # double-linking from the app.
-      - framework: LiteRtLmBridge/Vendor/litert_lm/libLiteRtLm.dylib
+      # XCFrameworks bundle device (ios_arm64) + simulator (ios_sim_arm64)
+      # slices in one artifact so the right dylib is picked automatically
+      # depending on the build SDK. embed=true copies the resolved slice to
+      # MobileClaw.app/Frameworks/. link=false here because the bridge
+      # framework already links them at build time.
+      - framework: LiteRtLmBridge/Vendor/LiteRtLm.xcframework
         embed: true
         codeSign: true
         link: false
-      - framework: LiteRtLmBridge/Vendor/ios/libGemmaModelConstraintProvider.dylib
+      - framework: LiteRtLmBridge/Vendor/GemmaModelConstraintProvider.xcframework
         embed: true
         codeSign: true
         link: false
@@ -97,21 +113,17 @@ targets:
         HEADER_SEARCH_PATHS:
           - $(SRCROOT)/LiteRtLmBridge/include
           - $(SRCROOT)/LiteRtLmBridge/Vendor/litert_lm
-        LIBRARY_SEARCH_PATHS:
-          - $(SRCROOT)/LiteRtLmBridge/Vendor/litert_lm
-          - $(SRCROOT)/LiteRtLmBridge/Vendor/ios
-        OTHER_LDFLAGS:
-          # Dynamically links the iOS arm64 dylib produced by Bazel
-          # (//c:libLiteRtLm.dylib --config=ios_arm64). The dylib statically
-          # bundles the LiteRT runtime + Rust template engine + cxxbridge
-          # runtime; rules_rust drives the final link so the alloc shim
-          # resolves correctly. Runtime dep on libGemmaModelConstraintProvider
-          # is embedded alongside via @rpath.
-          - -lLiteRtLm
-          - -lGemmaModelConstraintProvider
         # Public header so the app target can `import LiteRtLmBridge`.
         SWIFT_INCLUDE_PATHS: $(SRCROOT)/LiteRtLmBridge/include
         PRODUCT_BUNDLE_IDENTIFIER: com.mobileclaw.litertlmbridge
+    dependencies:
+      # The bridge target links the LiteRT-LM xcframework at build time so the
+      # .mm file's calls to litert_lm_engine_* resolve. The app target embeds
+      # the xcframework so dyld can find the slice at runtime.
+      - framework: LiteRtLmBridge/Vendor/LiteRtLm.xcframework
+        embed: false
+      - framework: LiteRtLmBridge/Vendor/GemmaModelConstraintProvider.xcframework
+        embed: false
 
 schemes:
   MobileClaw:
