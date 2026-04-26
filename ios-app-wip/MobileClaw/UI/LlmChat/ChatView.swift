@@ -9,6 +9,7 @@ import SwiftData
 struct ChatView: View {
     @State private var viewModel: ChatViewModel
     @State private var input: String = ""
+    @State private var attachedImages: [Data] = []
     @Environment(\.dismiss) private var dismiss
     @Environment(\.modelContext) private var context
 
@@ -76,12 +77,13 @@ struct ChatView: View {
             Divider()
             MessageInputText(
                 text: $input,
+                attachedImages: $attachedImages,
                 isStreaming: viewModel.isStreaming,
-                canSend: !input.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+                canSend: !input.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !attachedImages.isEmpty,
                 onSend: submit,
                 onStop: viewModel.stop,
-                showImageButton: false,   // Phase C
-                showAudioButton: false    // Phase C
+                showImageButton: true,
+                showAudioButton: false    // Phase C audio recording still pending
             )
         }
         .background(AppColors.surface.ignoresSafeArea())
@@ -96,8 +98,10 @@ struct ChatView: View {
 
     private func submit() {
         let text = input
+        let images = attachedImages
         input = ""
-        viewModel.send(text)
+        attachedImages = []
+        viewModel.send(text, imageData: images)
     }
 }
 

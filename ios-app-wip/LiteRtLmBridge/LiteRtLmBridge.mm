@@ -18,12 +18,26 @@ static NSError *MakeError(LRTLMErrorCode code, NSString *msg) {
                            userInfo:@{NSLocalizedDescriptionKey: msg}];
 }
 
-#pragma mark - JSON escape for the text content field
+#pragma mark - JSON message builders
 
-static NSString *JsonEscape(NSString *input) {
-    NSData *data = [NSJSONSerialization dataWithJSONObject:@{@"role": @"user", @"content": input}
-                                                   options:0
-                                                     error:nil];
+static NSString *BuildMessageJson(NSString *text, NSArray<NSString *> *imagePaths) {
+    // Format mirrors runtime/conversation/model_data_processor/data_utils.h:
+    //   text-only:     {"role":"user","content":"hi"}
+    //   multimodal:    {"role":"user","content":[{"type":"image","path":"..."}, {"type":"text","text":"..."}]}
+    if (imagePaths.count == 0) {
+        NSData *data = [NSJSONSerialization dataWithJSONObject:@{@"role": @"user", @"content": text ?: @""}
+                                                       options:0 error:nil];
+        return data ? [[NSString alloc] initWithData:data encoding:NSUTF8StringEncoding] : @"{}";
+    }
+    NSMutableArray<NSDictionary *> *content = [NSMutableArray arrayWithCapacity:imagePaths.count + 1];
+    for (NSString *p in imagePaths) {
+        [content addObject:@{@"type": @"image", @"path": p}];
+    }
+    if (text.length > 0) {
+        [content addObject:@{@"type": @"text", @"text": text}];
+    }
+    NSData *data = [NSJSONSerialization dataWithJSONObject:@{@"role": @"user", @"content": content}
+                                                   options:0 error:nil];
     return data ? [[NSString alloc] initWithData:data encoding:NSUTF8StringEncoding] : @"{}";
 }
 
@@ -119,11 +133,18 @@ void StreamCallbackThunk(void *userData, const char *chunk, bool isFinal, const 
 - (void)sendMessage:(NSString *)text
             onToken:(void (^)(NSString *, NSString * _Nullable))onToken
              onDone:(void (^)(NSError * _Nullable))onDone {
+    [self sendMessage:text imagePaths:nil onToken:onToken onDone:onDone];
+}
+
+- (void)sendMessage:(NSString *)text
+         imagePaths:(NSArray<NSString *> *)imagePaths
+            onToken:(void (^)(NSString *, NSString * _Nullable))onToken
+             onDone:(void (^)(NSError * _Nullable))onDone {
     if (!_conversation) {
         if (onDone) onDone(MakeError(LRTLMErrorCodeInferenceFailed, @"Conversation already closed"));
         return;
     }
-    NSString *messageJson = JsonEscape(text);
+    NSString *messageJson = BuildMessageJson(text, imagePaths);
     auto *ctx = new StreamContext{[onToken copy], [onDone copy]};
     int rc = litert_lm_conversation_send_message_stream(
         _conversation,

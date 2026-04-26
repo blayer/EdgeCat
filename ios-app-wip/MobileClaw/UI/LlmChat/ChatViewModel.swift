@@ -38,12 +38,13 @@ public final class ChatViewModel {
         loadHistoryFromStore()
     }
 
-    public func send(_ prompt: String) {
+    public func send(_ prompt: String, imageData: [Data] = []) {
         let trimmed = prompt.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty, !isStreaming else { return }
+        guard (!trimmed.isEmpty || !imageData.isEmpty), !isStreaming else { return }
 
-        messages.append(ChatMessage(role: .user, text: trimmed))
-        try? store.appendMessage(to: conversation, role: "user", content: trimmed)
+        let userText = trimmed.isEmpty && !imageData.isEmpty ? "(image)" : trimmed
+        messages.append(ChatMessage(role: .user, text: userText))
+        try? store.appendMessage(to: conversation, role: "user", content: userText)
 
         let assistantId = UUID()
         messages.append(ChatMessage(id: assistantId, role: .assistant, text: "", kind: .loading))
@@ -82,7 +83,7 @@ public final class ChatViewModel {
                     return
                 }
 
-                let stream = engine.runInference(prompt: trimmed)
+                let stream = engine.runInference(prompt: trimmed, imageData: imageData)
                 var buffer = ""
                 var thought = ""
                 for try await token in stream {
