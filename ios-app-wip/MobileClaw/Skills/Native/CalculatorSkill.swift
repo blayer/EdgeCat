@@ -15,6 +15,14 @@ public final class CalculatorSkill: Skill, @unchecked Sendable {
         }
         let sanitized = expr.replacingOccurrences(of: "×", with: "*")
                             .replacingOccurrences(of: "÷", with: "/")
+        // Reject anything that isn't numbers, decimal points, parentheses,
+        // whitespace, or basic operators. NSExpression(format:) raises an
+        // uncatchable Objective-C exception on non-arithmetic input
+        // (e.g. "this is not math"), so we have to gate it ourselves.
+        let allowed = CharacterSet(charactersIn: "0123456789.+-*/() \t")
+        if sanitized.unicodeScalars.contains(where: { !allowed.contains($0) }) {
+            return ToolExecutionResult(success: false, error: "could not evaluate: \(expr)")
+        }
         let nsExpr = NSExpression(format: sanitized)
         guard let value = nsExpr.expressionValue(with: nil, context: nil) else {
             return ToolExecutionResult(success: false, error: "could not evaluate: \(expr)")

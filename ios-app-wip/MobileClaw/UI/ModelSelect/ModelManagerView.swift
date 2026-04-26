@@ -12,6 +12,7 @@ struct ModelManagerView: View {
     @State private var catalog: [CatalogModel] = ModelCatalog.load()
     @State private var downloader = ModelDownloader()
     @State private var inFlightModelId: String?
+    @State private var pendingDelete: URL?
 
     var body: some View {
         List {
@@ -23,6 +24,22 @@ struct ModelManagerView: View {
         .navigationBarTitleDisplayMode(.inline)
         .onAppear { reload() }
         .refreshable { reload() }
+        .alert("Delete model?",
+               isPresented: Binding(get: { pendingDelete != nil },
+                                    set: { if !$0 { pendingDelete = nil } })) {
+            Button("Cancel", role: .cancel) { pendingDelete = nil }
+            Button("Delete", role: .destructive) {
+                if let url = pendingDelete {
+                    try? FileManager.default.removeItem(at: url)
+                    pendingDelete = nil
+                    reload()
+                }
+            }
+        } message: {
+            if let url = pendingDelete {
+                Text("\(url.lastPathComponent) will be permanently removed.")
+            }
+        }
     }
 
     // MARK: - Sections
@@ -47,6 +64,11 @@ struct ModelManagerView: View {
                             }
                             Spacer()
                             Image(systemName: "chevron.right").foregroundStyle(.tertiary)
+                        }
+                    }
+                    .swipeActions(edge: .trailing) {
+                        Button(role: .destructive) { pendingDelete = url } label: {
+                            Label("Delete", systemImage: "trash")
                         }
                     }
                 }

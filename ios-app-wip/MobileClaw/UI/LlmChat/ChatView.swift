@@ -2,14 +2,18 @@ import SwiftUI
 import SwiftData
 
 // 1:1 port of android-app/.../ui/common/chat/ChatView.kt + ChatPanel.kt for
-// Phase B scope (text-only, persistence-aware). Loads message history from
-// the SwiftData Conversation, streams new turns via LiteRtLmEngine, and
-// saves each completed user/assistant pair back to the store.
+// Phase B+F scope. Loads message history from the SwiftData Conversation,
+// streams new turns via LiteRtLmEngine, persists each turn back to the store,
+// and surfaces the chat-page settings sheet + model-switch sheet from the
+// top bar.
 
 struct ChatView: View {
     @State private var viewModel: ChatViewModel
     @State private var input: String = ""
     @State private var attachedImages: [Data] = []
+    @State private var attachedAudio: [Data] = []
+    @State private var showSettings = false
+    @State private var showModelSwitch = false
     @Environment(\.dismiss) private var dismiss
     @Environment(\.modelContext) private var context
 
@@ -27,7 +31,8 @@ struct ChatView: View {
                 modelName: viewModel.modelURL.deletingPathExtension().lastPathComponent,
                 isStreaming: viewModel.isStreaming,
                 onBack: { dismiss() },
-                onReset: { viewModel.resetSession() }
+                onSettings: { showSettings = true },
+                onSwitchModel: { showModelSwitch = true }
             )
             Divider()
 
@@ -35,34 +40,27 @@ struct ChatView: View {
                 ScrollView {
                     LazyVStack(alignment: .leading, spacing: 0) {
                         if viewModel.messages.isEmpty {
-                            EmptyChatState()
+                            EmptyChatState(onPromptTap: { template in input = template })
                                 .frame(maxWidth: .infinity)
-                                .padding(.top, 96)
+                                .padding(.top, 64)
                         } else {
                             ForEach(viewModel.messages) { message in
-                                MessageRow(message: message,
-                                           onRunAgain: { viewModel.runAgain(message) })
-                                    .id(message.id)
+                                MessageRow(
+                                    message: message,
+                                    onCopy: { UIPasteboard.general.string = message.text },
+                                    onRunAgain: { viewModel.runAgain(message) },
+                                    onRegenerate: { viewModel.regenerateLast() },
+                                    onDelete: { viewModel.deleteMessage(id: message.id) }
+                                )
+                                .id(message.id)
                             }
                         }
                     }
                     .padding(.vertical, 8)
                 }
                 .background(AppColors.surface)
-                .onChange(of: viewModel.messages.last?.text) { _, _ in
-                    if let last = viewModel.messages.last {
-                        withAnimation(.linear(duration: 0.15)) {
-                            proxy.scrollTo(last.id, anchor: .bottom)
-                        }
-                    }
-                }
-                .onChange(of: viewModel.messages.count) { _, _ in
-                    if let last = viewModel.messages.last {
-                        withAnimation(.easeOut(duration: 0.2)) {
-                            proxy.scrollTo(last.id, anchor: .bottom)
-                        }
-                    }
-                }
+                .onChange(of: viewModel.messages.last?.text) { _, _ in scroll(proxy) }
+                .onChange(of: viewModel.messages.count) { _, _ in scroll(proxy) }
             }
 
             if let status = viewModel.loadStatus, status != "Ready" {
@@ -78,20 +76,38 @@ struct ChatView: View {
             MessageInputText(
                 text: $input,
                 attachedImages: $attachedImages,
+                attachedAudio: $attachedAudio,
                 isStreaming: viewModel.isStreaming,
-                canSend: !input.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !attachedImages.isEmpty,
+                canSend: !input.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                          || !attachedImages.isEmpty || !attachedAudio.isEmpty,
                 onSend: submit,
                 onStop: viewModel.stop,
                 showImageButton: true,
-                showAudioButton: false    // Phase C audio recording still pending
+                showAudioButton: true
             )
         }
         .background(AppColors.surface.ignoresSafeArea())
         .navigationBarHidden(true)
+        .sheet(isPresented: $showSettings) { SettingsView(conversation: viewModel.conversation) }
+        .sheet(isPresented: $showModelSwitch) {
+            ModelSwitchSheet(currentURL: viewModel.modelURL) { url in
+                viewModel.switchModel(to: url)
+                showModelSwitch = false
+            }
+        }
         .onAppear {
             if let auto = ProcessInfo.processInfo.environment["MOBILECLAW_AUTO_SEND"],
                !auto.isEmpty, viewModel.messages.isEmpty {
                 viewModel.send(auto)
+            }
+        }
+        .onDisappear { viewModel.tearDown() }
+    }
+
+    private func scroll(_ proxy: ScrollViewProxy) {
+        if let last = viewModel.messages.last {
+            withAnimation(.easeOut(duration: 0.2)) {
+                proxy.scrollTo(last.id, anchor: .bottom)
             }
         }
     }
@@ -99,9 +115,11 @@ struct ChatView: View {
     private func submit() {
         let text = input
         let images = attachedImages
+        let audio = attachedAudio
         input = ""
         attachedImages = []
-        viewModel.send(text, imageData: images)
+        attachedAudio = []
+        viewModel.send(text, imageData: images, audioData: audio)
     }
 }
 
@@ -109,7 +127,11 @@ struct ChatView: View {
 
 private struct MessageRow: View {
     let message: ChatMessage
+    let onCopy: () -> Void
     let onRunAgain: () -> Void
+    let onRegenerate: () -> Void
+    let onDelete: () -> Void
+
     var body: some View {
         let isUser = message.role == .user
         HStack(alignment: .bottom) {
@@ -141,15 +163,16 @@ private struct MessageRow: View {
                 }
                 if !message.text.isEmpty || message.kind != .text {
                     bubble
-                }
-                if isUser {
-                    Button(action: onRunAgain) {
-                        Label("Run again", systemImage: "arrow.clockwise")
-                            .font(.caption2)
-                    }
-                    .buttonStyle(.plain)
-                    .foregroundStyle(AppColors.onSurfaceVariant)
-                    .padding(.trailing, 6)
+                        .contextMenu {
+                            Button { onCopy() } label: { Label("Copy", systemImage: "doc.on.doc") }
+                            if isUser {
+                                Button { onRunAgain() } label: { Label("Run again", systemImage: "arrow.clockwise") }
+                            } else {
+                                Button { onRegenerate() } label: { Label("Regenerate", systemImage: "arrow.clockwise") }
+                            }
+                            Divider()
+                            Button(role: .destructive) { onDelete() } label: { Label("Delete", systemImage: "trash") }
+                        }
                 }
                 if !isUser, let ms = message.latencyMs, ms > 0 {
                     Text(formatLatency(ms))
@@ -236,19 +259,106 @@ private struct TypingIndicator: View {
 }
 
 private struct EmptyChatState: View {
+    let onPromptTap: (String) -> Void
+
     var body: some View {
-        VStack(spacing: 12) {
+        VStack(spacing: 16) {
             Image(systemName: "sparkles")
                 .font(.system(size: 56))
                 .foregroundStyle(AppColors.primary.opacity(0.5))
             Text("Start a conversation")
                 .font(.title3.weight(.semibold))
                 .foregroundStyle(AppColors.onSurface)
-            Text("Send a message to chat with the model on-device.")
+            Text("Tap a prompt below or type your own.")
                 .font(.callout)
                 .foregroundStyle(AppColors.onSurfaceVariant)
                 .multilineTextAlignment(.center)
                 .padding(.horizontal, 48)
+            VStack(alignment: .leading, spacing: 8) {
+                ForEach(PromptTemplates.load(), id: \.self) { prompt in
+                    Button {
+                        onPromptTap(prompt)
+                    } label: {
+                        HStack {
+                            Text(prompt)
+                                .font(.callout)
+                                .foregroundStyle(AppColors.onSurface)
+                                .multilineTextAlignment(.leading)
+                            Spacer()
+                            Image(systemName: "arrow.up.left")
+                                .font(.caption)
+                                .foregroundStyle(AppColors.onSurfaceVariant)
+                        }
+                        .padding(.horizontal, 14)
+                        .padding(.vertical, 10)
+                        .background(
+                            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                                .fill(AppColors.surfaceVariant.opacity(0.6))
+                        )
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+            .padding(.horizontal, 24)
+            .padding(.top, 8)
         }
+    }
+}
+
+// MARK: - Model switch sheet
+
+private struct ModelSwitchSheet: View {
+    let currentURL: URL
+    let onPick: (URL) -> Void
+    @Environment(\.dismiss) private var dismiss
+    @State private var sideloaded: [URL] = []
+
+    var body: some View {
+        NavigationStack {
+            List {
+                Section {
+                    if sideloaded.isEmpty {
+                        Text("No sideloaded models. Drop a .litertlm into Documents/Models/ via Finder.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    } else {
+                        ForEach(sideloaded, id: \.self) { url in
+                            Button { onPick(url) } label: {
+                                HStack {
+                                    Text(url.deletingPathExtension().lastPathComponent)
+                                    Spacer()
+                                    if url == currentURL {
+                                        Image(systemName: "checkmark")
+                                            .foregroundStyle(AppColors.primary)
+                                    }
+                                }
+                            }
+                            .buttonStyle(.plain)
+                        }
+                    }
+                } header: {
+                    Text("Switch model")
+                } footer: {
+                    Text("Switching reloads the engine. The current conversation history is preserved; the new model sees it on the next turn.")
+                        .font(.caption)
+                }
+            }
+            .navigationTitle("Models")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button("Done") { dismiss() }
+                }
+            }
+            .onAppear { reload() }
+        }
+    }
+
+    private func reload() {
+        let docs = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first
+        guard let dir = docs?.appendingPathComponent("Models", isDirectory: true) else { return }
+        let contents = (try? FileManager.default.contentsOfDirectory(at: dir, includingPropertiesForKeys: nil)) ?? []
+        sideloaded = contents.filter { $0.pathExtension.lowercased() == "litertlm" }
+                              .sorted { $0.lastPathComponent < $1.lastPathComponent }
     }
 }

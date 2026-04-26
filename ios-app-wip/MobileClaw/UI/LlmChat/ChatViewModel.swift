@@ -38,13 +38,19 @@ public final class ChatViewModel {
         loadHistoryFromStore()
     }
 
-    public func send(_ prompt: String, imageData: [Data] = []) {
+    public func send(_ prompt: String, imageData: [Data] = [], audioData: [Data] = []) {
         let trimmed = prompt.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard (!trimmed.isEmpty || !imageData.isEmpty), !isStreaming else { return }
+        let hasAttachments = !imageData.isEmpty || !audioData.isEmpty
+        guard (!trimmed.isEmpty || hasAttachments), !isStreaming else { return }
 
-        let userText = trimmed.isEmpty && !imageData.isEmpty ? "(image)" : trimmed
-        messages.append(ChatMessage(role: .user, text: userText, images: imageData))
-        try? store.appendMessage(to: conversation, role: "user", content: userText, images: imageData)
+        let userText: String
+        if !trimmed.isEmpty { userText = trimmed }
+        else if !imageData.isEmpty { userText = "(image)" }
+        else { userText = "(audio)" }
+        messages.append(ChatMessage(role: .user, text: userText,
+                                    images: imageData, audio: audioData))
+        try? store.appendMessage(to: conversation, role: "user", content: userText,
+                                 images: imageData, audio: audioData)
 
         let assistantId = UUID()
         messages.append(ChatMessage(id: assistantId, role: .assistant, text: "", kind: .loading))
@@ -57,13 +63,36 @@ public final class ChatViewModel {
                 if loadStatus == nil {
                     self.loadStatus = "Loading model…"
                     let s = SamplerSettings.current()
+                    // Per-conversation override wins over the global setting.
+                    let prompt = conversation.systemPromptOverride
+                        ?? (s.systemPrompt.isEmpty ? nil : s.systemPrompt)
+                    let visionDefault = LlmBackend.parse(s.visionAccelerator)
+                        ?? LlmBackend.parse(s.accelerator)
+                        ?? .gpu
+                    let audioDefault = LlmBackend.parse(s.audioAccelerator)
+                        ?? LlmBackend.parse(s.accelerator)
+                        ?? .gpu
                     try await engine.initialize(config: LlmInitConfig(
                         modelPath: modelURL,
+                        backend: LlmBackend.parse(s.accelerator) ?? .gpu,
+                        visionBackend: visionDefault,
+                        audioBackend: audioDefault,
                         maxTokens: s.maxTokens,
+                        cacheDir: Self.derivedCacheDir(for: modelURL),
+                        parallelFileSectionLoading: s.parallelFileLoading,
+                        activationDataType: LlmActivationDtype.from(rawValue: s.activationDtype),
+                        prefillChunkSize: s.prefillChunkSize,
+                        enableSpeculativeDecoding: s.speculativeDecoding,
+                        logLevel: LlmLogLevel(rawValue: s.debugLogLevel) ?? .silent,
+                        samplerType: s.samplerType == 1 ? .greedy : .topP,
                         topK: s.topK,
                         topP: Float(s.topP),
                         temperature: Float(s.temperature),
-                        systemInstruction: s.systemPrompt.isEmpty ? nil : s.systemPrompt
+                        seed: UInt32(bitPattern: Int32(truncatingIfNeeded: s.seed)),
+                        maxOutputTokens: s.maxOutputTokens,
+                        applyPromptTemplate: s.applyPromptTemplate,
+                        systemInstruction: prompt,
+                        enableConstrainedDecoding: s.enableConstrainedDecoding
                     ))
                     self.loadStatus = "Ready"
                 }
@@ -87,7 +116,9 @@ public final class ChatViewModel {
                     return
                 }
 
-                let stream = engine.runInference(prompt: trimmed, imageData: imageData)
+                let stream = engine.runInference(prompt: trimmed,
+                                                  imageData: imageData,
+                                                  audioData: audioData)
                 var buffer = ""
                 var thought = ""
                 for try await token in stream {
@@ -131,6 +162,56 @@ public final class ChatViewModel {
         isStreaming = false
     }
 
+    /// Called from ChatView.onDisappear — synchronously stops any in-flight
+    /// stream and releases the C-side engine before the view's @State storage
+    /// goes away. Without this, navigating back mid-stream raced ARC
+    /// deallocation against the LiteRT-LM background thread and crashed.
+    public func tearDown() {
+        stop()
+        engine.cleanUp()
+    }
+
+    /// Switch to a different .litertlm file mid-conversation. Tears down the
+    /// current engine; the next send re-initializes with the new model.
+    public func switchModel(to url: URL) {
+        stop()
+        engine.cleanUp()
+        loadStatus = nil
+        conversation.modelPath = url.path
+        try? store.context.save()
+    }
+
+    /// Regenerate the last assistant turn — drop it and re-send the
+    /// preceding user message. Mirrors Android's "Regenerate" action.
+    public func regenerateLast() {
+        guard !isStreaming else { return }
+        // Walk backwards: drop trailing assistant message(s); keep the last
+        // user message and re-send it.
+        guard let lastUserIdx = messages.lastIndex(where: { $0.role == .user }) else { return }
+        let userMsg = messages[lastUserIdx]
+        // Drop everything after (and including) any assistant message that
+        // followed the last user one — they get regenerated.
+        if lastUserIdx + 1 < messages.count {
+            let toDrop = Array(messages[(lastUserIdx + 1)...])
+            for m in toDrop { deleteMessage(id: m.id) }
+        }
+        // The send method will append a fresh assistant message.
+        send(userMsg.text, imageData: userMsg.images)
+    }
+
+    /// Delete a message from both the in-memory list and the SwiftData store.
+    public func deleteMessage(id: UUID) {
+        guard let target = messages.first(where: { $0.id == id }) else { return }
+        messages.removeAll { $0.id == id }
+        // StoredMessage doesn't carry the in-memory UUID — match on
+        // (createdAt, content). Equality on those two is unique in practice.
+        if let stored = store.messages(in: conversation)
+            .first(where: { $0.createdAt == target.createdAt && $0.content == target.text }) {
+            store.context.delete(stored)
+            try? store.context.save()
+        }
+    }
+
     /// Mirrors android-app/.../LlmChatModelHelper.resetConversation — clears
     /// the LLM's KV cache + the in-memory chat thread (the persisted messages
     /// stay; the user can revisit them as past turns).
@@ -147,6 +228,7 @@ public final class ChatViewModel {
             let role: MessageRole = (msg.role == "assistant") ? .assistant : .user
             return ChatMessage(role: role, text: msg.content, kind: .text,
                                images: msg.imageBlobs ?? [],
+                               audio: msg.audioBlobs ?? [],
                                createdAt: msg.createdAt)
         }
     }
@@ -161,5 +243,57 @@ public final class ChatViewModel {
     private func setLatency(id: UUID, ms: Int64) {
         guard let idx = messages.firstIndex(where: { $0.id == id }) else { return }
         messages[idx].latencyMs = ms
+    }
+
+    /// Per-model `litert_lm_engine_settings_set_cache_dir` target. Stable
+    /// per-model so the LiteRT-LM runtime can reuse pre-compiled kernels
+    /// across launches; ephemeral models get fresh dirs because their path
+    /// changes.
+    private static func derivedCacheDir(for modelURL: URL) -> URL? {
+        guard let appSupport = try? FileManager.default.url(for: .applicationSupportDirectory,
+                                                            in: .userDomainMask,
+                                                            appropriateFor: nil,
+                                                            create: true) else { return nil }
+        // Cheap stable hash over the absolute path — avoids dragging in
+        // CryptoKit just to derive a directory name.
+        var hasher = Hasher()
+        hasher.combine(modelURL.path)
+        let dir = appSupport
+            .appendingPathComponent("litertlm-cache", isDirectory: true)
+            .appendingPathComponent(String(format: "%016llx", UInt64(bitPattern: Int64(hasher.finalize()))),
+                                    isDirectory: true)
+        try? FileManager.default.createDirectory(at: dir,
+                                                 withIntermediateDirectories: true)
+        return dir
+    }
+}
+
+// MARK: - Settings → runtime enum coercions
+
+private extension LlmBackend {
+    /// Maps the UserDefaults string ("cpu" / "gpu" / "") to an enum case.
+    /// `nil` means the caller should fall back to a parent setting (e.g.,
+    /// vision/audio backends fall back to compute backend when unset).
+    static func parse(_ raw: String) -> LlmBackend? {
+        switch raw.lowercased() {
+        case "cpu":     return .cpu
+        case "gpu":     return .gpu
+        case "default": return .default
+        case "":        return nil
+        default:        return nil
+        }
+    }
+}
+
+private extension LlmActivationDtype {
+    /// Maps the UserDefaults int (-1 default, 0..3 = F32..I8) to an enum case.
+    static func from(rawValue: Int) -> LlmActivationDtype {
+        switch rawValue {
+        case 0:  return .f32
+        case 1:  return .f16
+        case 2:  return .i16
+        case 3:  return .i8
+        default: return .default
+        }
     }
 }

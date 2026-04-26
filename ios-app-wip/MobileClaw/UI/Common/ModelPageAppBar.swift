@@ -1,19 +1,20 @@
 import SwiftUI
 
-// 1:1 port of android-app/.../ui/common/ModelPageAppBar.kt for Phase A scope.
-// Center-aligned title (task icon + label + model chip), back arrow on the
-// leading side, reset-session button on the trailing side. Config gear and
-// model picker sheet land in Phase B alongside the real ModelManager.
+// 1:1 port of android-app/.../ui/common/ModelPageAppBar.kt. Center-aligned
+// title (task icon + label + tappable model chip), back arrow on the leading
+// side, settings gear on the trailing side. The gear opens SettingsView as
+// a sheet; the chip opens a model-switch sheet — both live in ChatView.
 
 struct ModelPageAppBarContent: View {
     let modelName: String
     let isStreaming: Bool
     let onBack: () -> Void
-    let onReset: () -> Void
+    let onSettings: () -> Void
+    let onSwitchModel: () -> Void
 
     var body: some View {
         ZStack {
-            // Center: task label + model chip
+            // Center: task label + tappable model chip
             VStack(spacing: 4) {
                 HStack(spacing: 10) {
                     Image(systemName: "sparkles")
@@ -23,9 +24,16 @@ struct ModelPageAppBarContent: View {
                         .font(.headline)
                         .foregroundStyle(AppColors.onSurface)
                 }
-                ModelChip(label: modelName)
+                Button(action: onSwitchModel) {
+                    ModelChip(label: modelName)
+                }
+                .buttonStyle(.plain)
+                .disabled(isStreaming)
+                .opacity(isStreaming ? 0.6 : 1)
             }
-            // Leading: back
+            // Leading: back. Trailing: settings gear (replaces the old reset
+            // button — reset is still callable from ChatViewModel for the eval
+            // entry / future wiring).
             HStack {
                 Button(action: onBack) {
                     Image(systemName: "chevron.backward")
@@ -34,13 +42,10 @@ struct ModelPageAppBarContent: View {
                 .disabled(isStreaming)
                 .opacity(isStreaming ? 0.5 : 1)
                 Spacer()
-                // Trailing: reset session
-                Button(action: onReset) {
-                    Image(systemName: "arrow.clockwise")
+                Button(action: onSettings) {
+                    Image(systemName: "gearshape")
                         .font(.system(size: 17, weight: .semibold))
                 }
-                .disabled(isStreaming)
-                .opacity(isStreaming ? 0.5 : 1)
             }
             .padding(.horizontal, 8)
         }

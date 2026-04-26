@@ -8,6 +8,7 @@ struct MobileClawApp: App {
     var body: some Scene {
         WindowGroup {
             AppRouter()
+                .environment(\.theme, MobileClawTheme.shared)
                 .onOpenURL { url in EvalEntryPoint.handle(url) }
         }
         .modelContainer(for: [

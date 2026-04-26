@@ -1,5 +1,9 @@
 name: CI / iOS
 
+# Path-filtered: this workflow only runs when iOS code changes. Combined with
+# ci-android.yml's `paths: android-app/**` filter, a PR that only touches
+# Android sources skips iOS CI entirely (and vice-versa). PRs that touch both
+# trees fan out to both pipelines.
 on:
   pull_request:
     branches: [main]
@@ -11,11 +15,103 @@ concurrency:
   group: ci-ios-${{ github.ref }}
   cancel-in-progress: true
 
+defaults:
+  run:
+    working-directory: ios-app-wip
+
 jobs:
-  ios-build:
-    runs-on: macos-latest
+  ios-lint:
+    runs-on: macos-15
     steps:
       - uses: actions/checkout@v4
 
-      - name: Placeholder
-        run: echo "iOS CI will be configured when the project is set up"
+      - name: Install SwiftLint
+        run: |
+          if ! command -v swiftlint >/dev/null 2>&1; then
+            brew install swiftlint
+          fi
+
+      - name: Run SwiftLint
+        run: swiftlint lint --strict --reporter github-actions-logging
+
+  ios-test:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Select Xcode
+        # macos-15 ships Xcode 16; pin to a version that ships the iOS 17 SDK
+        # the project's deployment target requires.
+        run: sudo xcode-select -s /Applications/Xcode_16.app/Contents/Developer || true
+
+      - name: Install xcodegen
+        run: |
+          if ! command -v xcodegen >/dev/null 2>&1; then
+            brew install xcodegen
+          fi
+
+      - name: Generate Xcode project
+        run: xcodegen
+
+      - name: List simulators
+        run: xcrun simctl list runtimes && xcrun simctl list devicetypes
+
+      - name: Build & test
+        run: |
+          set -o pipefail
+          xcodebuild \
+            -project MobileClaw.xcodeproj \
+            -scheme MobileClaw \
+            -sdk iphonesimulator \
+            -configuration Debug \
+            -destination 'platform=iOS Simulator,name=iPhone 16 Pro,OS=latest' \
+            -enableCodeCoverage YES \
+            -resultBundlePath TestResults.xcresult \
+            test | xcbeautify --renderer github-actions || \
+          xcodebuild \
+            -project MobileClaw.xcodeproj \
+            -scheme MobileClaw \
+            -sdk iphonesimulator \
+            -configuration Debug \
+            -destination 'platform=iOS Simulator,name=iPhone 16 Pro,OS=latest' \
+            -enableCodeCoverage YES \
+            -resultBundlePath TestResults.xcresult \
+            test
+
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ios-test-results-${{ github.sha }}
+          path: ios-app-wip/TestResults.xcresult
+          retention-days: 7
+
+  ios-build:
+    runs-on: macos-15
+    needs: [ios-lint, ios-test]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Select Xcode
+        run: sudo xcode-select -s /Applications/Xcode_16.app/Contents/Developer || true
+
+      - name: Install xcodegen
+        run: |
+          if ! command -v xcodegen >/dev/null 2>&1; then
+            brew install xcodegen
+          fi
+
+      - name: Generate Xcode project
+        run: xcodegen
+
+      - name: Build for simulator
+        run: |
+          set -o pipefail
+          xcodebuild \
+            -project MobileClaw.xcodeproj \
+            -scheme MobileClaw \
+            -sdk iphonesimulator \
+            -configuration Debug \
+            -destination 'platform=iOS Simulator,name=iPhone 16 Pro,OS=latest' \
+            CODE_SIGN_IDENTITY="" CODE_SIGNING_REQUIRED=NO \
+            build

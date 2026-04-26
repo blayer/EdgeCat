@@ -15,6 +15,8 @@ public final class SwiftDataMemoryRepository: MemoryRepository {
             context.insert(EpisodeEntity(episode: episode))
             try? context.save()
         }
+        // Index for FTS recall. Best-effort; failures fall back to substring.
+        FtsIndex.shared.index(episode: episode)
     }
 
     public nonisolated func save(repair: RepairRecord) async {
@@ -41,7 +43,20 @@ public final class SwiftDataMemoryRepository: MemoryRepository {
     }
 
     public nonisolated func recallForPlanning(userMessage: String, tokenBudget: Int) async -> String {
-        await MainActor.run {
+        // FTS first — sub-100ms even at thousands of episodes.
+        let ftsHits = FtsIndex.shared.search(query: userMessage, limit: 3)
+        return await MainActor.run {
+            if !ftsHits.isEmpty {
+                let descriptor = FetchDescriptor<EpisodeEntity>(
+                    predicate: #Predicate { ftsHits.contains($0.episodeId) }
+                )
+                let matches = (try? context.fetch(descriptor)) ?? []
+                if !matches.isEmpty {
+                    return matches.map { "Past: \($0.userMessage) → \($0.outcome)" }
+                        .joined(separator: "\n")
+                }
+            }
+            // Substring fallback if FTS is unavailable or empty.
             let descriptor = FetchDescriptor<EpisodeEntity>(
                 sortBy: [SortDescriptor(\.createdAt, order: .reverse)]
             )
@@ -51,9 +66,8 @@ public final class SwiftDataMemoryRepository: MemoryRepository {
                 $0.userMessage.lowercased().contains(needle) || $0.goal.lowercased().contains(needle)
             }.prefix(3)
             if related.isEmpty { return "" }
-            return related.map { e in
-                "Past: \(e.userMessage) → \(e.outcome)"
-            }.joined(separator: "\n")
+            return related.map { "Past: \($0.userMessage) → \($0.outcome)" }
+                .joined(separator: "\n")
         }
     }
 
@@ -103,5 +117,6 @@ public final class SwiftDataMemoryRepository: MemoryRepository {
             (try? context.fetch(FetchDescriptor<DeviceFactEntity>()))?.forEach { context.delete($0) }
             try? context.save()
         }
+        FtsIndex.shared.clear()
     }
 }

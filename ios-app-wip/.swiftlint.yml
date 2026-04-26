@@ -1,0 +1,51 @@
+included:
+  - MobileClaw
+  - MobileClawTests
+
+excluded:
+  - build
+  - DerivedData
+  - .build
+  - LiteRtLmBridge/Vendor
+
+# A SwiftUI app with @Observable view models and SwiftData @Model classes
+# pulls in patterns SwiftLint's defaults flag noisily. We turn down the
+# style-only rules and keep the correctness-oriented ones.
+disabled_rules:
+  - line_length              # Long SwiftUI view bodies are normal
+  - trailing_comma           # Swift compiler accepts; matches Apple sample style
+  - file_length              # Bridge files are long for a reason
+  - type_body_length         # Same — view models pack a lot
+  - function_body_length     # SwiftUI body{ } can be long
+  - todo                     # We track TODOs in the plan, not as lint warnings
+  - identifier_name          # `r`, `m`, `id` are routine in tests
+  - cyclomatic_complexity    # Plan parsers, etc.
+  - opening_brace            # Swift formatter doesn't always agree
+  - statement_position       # Same
+  - colon                    # Mixed-style allowed for tabular alignment
+
+opt_in_rules:
+  - empty_count
+  - empty_string
+  - first_where
+  - last_where
+  - sorted_first_last
+  - contains_over_filter_count
+  - contains_over_first_not_nil
+  - redundant_nil_coalescing
+  - unused_import
+  - unused_declaration
+  - private_outlet
+  - explicit_init
+  - convenience_type
+  - force_unwrapping
+  - implicit_return
+
+force_unwrapping:
+  severity: warning
+
+# Bridge framework deals with C pointers; force-cast is part of that surface.
+force_cast: warning
+force_try: warning
+
+reporter: "github-actions-logging"

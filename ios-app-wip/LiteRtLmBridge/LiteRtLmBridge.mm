@@ -20,18 +20,27 @@ static NSError *MakeError(LRTLMErrorCode code, NSString *msg) {
 
 #pragma mark - JSON message builders
 
-static NSString *BuildMessageJson(NSString *text, NSArray<NSString *> *imagePaths) {
+static NSString *BuildMessageJson(NSString *text,
+                                  NSArray<NSString *> *imagePaths,
+                                  NSArray<NSString *> *audioPaths) {
     // Format mirrors runtime/conversation/model_data_processor/data_utils.h:
     //   text-only:     {"role":"user","content":"hi"}
-    //   multimodal:    {"role":"user","content":[{"type":"image","path":"..."}, {"type":"text","text":"..."}]}
-    if (imagePaths.count == 0) {
+    //   multimodal:    {"role":"user","content":[
+    //                      {"type":"image","path":"..."},
+    //                      {"type":"audio","path":"..."},
+    //                      {"type":"text","text":"..."}]}
+    if (imagePaths.count == 0 && audioPaths.count == 0) {
         NSData *data = [NSJSONSerialization dataWithJSONObject:@{@"role": @"user", @"content": text ?: @""}
                                                        options:0 error:nil];
         return data ? [[NSString alloc] initWithData:data encoding:NSUTF8StringEncoding] : @"{}";
     }
-    NSMutableArray<NSDictionary *> *content = [NSMutableArray arrayWithCapacity:imagePaths.count + 1];
+    NSMutableArray<NSDictionary *> *content =
+        [NSMutableArray arrayWithCapacity:imagePaths.count + audioPaths.count + 1];
     for (NSString *p in imagePaths) {
         [content addObject:@{@"type": @"image", @"path": p}];
+    }
+    for (NSString *p in audioPaths) {
+        [content addObject:@{@"type": @"audio", @"path": p}];
     }
     if (text.length > 0) {
         [content addObject:@{@"type": @"text", @"text": text}];
@@ -44,12 +53,49 @@ static NSString *BuildMessageJson(NSString *text, NSArray<NSString *> *imagePath
 #pragma mark - LRTLMSamplerParams
 
 @implementation LRTLMSamplerParams
+- (instancetype)init {
+    if ((self = [super init])) {
+        // Match Gemma 4 metadata defaults — TopP nucleus sampling.
+        _type = LRTLMSamplerTypeTopP;
+        _topK = 40;
+        _topP = 0.95f;
+        _temperature = 1.0f;
+        _seed = 0;
+    }
+    return self;
+}
 @end
+
+#pragma mark - LRTLMEngineSettings
+
+@implementation LRTLMEngineSettings
+- (instancetype)initWithModelPath:(NSString *)modelPath {
+    if ((self = [super init])) {
+        _modelPath = [modelPath copy];
+        // Match Android's DEFAULT_ACCELERATORS = listOf(GPU). The actual
+        // backend string is resolved by the LRTLMEngine initializer.
+        _backend = LRTLMBackendGPU;
+        _visionBackend = LRTLMBackendDefault;
+        _audioBackend  = LRTLMBackendDefault;
+        _maxTokens = 0;
+        _cacheDir = nil;
+        _parallelFileSectionLoading = YES;
+        _activationDataType = LRTLMActivationDtypeDefault;
+        _prefillChunkSize = 0;
+        _enableSpeculativeDecoding = NO;
+        _logLevel = LRTLMLogLevelSilent;
+    }
+    return self;
+}
+@end
+
+@class LRTLMEngine;
 
 @interface LRTLMConversation ()
 - (instancetype)initWithRaw:(LiteRtLmConversation *)conversation
                    convConfig:(LiteRtLmConversationConfig *)convConfig
-                sessionConfig:(LiteRtLmSessionConfig *)sessionConfig;
+                sessionConfig:(LiteRtLmSessionConfig *)sessionConfig
+                       owner:(LRTLMEngine *)owner;
 @end
 
 #pragma mark - Stream context (passed as callback_data)
@@ -58,6 +104,11 @@ namespace {
 struct StreamContext {
     void (^onToken)(NSString *, NSString * _Nullable);
     void (^onDone)(NSError * _Nullable);
+    // Signaled from the final callback. close() waits on this so the C++
+    // streaming thread is guaranteed to be done with our pointers before
+    // litert_lm_conversation_delete() runs. Without this, navigating away
+    // mid-stream produced a use-after-free in the engine teardown path.
+    dispatch_semaphore_t doneSem;
 };
 
 // Each chunk from litert_lm_conversation_send_message_stream is a full assistant
@@ -105,6 +156,10 @@ void StreamCallbackThunk(void *userData, const char *chunk, bool isFinal, const 
     }
     if (isFinal) {
         if (ctx->onDone) ctx->onDone(nil);
+        // Signal close()-waiters BEFORE delete: the semaphore is owned by ctx,
+        // so signaling first guarantees no race against close() observing the
+        // signal and then close() racing the delete.
+        if (ctx->doneSem) dispatch_semaphore_signal(ctx->doneSem);
         delete ctx;  // single-shot: stream ends after isFinal=true
     }
 }
@@ -116,16 +171,30 @@ void StreamCallbackThunk(void *userData, const char *chunk, bool isFinal, const 
     LiteRtLmConversation *_conversation;
     LiteRtLmConversationConfig *_convConfig;
     LiteRtLmSessionConfig *_sessionConfig;
+    // Strong ref to the parent engine. Conversations call into the engine via
+    // litert_lm_conversation_*; the engine must outlive every conversation,
+    // otherwise the C++ runtime UAFs when the engine is deleted before the
+    // conversation finishes its delete path.
+    LRTLMEngine *_owner;
+    // Signaled from the stream's final callback. close() blocks on this so
+    // we don't delete the C-side conversation while a stream is still in
+    // flight from a background thread.
+    dispatch_semaphore_t _streamDone;
+    BOOL _streamInFlight;
 }
 
 - (instancetype)initWithRaw:(LiteRtLmConversation *)conversation
                    convConfig:(LiteRtLmConversationConfig *)convConfig
-                sessionConfig:(LiteRtLmSessionConfig *)sessionConfig {
+                sessionConfig:(LiteRtLmSessionConfig *)sessionConfig
+                       owner:(LRTLMEngine *)owner {
     self = [super init];
     if (self) {
         _conversation = conversation;
         _convConfig = convConfig;
         _sessionConfig = sessionConfig;
+        _owner = owner;
+        _streamDone = dispatch_semaphore_create(0);
+        _streamInFlight = NO;
     }
     return self;
 }
@@ -133,19 +202,35 @@ void StreamCallbackThunk(void *userData, const char *chunk, bool isFinal, const 
 - (void)sendMessage:(NSString *)text
             onToken:(void (^)(NSString *, NSString * _Nullable))onToken
              onDone:(void (^)(NSError * _Nullable))onDone {
-    [self sendMessage:text imagePaths:nil onToken:onToken onDone:onDone];
+    [self sendMessage:text imagePaths:nil audioPaths:nil onToken:onToken onDone:onDone];
 }
 
 - (void)sendMessage:(NSString *)text
          imagePaths:(NSArray<NSString *> *)imagePaths
             onToken:(void (^)(NSString *, NSString * _Nullable))onToken
              onDone:(void (^)(NSError * _Nullable))onDone {
+    [self sendMessage:text imagePaths:imagePaths audioPaths:nil onToken:onToken onDone:onDone];
+}
+
+- (void)sendMessage:(NSString *)text
+         imagePaths:(NSArray<NSString *> *)imagePaths
+         audioPaths:(NSArray<NSString *> *)audioPaths
+            onToken:(void (^)(NSString *, NSString * _Nullable))onToken
+             onDone:(void (^)(NSError * _Nullable))onDone {
     if (!_conversation) {
         if (onDone) onDone(MakeError(LRTLMErrorCodeInferenceFailed, @"Conversation already closed"));
         return;
     }
-    NSString *messageJson = BuildMessageJson(text, imagePaths);
-    auto *ctx = new StreamContext{[onToken copy], [onDone copy]};
+    NSString *messageJson = BuildMessageJson(text, imagePaths, audioPaths);
+    void (^doneWrapper)(NSError * _Nullable) = ^(NSError *err) {
+        // Reset the in-flight flag on the conversation when the C-side stream
+        // finishes (success or error). The semaphore is always signaled by
+        // the thunk after this callback returns.
+        self->_streamInFlight = NO;
+        if (onDone) onDone(err);
+    };
+    auto *ctx = new StreamContext{[onToken copy], [doneWrapper copy], _streamDone};
+    _streamInFlight = YES;
     int rc = litert_lm_conversation_send_message_stream(
         _conversation,
         messageJson.UTF8String,
@@ -153,6 +238,7 @@ void StreamCallbackThunk(void *userData, const char *chunk, bool isFinal, const 
         StreamCallbackThunk,
         ctx);
     if (rc != 0) {
+        _streamInFlight = NO;
         delete ctx;
         if (onDone) {
             onDone(MakeError(LRTLMErrorCodeInferenceFailed,
@@ -167,6 +253,17 @@ void StreamCallbackThunk(void *userData, const char *chunk, bool isFinal, const 
 
 - (void)close {
     if (_conversation) {
+        // If a stream is still mid-flight on a background thread, request
+        // cancellation and wait for the final callback before deleting the
+        // C-side conversation. Otherwise the streaming thread can call into
+        // a freed conversation and crash. 3s upper bound — beyond that, the
+        // process is likely deadlocked elsewhere; better to risk the UAF
+        // than freeze the UI.
+        if (_streamInFlight) {
+            litert_lm_conversation_cancel_process(_conversation);
+            dispatch_semaphore_wait(_streamDone,
+                                    dispatch_time(DISPATCH_TIME_NOW, 3 * NSEC_PER_SEC));
+        }
         litert_lm_conversation_delete(_conversation);
         _conversation = nullptr;
     }
@@ -178,6 +275,9 @@ void StreamCallbackThunk(void *userData, const char *chunk, bool isFinal, const 
         litert_lm_session_config_delete(_sessionConfig);
         _sessionConfig = nullptr;
     }
+    // Drop the strong ref to the engine last, so engine_delete only runs
+    // after every conversation has been fully torn down.
+    _owner = nil;
 }
 
 - (void)dealloc { [self close]; }
@@ -190,36 +290,67 @@ void StreamCallbackThunk(void *userData, const char *chunk, bool isFinal, const 
     LiteRtLmEngine *_engine;
 }
 
-- (nullable instancetype)initWithModelPath:(NSString *)modelPath
-                                   backend:(LRTLMBackend)backend
-                                 maxTokens:(int)maxTokens
-                                  cacheDir:(nullable NSString *)cacheDir
-                                     error:(NSError **)outError {
+// Resolve LRTLMBackend → backend string accepted by the C API. Returns
+// nullptr for `Default` so the C side falls back to its own default.
+static const char *BackendCString(LRTLMBackend backend) {
+    switch (backend) {
+        case LRTLMBackendCPU:     return "cpu";
+        case LRTLMBackendGPU:     return "gpu";
+        case LRTLMBackendDefault: return nullptr;
+    }
+    return nullptr;
+}
+
+- (nullable instancetype)initWithSettings:(LRTLMEngineSettings *)settings
+                                    error:(NSError **)outError {
     self = [super init];
     if (!self) return nil;
 
-    if (![[NSFileManager defaultManager] fileExistsAtPath:modelPath]) {
+    if (settings.modelPath.length == 0 ||
+        ![[NSFileManager defaultManager] fileExistsAtPath:settings.modelPath]) {
         if (outError) *outError = MakeError(LRTLMErrorCodeInitFailed,
-                                            [NSString stringWithFormat:@"Model file not found at %@", modelPath]);
+                                            [NSString stringWithFormat:@"Model file not found at %@",
+                                             settings.modelPath ?: @"(empty path)"]);
         return nil;
     }
 
-    const char *backendStr = (backend == LRTLMBackendGPU) ? "gpu" : "cpu";
-    LiteRtLmEngineSettings *settings = litert_lm_engine_settings_create(
-        modelPath.UTF8String, backendStr, /*vision_backend=*/nullptr, /*audio_backend=*/nullptr);
-    if (!settings) {
+    // Apply log level before any C-side work so init-path messages are
+    // observable when the user dials the level up.
+    litert_lm_set_min_log_level((int)settings.logLevel);
+
+    const char *backendStr       = BackendCString(settings.backend);
+    const char *visionBackendStr = BackendCString(settings.visionBackend);
+    const char *audioBackendStr  = BackendCString(settings.audioBackend);
+    LiteRtLmEngineSettings *cSettings = litert_lm_engine_settings_create(
+        settings.modelPath.UTF8String, backendStr, visionBackendStr, audioBackendStr);
+    if (!cSettings) {
         if (outError) *outError = MakeError(LRTLMErrorCodeInitFailed, @"engine_settings_create failed");
         return nil;
     }
-    if (maxTokens > 0) {
-        litert_lm_engine_settings_set_max_num_tokens(settings, maxTokens);
+    if (settings.maxTokens > 0) {
+        litert_lm_engine_settings_set_max_num_tokens(cSettings, settings.maxTokens);
     }
-    if (cacheDir) {
-        litert_lm_engine_settings_set_cache_dir(settings, cacheDir.UTF8String);
+    if (settings.cacheDir.length > 0) {
+        litert_lm_engine_settings_set_cache_dir(cSettings, settings.cacheDir.UTF8String);
+    }
+    // The C default for parallel section loading is true; only call when the
+    // user has explicitly opted out, to keep our calls surface tight.
+    if (!settings.parallelFileSectionLoading) {
+        litert_lm_engine_settings_set_parallel_file_section_loading(cSettings, false);
+    }
+    if (settings.activationDataType != LRTLMActivationDtypeDefault) {
+        litert_lm_engine_settings_set_activation_data_type(cSettings,
+                                                           (int)settings.activationDataType);
+    }
+    if (settings.prefillChunkSize > 0) {
+        litert_lm_engine_settings_set_prefill_chunk_size(cSettings, settings.prefillChunkSize);
+    }
+    if (settings.enableSpeculativeDecoding) {
+        litert_lm_engine_settings_set_enable_speculative_decoding(cSettings, true);
     }
 
-    _engine = litert_lm_engine_create(settings);
-    litert_lm_engine_settings_delete(settings);
+    _engine = litert_lm_engine_create(cSettings);
+    litert_lm_engine_settings_delete(cSettings);
 
     if (!_engine) {
         if (outError) *outError = MakeError(LRTLMErrorCodeInitFailed, @"engine_create returned NULL");
@@ -228,8 +359,23 @@ void StreamCallbackThunk(void *userData, const char *chunk, bool isFinal, const 
     return self;
 }
 
+- (nullable instancetype)initWithModelPath:(NSString *)modelPath
+                                   backend:(LRTLMBackend)backend
+                                 maxTokens:(int)maxTokens
+                                  cacheDir:(nullable NSString *)cacheDir
+                                     error:(NSError **)outError {
+    LRTLMEngineSettings *settings = [[LRTLMEngineSettings alloc] initWithModelPath:modelPath];
+    settings.backend = backend;
+    settings.maxTokens = maxTokens;
+    settings.cacheDir = cacheDir;
+    return [self initWithSettings:settings error:outError];
+}
+
 - (nullable LRTLMConversation *)createConversationWithSystemPrompt:(nullable NSString *)systemPrompt
                                                              sampler:(LRTLMSamplerParams *)sampler
+                                                 applyPromptTemplate:(BOOL)applyPromptTemplate
+                                          enableConstrainedDecoding:(BOOL)enableConstrainedDecoding
+                                                     maxOutputTokens:(int)maxOutputTokens
                                                                error:(NSError **)outError {
     if (!_engine) {
         if (outError) *outError = MakeError(LRTLMErrorCodeInitFailed, @"Engine already closed");
@@ -241,16 +387,29 @@ void StreamCallbackThunk(void *userData, const char *chunk, bool isFinal, const 
         if (outError) *outError = MakeError(LRTLMErrorCodeInitFailed, @"session_config_create failed");
         return nil;
     }
+
     LiteRtLmSamplerParams params{};
-    // The engine impl currently only ships TopP/Greedy samplers (TopK returns
-    // "Sampler type 1 not implemented yet"). Match what the Gemma 4 metadata
-    // declares: TOP_P with k=1, p=0.95, temperature=1.
-    params.type = kLiteRtLmSamplerTypeTopP;
+    // Map LRTLMSamplerType → LiteRtLmSamplerType. TopK returns "not
+    // implemented yet" upstream so it's intentionally not exposed.
+    switch (sampler.type) {
+        case LRTLMSamplerTypeGreedy: params.type = kLiteRtLmSamplerTypeGreedy; break;
+        case LRTLMSamplerTypeTopP:
+        default:                     params.type = kLiteRtLmSamplerTypeTopP;   break;
+    }
     params.top_k = sampler.topK;
     params.top_p = sampler.topP;
     params.temperature = sampler.temperature;
-    params.seed = 0;
+    params.seed = sampler.seed;
     litert_lm_session_config_set_sampler_params(sessionConfig, &params);
+
+    if (maxOutputTokens > 0) {
+        litert_lm_session_config_set_max_output_tokens(sessionConfig, maxOutputTokens);
+    }
+    // Only call when the user has explicitly opted out — the C default is
+    // already true for chat-template-aware models.
+    if (!applyPromptTemplate) {
+        litert_lm_session_config_set_apply_prompt_template(sessionConfig, false);
+    }
 
     LiteRtLmConversationConfig *convConfig = litert_lm_conversation_config_create();
     if (!convConfig) {
@@ -269,6 +428,9 @@ void StreamCallbackThunk(void *userData, const char *chunk, bool isFinal, const 
             litert_lm_conversation_config_set_system_message(convConfig, sysJson.UTF8String);
         }
     }
+    if (enableConstrainedDecoding) {
+        litert_lm_conversation_config_set_enable_constrained_decoding(convConfig, true);
+    }
 
     LiteRtLmConversation *raw = litert_lm_conversation_create(_engine, convConfig);
     if (!raw) {
@@ -277,7 +439,21 @@ void StreamCallbackThunk(void *userData, const char *chunk, bool isFinal, const 
         if (outError) *outError = MakeError(LRTLMErrorCodeInitFailed, @"conversation_create returned NULL");
         return nil;
     }
-    return [[LRTLMConversation alloc] initWithRaw:raw convConfig:convConfig sessionConfig:sessionConfig];
+    return [[LRTLMConversation alloc] initWithRaw:raw
+                                       convConfig:convConfig
+                                    sessionConfig:sessionConfig
+                                            owner:self];
+}
+
+- (nullable LRTLMConversation *)createConversationWithSystemPrompt:(nullable NSString *)systemPrompt
+                                                             sampler:(LRTLMSamplerParams *)sampler
+                                                               error:(NSError **)outError {
+    return [self createConversationWithSystemPrompt:systemPrompt
+                                            sampler:sampler
+                                applyPromptTemplate:YES
+                         enableConstrainedDecoding:NO
+                                    maxOutputTokens:0
+                                              error:outError];
 }
 
 - (void)close {

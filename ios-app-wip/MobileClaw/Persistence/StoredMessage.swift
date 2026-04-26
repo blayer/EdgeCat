@@ -15,13 +15,17 @@ public final class StoredMessage {
     /// inline so the chat bubble can render them after relaunch without
     /// reaching back to the user's photo library.
     public var imageBlobs: [Data]?
+    /// M4A bytes for any audio recordings the user attached to this turn.
+    public var audioBlobs: [Data]?
 
     public init(role: String, content: String, createdAt: Date = Date(),
-                conversation: Conversation? = nil, imageBlobs: [Data]? = nil) {
+                conversation: Conversation? = nil,
+                imageBlobs: [Data]? = nil, audioBlobs: [Data]? = nil) {
         self.role = role
         self.content = content
         self.createdAt = createdAt
         self.conversation = conversation
         self.imageBlobs = imageBlobs
+        self.audioBlobs = audioBlobs
     }
 }

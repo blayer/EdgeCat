@@ -52,6 +52,7 @@ public final class SkillRegistry: ToolExecutor, @unchecked Sendable {
             SmsSkill(),
             FlashlightSkill(),
             ShareContentSkill(),
+            BarcodeSkill(),
             // JS-backed skills (Resources/skills/<name>/scripts/index.html
             // loaded into WKWebView, invoked via JsSkillRunner)
             JsSkill(name: "query-wikipedia",

@@ -1,0 +1,150 @@
+name: iOS / Build IPA
+
+# Produces a Mobile-Claw .ipa via `xcodebuild archive` + `xcodebuild
+# -exportArchive`. By default the workflow ships an UNSIGNED ipa suitable for
+# Apple Configurator / TestFlight uploads with later re-signing — production
+# signing requires DEVELOPMENT_TEAM + a provisioning profile, which aren't
+# committed. Set the matching repo secrets to enable signed builds.
+#
+# Triggers:
+#   - workflow_dispatch (manual): always run
+#   - tag push v*.*.*: cut a release artifact
+
+on:
+  workflow_dispatch:
+    inputs:
+      configuration:
+        description: 'Build configuration'
+        required: true
+        default: 'Release'
+        type: choice
+        options: [Release, Debug]
+      sign:
+        description: 'Sign the archive (requires APPLE_*/PROVISIONING_PROFILE_BASE64 secrets)'
+        required: true
+        default: false
+        type: boolean
+  push:
+    tags:
+      - 'v*.*.*'
+
+concurrency:
+  group: ios-build-ipa-${{ github.ref }}
+  cancel-in-progress: true
+
+defaults:
+  run:
+    working-directory: ios-app-wip
+
+jobs:
+  build-ipa:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Select Xcode
+        run: sudo xcode-select -s /Applications/Xcode_16.app/Contents/Developer || true
+
+      - name: Install xcodegen
+        run: |
+          if ! command -v xcodegen >/dev/null 2>&1; then
+            brew install xcodegen
+          fi
+
+      - name: Generate Xcode project
+        run: xcodegen
+
+      - name: Resolve version + build number
+        id: version
+        run: |
+          if [[ "${GITHUB_REF}" == refs/tags/v* ]]; then
+            VERSION="${GITHUB_REF#refs/tags/v}"
+          else
+            VERSION="0.1.0-$(git rev-parse --short HEAD)"
+          fi
+          BUILD="$GITHUB_RUN_NUMBER"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "build=$BUILD" >> "$GITHUB_OUTPUT"
+
+      - name: Determine signing flags
+        id: signing
+        run: |
+          if [[ "${{ inputs.sign }}" == "true" ]]; then
+            echo "flags=" >> "$GITHUB_OUTPUT"
+            echo "method=ad-hoc" >> "$GITHUB_OUTPUT"
+          else
+            echo 'flags=CODE_SIGN_IDENTITY= CODE_SIGNING_REQUIRED=NO CODE_SIGNING_ALLOWED=NO' >> "$GITHUB_OUTPUT"
+            echo "method=development" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Archive
+        run: |
+          set -o pipefail
+          CONFIG="${{ inputs.configuration || 'Release' }}"
+          xcodebuild \
+            -project MobileClaw.xcodeproj \
+            -scheme MobileClaw \
+            -configuration "$CONFIG" \
+            -sdk iphoneos \
+            -destination 'generic/platform=iOS' \
+            -archivePath build/MobileClaw.xcarchive \
+            MARKETING_VERSION="${{ steps.version.outputs.version }}" \
+            CURRENT_PROJECT_VERSION="${{ steps.version.outputs.build }}" \
+            ${{ steps.signing.outputs.flags }} \
+            archive
+
+      - name: Write export options
+        run: |
+          cat > build/ExportOptions.plist <<EOF
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0">
+          <dict>
+            <key>method</key>
+            <string>${{ steps.signing.outputs.method }}</string>
+            <key>compileBitcode</key>
+            <false/>
+            <key>signingStyle</key>
+            <string>manual</string>
+            <key>stripSwiftSymbols</key>
+            <true/>
+          </dict>
+          </plist>
+          EOF
+
+      - name: Export IPA (unsigned path uses bundled archive structure)
+        if: ${{ inputs.sign != true && github.event_name != 'push' }}
+        # When unsigned, xcodebuild -exportArchive refuses to export an .ipa.
+        # Repackage MobileClaw.xcarchive/Products/Applications/MobileClaw.app
+        # into a Payload/ folder zipped with .ipa extension — the layout
+        # Apple Configurator and most third-party tools accept for re-signing.
+        run: |
+          mkdir -p build/Payload
+          cp -R build/MobileClaw.xcarchive/Products/Applications/MobileClaw.app build/Payload/
+          (cd build && zip -qr "MobileClaw-${{ steps.version.outputs.version }}-unsigned.ipa" Payload)
+          rm -rf build/Payload
+          ls -la build/
+
+      - name: Export IPA (signed)
+        if: ${{ inputs.sign == true || github.event_name == 'push' }}
+        run: |
+          set -o pipefail
+          xcodebuild \
+            -exportArchive \
+            -archivePath build/MobileClaw.xcarchive \
+            -exportPath build/ \
+            -exportOptionsPlist build/ExportOptions.plist
+
+      - name: Upload xcarchive
+        uses: actions/upload-artifact@v4
+        with:
+          name: MobileClaw-${{ steps.version.outputs.version }}-archive
+          path: ios-app-wip/build/MobileClaw.xcarchive
+          retention-days: 14
+
+      - name: Upload IPA
+        uses: actions/upload-artifact@v4
+        with:
+          name: MobileClaw-${{ steps.version.outputs.version }}-ipa
+          path: ios-app-wip/build/*.ipa
+          retention-days: 30
