@@ -56,6 +56,13 @@ targets:
         NSCameraUsageDescription: "Mobile-Claw uses the camera for barcode scanning and photo input to the assistant."
         NSMicrophoneUsageDescription: "Mobile-Claw uses the microphone for voice input to the assistant."
         NSFaceIDUsageDescription: "Mobile-Claw can use Face ID to protect saved conversations."
+        # Eval harness URL scheme — mirrors android-app/.../EvalActivity's
+        # ADB intent entry point. Trigger via:
+        #   xcrun simctl openurl <udid> "mobileclaw://eval?prompt=hi&model=gemma-4-E2B-it.litertlm"
+        CFBundleURLTypes:
+          - CFBundleURLName: com.mobileclaw.app.eval
+            CFBundleURLSchemes:
+              - mobileclaw
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.mobileclaw.app
