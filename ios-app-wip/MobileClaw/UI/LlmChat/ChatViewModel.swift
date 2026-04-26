@@ -21,6 +21,12 @@ public final class ChatViewModel {
     private let store: ConversationStore
     private var streamTask: Task<Void, Never>?
 
+    /// When true, route user messages through the orchestration loop
+    /// (Planner → Executor → Evaluator) instead of direct chat. Flip via
+    /// MOBILECLAW_AGENTIC=1 launch env var, or expose as a top-bar toggle
+    /// in a follow-up.
+    public var agenticMode: Bool = ProcessInfo.processInfo.environment["MOBILECLAW_AGENTIC"] == "1"
+
     public init(conversation: Conversation, store: ConversationStore, engine: LiteRtLmEngine = LiteRtLmEngine()) {
         self.conversation = conversation
         self.modelURL = URL(fileURLWithPath: conversation.modelPath)
@@ -48,6 +54,22 @@ public final class ChatViewModel {
                     try await engine.initialize(config: LlmInitConfig(modelPath: modelURL, maxTokens: 1024))
                     self.loadStatus = "Ready"
                 }
+
+                // Agentic mode: drive a Planner → Executor → Evaluator loop
+                // and emit the final formatted response as a single bubble.
+                // Used by env var MOBILECLAW_AGENTIC=1 today; surfaces as a
+                // top-bar toggle in a follow-up commit.
+                if self.agenticMode {
+                    let provider = LiteRtLmInferenceProvider(engine: self.engine)
+                    let tools = SkillRegistry.defaultSet()
+                    let controller = OrchestrationController(llm: provider, tools: tools)
+                    let final = try await controller.handle(userMessage: trimmed)
+                    self.update(id: assistantId, text: final, kind: .text, thought: nil)
+                    try? store.appendMessage(to: conversation, role: "assistant", content: final)
+                    self.isStreaming = false
+                    return
+                }
+
                 let stream = engine.runInference(prompt: trimmed)
                 var buffer = ""
                 var thought = ""
