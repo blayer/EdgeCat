@@ -124,7 +124,24 @@ private struct MessageRow: View {
                 if !isUser, let thought = message.thought, !thought.isEmpty {
                     ThinkingPanel(text: thought)
                 }
-                bubble
+                if !message.images.isEmpty {
+                    ScrollView(.horizontal, showsIndicators: false) {
+                        HStack(spacing: 6) {
+                            ForEach(Array(message.images.enumerated()), id: \.offset) { _, data in
+                                if let img = UIImage(data: data) {
+                                    Image(uiImage: img)
+                                        .resizable()
+                                        .scaledToFill()
+                                        .frame(maxWidth: 160, maxHeight: 160)
+                                        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+                                }
+                            }
+                        }
+                    }
+                }
+                if !message.text.isEmpty || message.kind != .text {
+                    bubble
+                }
                 if isUser {
                     Button(action: onRunAgain) {
                         Label("Run again", systemImage: "arrow.clockwise")

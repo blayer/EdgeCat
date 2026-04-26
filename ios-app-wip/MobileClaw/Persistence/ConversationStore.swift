@@ -29,8 +29,10 @@ public final class ConversationStore {
         try context.save()
     }
 
-    public func appendMessage(to conv: Conversation, role: String, content: String) throws {
-        let stored = StoredMessage(role: role, content: content, conversation: conv)
+    public func appendMessage(to conv: Conversation, role: String, content: String,
+                              images: [Data] = []) throws {
+        let stored = StoredMessage(role: role, content: content, conversation: conv,
+                                   imageBlobs: images.isEmpty ? nil : images)
         context.insert(stored)
         conv.messageCount += 1
         conv.lastMessagePreview = String(content.prefix(120))

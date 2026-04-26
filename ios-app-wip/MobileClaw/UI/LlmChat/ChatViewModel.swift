@@ -43,8 +43,8 @@ public final class ChatViewModel {
         guard (!trimmed.isEmpty || !imageData.isEmpty), !isStreaming else { return }
 
         let userText = trimmed.isEmpty && !imageData.isEmpty ? "(image)" : trimmed
-        messages.append(ChatMessage(role: .user, text: userText))
-        try? store.appendMessage(to: conversation, role: "user", content: userText)
+        messages.append(ChatMessage(role: .user, text: userText, images: imageData))
+        try? store.appendMessage(to: conversation, role: "user", content: userText, images: imageData)
 
         let assistantId = UUID()
         messages.append(ChatMessage(id: assistantId, role: .assistant, text: "", kind: .loading))
@@ -141,7 +141,9 @@ public final class ChatViewModel {
         let stored = store.messages(in: conversation)
         messages = stored.map { msg in
             let role: MessageRole = (msg.role == "assistant") ? .assistant : .user
-            return ChatMessage(role: role, text: msg.content, kind: .text, createdAt: msg.createdAt)
+            return ChatMessage(role: role, text: msg.content, kind: .text,
+                               images: msg.imageBlobs ?? [],
+                               createdAt: msg.createdAt)
         }
     }
 
