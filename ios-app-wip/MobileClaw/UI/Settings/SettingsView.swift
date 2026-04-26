@@ -6,8 +6,14 @@ import SwiftUI
 // params + system-prompt edit + agent-settings tab land in a follow-up.
 
 struct SettingsView: View {
+    /// Optional per-conversation context. When non-nil, the sheet shows a
+    /// "This conversation" section at the top with a `systemPromptOverride`
+    /// editor. Conversations list calls this with nil.
+    let conversation: Conversation?
+
     @Environment(\.dismiss) private var dismiss
     @State private var hfToken: String = HuggingFaceAuth.token() ?? ""
+    @State private var convPrompt: String = ""
     @AppStorage(SamplerSettings.agenticKey) private var agenticMode: Bool = false
     @AppStorage(SamplerSettings.topKKey) private var topK: Int = SamplerSettings.defaults.topK
     @AppStorage(SamplerSettings.topPKey) private var topP: Double = SamplerSettings.defaults.topP
@@ -20,9 +26,37 @@ struct SettingsView: View {
     @AppStorage(SamplerSettings.agentThinkingModeKey) private var agentThinkingMode: Int = SamplerSettings.agentDefaults.thinkingMode
     @AppStorage(SamplerSettings.agentHistoryWindowKey) private var agentHistoryWindow: Int = SamplerSettings.agentDefaults.historyWindow
 
+    init(conversation: Conversation? = nil) {
+        self.conversation = conversation
+        _convPrompt = State(initialValue: conversation?.systemPromptOverride ?? "")
+    }
+
     var body: some View {
         NavigationStack {
             Form {
+                if let conversation {
+                    Section {
+                        TextEditor(text: $convPrompt)
+                            .frame(minHeight: 60)
+                            .font(.callout)
+                        Button("Use global default") {
+                            convPrompt = ""
+                            conversation.systemPromptOverride = nil
+                            try? conversation.modelContext?.save()
+                        }
+                        .foregroundStyle(.red)
+                    } header: {
+                        Text("System prompt — this conversation")
+                    } footer: {
+                        Text("Overrides the global system prompt for just this chat. Empty + Save = use the global default.")
+                            .font(.caption)
+                    }
+                    .onChange(of: convPrompt) { _, new in
+                        conversation.systemPromptOverride = new.isEmpty ? nil : new
+                        try? conversation.modelContext?.save()
+                    }
+                }
+
                 Section {
                     Toggle("Agentic mode", isOn: $agenticMode)
                 } header: {

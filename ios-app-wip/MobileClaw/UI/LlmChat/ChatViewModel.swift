@@ -57,13 +57,16 @@ public final class ChatViewModel {
                 if loadStatus == nil {
                     self.loadStatus = "Loading model…"
                     let s = SamplerSettings.current()
+                    // Per-conversation override wins over the global setting.
+                    let prompt = conversation.systemPromptOverride
+                        ?? (s.systemPrompt.isEmpty ? nil : s.systemPrompt)
                     try await engine.initialize(config: LlmInitConfig(
                         modelPath: modelURL,
                         maxTokens: s.maxTokens,
                         topK: s.topK,
                         topP: Float(s.topP),
                         temperature: Float(s.temperature),
-                        systemInstruction: s.systemPrompt.isEmpty ? nil : s.systemPrompt
+                        systemInstruction: prompt
                     ))
                     self.loadStatus = "Ready"
                 }
@@ -129,6 +132,47 @@ public final class ChatViewModel {
         streamTask?.cancel()
         streamTask = nil
         isStreaming = false
+    }
+
+    /// Switch to a different .litertlm file mid-conversation. Tears down the
+    /// current engine; the next send re-initializes with the new model.
+    public func switchModel(to url: URL) {
+        stop()
+        engine.cleanUp()
+        loadStatus = nil
+        conversation.modelPath = url.path
+        try? store.context.save()
+    }
+
+    /// Regenerate the last assistant turn — drop it and re-send the
+    /// preceding user message. Mirrors Android's "Regenerate" action.
+    public func regenerateLast() {
+        guard !isStreaming else { return }
+        // Walk backwards: drop trailing assistant message(s); keep the last
+        // user message and re-send it.
+        guard let lastUserIdx = messages.lastIndex(where: { $0.role == .user }) else { return }
+        let userMsg = messages[lastUserIdx]
+        // Drop everything after (and including) any assistant message that
+        // followed the last user one — they get regenerated.
+        if lastUserIdx + 1 < messages.count {
+            let toDrop = Array(messages[(lastUserIdx + 1)...])
+            for m in toDrop { deleteMessage(id: m.id) }
+        }
+        // The send method will append a fresh assistant message.
+        send(userMsg.text, imageData: userMsg.images)
+    }
+
+    /// Delete a message from both the in-memory list and the SwiftData store.
+    public func deleteMessage(id: UUID) {
+        guard let target = messages.first(where: { $0.id == id }) else { return }
+        messages.removeAll { $0.id == id }
+        // StoredMessage doesn't carry the in-memory UUID — match on
+        // (createdAt, content). Equality on those two is unique in practice.
+        if let stored = store.messages(in: conversation)
+            .first(where: { $0.createdAt == target.createdAt && $0.content == target.text }) {
+            store.context.delete(stored)
+            try? store.context.save()
+        }
     }
 
     /// Mirrors android-app/.../LlmChatModelHelper.resetConversation — clears

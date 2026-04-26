@@ -17,6 +17,9 @@ public final class Conversation {
     /// Absolute path to the .litertlm file this conversation runs against.
     /// Stored as String (not URL) since SwiftData's URL handling is brittle.
     public var modelPath: String
+    /// Per-conversation system-prompt override. nil → fall back to the
+    /// global SamplerSettings.systemPrompt.
+    public var systemPromptOverride: String?
 
     @Relationship(deleteRule: .cascade, inverse: \StoredMessage.conversation)
     public var messages: [StoredMessage] = []
@@ -29,7 +32,8 @@ public final class Conversation {
         lastMessagePreview: String = "",
         pinned: Bool = false,
         pinnedAt: Date? = nil,
-        modelPath: String = ""
+        modelPath: String = "",
+        systemPromptOverride: String? = nil
     ) {
         self.title = title
         self.createdAt = createdAt
@@ -39,5 +43,6 @@ public final class Conversation {
         self.pinned = pinned
         self.pinnedAt = pinnedAt
         self.modelPath = modelPath
+        self.systemPromptOverride = systemPromptOverride
     }
 }

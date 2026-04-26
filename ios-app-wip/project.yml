@@ -36,6 +36,7 @@ targets:
     resources:
       - MobileClaw/Resources/Assets.xcassets
       - MobileClaw/Resources/model_allowlist.json
+      - MobileClaw/Resources/prompt_templates.json
       - path: MobileClaw/Resources/skills
         type: folder
     info:
