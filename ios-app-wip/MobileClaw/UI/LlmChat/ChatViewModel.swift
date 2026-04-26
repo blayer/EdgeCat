@@ -105,6 +105,16 @@ public final class ChatViewModel {
         isStreaming = false
     }
 
+    /// Mirrors android-app/.../LlmChatModelHelper.resetConversation — clears
+    /// the LLM's KV cache + the in-memory chat thread (the persisted messages
+    /// stay; the user can revisit them as past turns).
+    public func resetSession() {
+        stop()
+        try? engine.resetConversation(systemInstruction: nil)
+        messages.removeAll()
+        loadStatus = nil
+    }
+
     private func loadHistoryFromStore() {
         let stored = store.messages(in: conversation)
         messages = stored.map { msg in

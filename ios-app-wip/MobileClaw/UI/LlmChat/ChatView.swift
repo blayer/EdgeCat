@@ -26,7 +26,7 @@ struct ChatView: View {
                 modelName: viewModel.modelURL.deletingPathExtension().lastPathComponent,
                 isStreaming: viewModel.isStreaming,
                 onBack: { dismiss() },
-                onReset: { /* TODO Phase B: viewModel.resetSession() */ }
+                onReset: { viewModel.resetSession() }
             )
             Divider()
 
