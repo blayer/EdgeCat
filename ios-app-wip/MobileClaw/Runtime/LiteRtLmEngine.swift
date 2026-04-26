@@ -17,18 +17,33 @@ public final class LiteRtLmEngine: LlmModelHelper {
     public init() {}
 
     public func initialize(config: LlmInitConfig) async throws {
-        let engine = try LRTLMEngine(modelPath: config.modelPath.path,
-                                     backend: .CPU,
-                                     maxTokens: Int32(config.maxTokens),
-                                     cacheDir: nil)
+        let settings = LRTLMEngineSettings(modelPath: config.modelPath.path)
+        settings.backend            = config.backend.bridgeValue
+        settings.visionBackend      = config.visionBackend.bridgeValue
+        settings.audioBackend       = config.audioBackend.bridgeValue
+        settings.maxTokens          = Int32(config.maxTokens)
+        settings.cacheDir           = config.cacheDir?.path
+        settings.parallelFileSectionLoading = config.parallelFileSectionLoading
+        settings.activationDataType = config.activationDataType.bridgeValue
+        settings.prefillChunkSize   = Int32(config.prefillChunkSize)
+        settings.enableSpeculativeDecoding = config.enableSpeculativeDecoding
+        settings.logLevel           = LRTLMLogLevel(rawValue: config.logLevel.rawValue) ?? .silent
+
+        let engine = try LRTLMEngine(settings: settings)
 
         let sampler = LRTLMSamplerParams()
-        sampler.topK = Int32(config.topK)
-        sampler.topP = config.topP
+        sampler.type        = (config.samplerType == .greedy) ? .greedy : .topP
+        sampler.topK        = Int32(config.topK)
+        sampler.topP        = config.topP
         sampler.temperature = config.temperature
+        sampler.seed        = Int32(bitPattern: config.seed)
 
-        let conv = try engine.createConversation(withSystemPrompt: config.systemInstruction,
-                                                 sampler: sampler)
+        let conv = try engine.createConversation(
+            withSystemPrompt: config.systemInstruction,
+            sampler: sampler,
+            applyPromptTemplate: config.applyPromptTemplate,
+            enableConstrainedDecoding: config.enableConstrainedDecoding,
+            maxOutputTokens: Int32(config.maxOutputTokens))
         self.engine = engine
         self.conversation = conv
     }
@@ -108,5 +123,37 @@ public final class LiteRtLmEngine: LlmModelHelper {
     public func cleanUp() {
         conversation?.close(); conversation = nil
         engine?.close(); engine = nil
+    }
+
+    // Swift's ARC release order across stored properties isn't part of the
+    // language contract. Force the right teardown order explicitly so we
+    // never delete the C-side engine while a conversation still references
+    // it — that combination produced the back-from-chat crash.
+    deinit {
+        cleanUp()
+    }
+}
+
+// MARK: - Swift → bridge enum mappings
+
+private extension LlmBackend {
+    var bridgeValue: LRTLMBackend {
+        switch self {
+        case .cpu:     return .CPU
+        case .gpu:     return .GPU
+        case .default: return .default
+        }
+    }
+}
+
+private extension LlmActivationDtype {
+    var bridgeValue: LRTLMActivationDtype {
+        switch self {
+        case .f32:     return .F32
+        case .f16:     return .F16
+        case .i16:     return .I16
+        case .i8:      return .I8
+        case .default: return .default
+        }
     }
 }

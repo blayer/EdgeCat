@@ -101,6 +101,7 @@ struct ChatView: View {
                 viewModel.send(auto)
             }
         }
+        .onDisappear { viewModel.tearDown() }
     }
 
     private func scroll(_ proxy: ScrollViewProxy) {

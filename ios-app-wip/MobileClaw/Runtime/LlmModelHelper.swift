@@ -1,33 +1,120 @@
 import Foundation
 
 // Mirrors android-app/.../runtime/LlmModelHelper.kt — the protocol the chat layer
-// depends on. The Swift implementation (LiteRtLmEngine.swift) lands in Phase A step 2.
-//
-// Kept narrow on purpose: only the methods Phase A needs. Multimodal + tool-use
-// surfaces are added in later phases as we port the corresponding Android code.
+// depends on. The Swift implementation is `LiteRtLmEngine.swift`.
 
-public struct LlmInitConfig {
+/// Compute backend choice — maps directly to LiteRT-LM's `backend_str`
+/// argument. `default` skips the parameter so the runtime falls back to
+/// whatever the model file declares.
+public enum LlmBackend: Sendable, Equatable {
+    case `default`
+    case cpu
+    case gpu
+}
+
+/// Sampler algorithm for the next-token decision. TopK is intentionally
+/// omitted — the LiteRT-LM runtime returns "Sampler type 1 not implemented
+/// yet" for it as of this build.
+public enum LlmSamplerType: Sendable, Equatable {
+    case topP
+    case greedy
+}
+
+/// Activation precision — maps to `litert_lm_engine_settings_set_activation_data_type`.
+/// `default` skips the call so the model's preferred precision wins.
+public enum LlmActivationDtype: Sendable, Equatable {
+    case `default`
+    case f32
+    case f16
+    case i16
+    case i8
+}
+
+/// Mirrors the `litert_lm_set_min_log_level` levels documented in
+/// `c/engine.h`.
+public enum LlmLogLevel: Int, Sendable {
+    case verbose = 0
+    case debug   = 1
+    case info    = 2
+    case warning = 3
+    case error   = 4
+    case fatal   = 5
+    case silent  = 1000
+}
+
+/// Full set of knobs the LiteRT-LM C API accepts at engine + session +
+/// conversation creation time. Defaults match Gemma 4 metadata + Android's
+/// `DEFAULT_ACCELERATORS = [GPU]`. Anything left at its default skips the
+/// matching C setter so the runtime falls back to its own internal default.
+public struct LlmInitConfig: Sendable {
+    // Engine-level
     public var modelPath: URL
-    public var maxTokens: Int
+    public var backend: LlmBackend
+    public var visionBackend: LlmBackend
+    public var audioBackend: LlmBackend
+    public var maxTokens: Int                            // KV cache cap (0 = unset)
+    public var cacheDir: URL?
+    public var parallelFileSectionLoading: Bool
+    public var activationDataType: LlmActivationDtype
+    public var prefillChunkSize: Int                     // CPU dynamic models (0 = unset)
+    public var enableSpeculativeDecoding: Bool
+    public var logLevel: LlmLogLevel
+
+    // Session/sampler-level
+    public var samplerType: LlmSamplerType
     public var topK: Int
     public var topP: Float
     public var temperature: Float
+    public var seed: UInt32
+    public var maxOutputTokens: Int                      // 0 = unset (per-turn cap)
+    public var applyPromptTemplate: Bool
+
+    // Conversation-level
     public var systemInstruction: String?
+    public var enableConstrainedDecoding: Bool
 
     public init(
         modelPath: URL,
+        backend: LlmBackend = .gpu,
+        visionBackend: LlmBackend = .default,
+        audioBackend: LlmBackend = .default,
         maxTokens: Int = 1024,
+        cacheDir: URL? = nil,
+        parallelFileSectionLoading: Bool = true,
+        activationDataType: LlmActivationDtype = .default,
+        prefillChunkSize: Int = 0,
+        enableSpeculativeDecoding: Bool = false,
+        logLevel: LlmLogLevel = .silent,
+        samplerType: LlmSamplerType = .topP,
         topK: Int = 40,
         topP: Float = 0.95,
         temperature: Float = 1.0,
-        systemInstruction: String? = nil
+        seed: UInt32 = 0,
+        maxOutputTokens: Int = 0,
+        applyPromptTemplate: Bool = true,
+        systemInstruction: String? = nil,
+        enableConstrainedDecoding: Bool = false
     ) {
         self.modelPath = modelPath
+        self.backend = backend
+        self.visionBackend = visionBackend
+        self.audioBackend = audioBackend
         self.maxTokens = maxTokens
+        self.cacheDir = cacheDir
+        self.parallelFileSectionLoading = parallelFileSectionLoading
+        self.activationDataType = activationDataType
+        self.prefillChunkSize = prefillChunkSize
+        self.enableSpeculativeDecoding = enableSpeculativeDecoding
+        self.logLevel = logLevel
+        self.samplerType = samplerType
         self.topK = topK
         self.topP = topP
         self.temperature = temperature
+        self.seed = seed
+        self.maxOutputTokens = maxOutputTokens
+        self.applyPromptTemplate = applyPromptTemplate
         self.systemInstruction = systemInstruction
+        self.enableConstrainedDecoding = enableConstrainedDecoding
     }
 }
 

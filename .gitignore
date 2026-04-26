@@ -15,3 +15,6 @@ __pycache__/
 
 # Eval run artifacts (generated per-run by android-app/test/eval/run.py)
 android-app/test/eval/runs/
+
+# Claude Code session-local state (loop progress, per-machine settings)
+.claude/

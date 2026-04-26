@@ -66,13 +66,33 @@ public final class ChatViewModel {
                     // Per-conversation override wins over the global setting.
                     let prompt = conversation.systemPromptOverride
                         ?? (s.systemPrompt.isEmpty ? nil : s.systemPrompt)
+                    let visionDefault = LlmBackend.parse(s.visionAccelerator)
+                        ?? LlmBackend.parse(s.accelerator)
+                        ?? .gpu
+                    let audioDefault = LlmBackend.parse(s.audioAccelerator)
+                        ?? LlmBackend.parse(s.accelerator)
+                        ?? .gpu
                     try await engine.initialize(config: LlmInitConfig(
                         modelPath: modelURL,
+                        backend: LlmBackend.parse(s.accelerator) ?? .gpu,
+                        visionBackend: visionDefault,
+                        audioBackend: audioDefault,
                         maxTokens: s.maxTokens,
+                        cacheDir: Self.derivedCacheDir(for: modelURL),
+                        parallelFileSectionLoading: s.parallelFileLoading,
+                        activationDataType: LlmActivationDtype.from(rawValue: s.activationDtype),
+                        prefillChunkSize: s.prefillChunkSize,
+                        enableSpeculativeDecoding: s.speculativeDecoding,
+                        logLevel: LlmLogLevel(rawValue: s.debugLogLevel) ?? .silent,
+                        samplerType: s.samplerType == 1 ? .greedy : .topP,
                         topK: s.topK,
                         topP: Float(s.topP),
                         temperature: Float(s.temperature),
-                        systemInstruction: prompt
+                        seed: UInt32(bitPattern: Int32(truncatingIfNeeded: s.seed)),
+                        maxOutputTokens: s.maxOutputTokens,
+                        applyPromptTemplate: s.applyPromptTemplate,
+                        systemInstruction: prompt,
+                        enableConstrainedDecoding: s.enableConstrainedDecoding
                     ))
                     self.loadStatus = "Ready"
                 }
@@ -140,6 +160,15 @@ public final class ChatViewModel {
         streamTask?.cancel()
         streamTask = nil
         isStreaming = false
+    }
+
+    /// Called from ChatView.onDisappear — synchronously stops any in-flight
+    /// stream and releases the C-side engine before the view's @State storage
+    /// goes away. Without this, navigating back mid-stream raced ARC
+    /// deallocation against the LiteRT-LM background thread and crashed.
+    public func tearDown() {
+        stop()
+        engine.cleanUp()
     }
 
     /// Switch to a different .litertlm file mid-conversation. Tears down the
@@ -214,5 +243,57 @@ public final class ChatViewModel {
     private func setLatency(id: UUID, ms: Int64) {
         guard let idx = messages.firstIndex(where: { $0.id == id }) else { return }
         messages[idx].latencyMs = ms
+    }
+
+    /// Per-model `litert_lm_engine_settings_set_cache_dir` target. Stable
+    /// per-model so the LiteRT-LM runtime can reuse pre-compiled kernels
+    /// across launches; ephemeral models get fresh dirs because their path
+    /// changes.
+    private static func derivedCacheDir(for modelURL: URL) -> URL? {
+        guard let appSupport = try? FileManager.default.url(for: .applicationSupportDirectory,
+                                                            in: .userDomainMask,
+                                                            appropriateFor: nil,
+                                                            create: true) else { return nil }
+        // Cheap stable hash over the absolute path — avoids dragging in
+        // CryptoKit just to derive a directory name.
+        var hasher = Hasher()
+        hasher.combine(modelURL.path)
+        let dir = appSupport
+            .appendingPathComponent("litertlm-cache", isDirectory: true)
+            .appendingPathComponent(String(format: "%016llx", UInt64(bitPattern: Int64(hasher.finalize()))),
+                                    isDirectory: true)
+        try? FileManager.default.createDirectory(at: dir,
+                                                 withIntermediateDirectories: true)
+        return dir
+    }
+}
+
+// MARK: - Settings → runtime enum coercions
+
+private extension LlmBackend {
+    /// Maps the UserDefaults string ("cpu" / "gpu" / "") to an enum case.
+    /// `nil` means the caller should fall back to a parent setting (e.g.,
+    /// vision/audio backends fall back to compute backend when unset).
+    static func parse(_ raw: String) -> LlmBackend? {
+        switch raw.lowercased() {
+        case "cpu":     return .cpu
+        case "gpu":     return .gpu
+        case "default": return .default
+        case "":        return nil
+        default:        return nil
+        }
+    }
+}
+
+private extension LlmActivationDtype {
+    /// Maps the UserDefaults int (-1 default, 0..3 = F32..I8) to an enum case.
+    static func from(rawValue: Int) -> LlmActivationDtype {
+        switch rawValue {
+        case 0:  return .f32
+        case 1:  return .f16
+        case 2:  return .i16
+        case 3:  return .i8
+        default: return .default
+        }
     }
 }

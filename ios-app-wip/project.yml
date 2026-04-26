@@ -94,6 +94,21 @@ targets:
         codeSign: true
         link: false
 
+  MobileClawTests:
+    type: bundle.unit-test
+    platform: iOS
+    sources:
+      - path: MobileClawTests
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.mobileclaw.app.tests
+        GENERATE_INFOPLIST_FILE: YES
+        BUNDLE_LOADER: "$(TEST_HOST)"
+        TEST_HOST: "$(BUILT_PRODUCTS_DIR)/MobileClaw.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/MobileClaw"
+        SWIFT_VERSION: "5.10"
+    dependencies:
+      - target: MobileClaw
+
   LiteRtLmBridge:
     type: framework
     platform: iOS
@@ -136,6 +151,9 @@ schemes:
       config: Debug
     test:
       config: Debug
+      targets:
+        - MobileClawTests
+      gatherCoverageData: true
     profile:
       config: Release
     analyze:
