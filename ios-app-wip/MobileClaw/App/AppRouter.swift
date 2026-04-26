@@ -28,7 +28,7 @@ struct AppRouter: View {
             .navigationDestination(for: Route.self) { route in
                 switch route {
                 case let .modelSelect(conversationID):
-                    ModelPickerView { url in
+                    ModelManagerView { url in
                         attachModelAndOpenChat(modelURL: url, conversationID: conversationID)
                     }
                 case let .chat(conversationID):

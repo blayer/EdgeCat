@@ -30,6 +30,7 @@ targets:
       - path: MobileClaw
     resources:
       - MobileClaw/Resources/Assets.xcassets
+      - MobileClaw/Resources/model_allowlist.json
     info:
       path: MobileClaw/Resources/Info.plist
       properties:
