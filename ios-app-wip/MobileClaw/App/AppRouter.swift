@@ -25,7 +25,25 @@ struct AppRouter: View {
                         ChatView(modelURL: URL(fileURLWithPath: modelPath))
                     }
                 }
+                .onAppear {
+                    // Dev shortcut: when launched with MOBILECLAW_AUTO_OPEN_CHAT=1,
+                    // skip Home/ModelSelect and open the chat with the first
+                    // sideloaded model. Used for headless smoke runs + UI screenshots.
+                    if ProcessInfo.processInfo.environment["MOBILECLAW_AUTO_OPEN_CHAT"] == "1",
+                       path.isEmpty,
+                       let url = firstSideloadedModel() {
+                        path.append(.chat(modelPath: url.path))
+                    }
+                }
         }
+    }
+
+    private func firstSideloadedModel() -> URL? {
+        let docs = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first
+        let dir = docs?.appendingPathComponent("Models", isDirectory: true)
+        guard let dir,
+              let contents = try? FileManager.default.contentsOfDirectory(at: dir, includingPropertiesForKeys: nil) else { return nil }
+        return contents.first(where: { $0.pathExtension.lowercased() == "litertlm" })
     }
 }
 

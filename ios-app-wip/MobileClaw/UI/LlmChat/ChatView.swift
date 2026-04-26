@@ -1,12 +1,15 @@
 import SwiftUI
 
-// Phase A SwiftUI port of android-app/.../ui/llmchat/LlmChatScreen.kt.
-// Text-only chat with streaming and a stop button.
+// 1:1 port of android-app/.../ui/common/chat/ChatView.kt + ChatPanel.kt for
+// Phase A scope (text-only). Mirrors Android's:
+//   Scaffold(topBar = ModelPageAppBar) -> Box -> Column -> LazyColumn(messages) + MessageInputText
+// User bubbles are right-aligned with primary fill, agent bubbles left-aligned
+// with surfaceVariant — bubble shape has a hard corner on the speaker side.
 
 struct ChatView: View {
     @State private var viewModel: ChatViewModel
     @State private var input: String = ""
-    @FocusState private var inputFocused: Bool
+    @Environment(\.dismiss) private var dismiss
 
     init(modelURL: URL) {
         _viewModel = State(initialValue: ChatViewModel(modelURL: modelURL))
@@ -14,16 +17,30 @@ struct ChatView: View {
 
     var body: some View {
         VStack(spacing: 0) {
+            ModelPageAppBarContent(
+                modelName: viewModel.modelURL.deletingPathExtension().lastPathComponent,
+                isStreaming: viewModel.isStreaming,
+                onBack: { dismiss() },
+                onReset: { /* TODO Phase B: viewModel.resetSession() */ }
+            )
+            Divider()
+
             ScrollViewReader { proxy in
                 ScrollView {
-                    LazyVStack(alignment: .leading, spacing: 12) {
-                        ForEach(viewModel.messages) { msg in
-                            MessageBubble(message: msg).id(msg.id)
+                    LazyVStack(alignment: .leading, spacing: 0) {
+                        if viewModel.messages.isEmpty {
+                            EmptyChatState()
+                                .frame(maxWidth: .infinity)
+                                .padding(.top, 96)
+                        } else {
+                            ForEach(viewModel.messages) { message in
+                                MessageRow(message: message).id(message.id)
+                            }
                         }
                     }
-                    .padding(.horizontal)
-                    .padding(.vertical, 12)
+                    .padding(.vertical, 8)
                 }
+                .background(AppColors.surface)
                 .onChange(of: viewModel.messages.last?.text) { _, _ in
                     if let last = viewModel.messages.last {
                         withAnimation(.linear(duration: 0.15)) {
@@ -31,36 +48,43 @@ struct ChatView: View {
                         }
                     }
                 }
+                .onChange(of: viewModel.messages.count) { _, _ in
+                    if let last = viewModel.messages.last {
+                        withAnimation(.easeOut(duration: 0.2)) {
+                            proxy.scrollTo(last.id, anchor: .bottom)
+                        }
+                    }
+                }
             }
 
             if let status = viewModel.loadStatus, status != "Ready" {
-                Text(status).font(.caption).foregroundStyle(.secondary).padding(.bottom, 4)
+                Text(status)
+                    .font(.caption)
+                    .foregroundStyle(AppColors.onSurfaceVariant)
+                    .padding(.vertical, 4)
+                    .frame(maxWidth: .infinity)
+                    .background(AppColors.surfaceVariant.opacity(0.5))
             }
 
-            HStack(alignment: .bottom, spacing: 8) {
-                TextField("Message", text: $input, axis: .vertical)
-                    .textFieldStyle(.roundedBorder)
-                    .lineLimit(1...5)
-                    .focused($inputFocused)
-                    .submitLabel(.send)
-                    .onSubmit(submit)
-                if viewModel.isStreaming {
-                    Button(action: viewModel.stop) {
-                        Image(systemName: "stop.circle.fill").font(.title)
-                    }
-                } else {
-                    Button(action: submit) {
-                        Image(systemName: "arrow.up.circle.fill").font(.title)
-                    }
-                    .disabled(input.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-                }
-            }
-            .padding(.horizontal)
-            .padding(.vertical, 8)
-            .background(.bar)
+            Divider()
+            MessageInputText(
+                text: $input,
+                isStreaming: viewModel.isStreaming,
+                canSend: !input.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+                onSend: submit,
+                onStop: viewModel.stop,
+                showImageButton: false,   // Phase C
+                showAudioButton: false    // Phase C
+            )
         }
-        .navigationTitle(viewModel.modelURL.deletingPathExtension().lastPathComponent)
-        .navigationBarTitleDisplayMode(.inline)
+        .background(AppColors.surface.ignoresSafeArea())
+        .navigationBarHidden(true)
+        .onAppear {
+            if let auto = ProcessInfo.processInfo.environment["MOBILECLAW_AUTO_SEND"],
+               !auto.isEmpty, viewModel.messages.isEmpty {
+                viewModel.send(auto)
+            }
+        }
     }
 
     private func submit() {
@@ -70,51 +94,92 @@ struct ChatView: View {
     }
 }
 
-private struct MessageBubble: View {
-    let message: Message
+// MARK: - Message row + bubble
 
+private struct MessageRow: View {
+    let message: Message
     var body: some View {
-        HStack {
-            if message.role == .user { Spacer(minLength: 40) }
-            VStack(alignment: message.role == .user ? .trailing : .leading, spacing: 4) {
-                content
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 8)
-                    .background(bubbleColor)
-                    .foregroundStyle(textColor)
-                    .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+        let isUser = message.role == .user
+        HStack(alignment: .bottom) {
+            if isUser { Spacer(minLength: 48) }
+            VStack(alignment: isUser ? .trailing : .leading, spacing: 4) {
+                if !isUser {
+                    Text("Assistant")
+                        .font(.caption2.weight(.semibold))
+                        .foregroundStyle(AppColors.onSurfaceVariant)
+                        .padding(.leading, 6)
+                }
+                bubble
             }
-            if message.role != .user { Spacer(minLength: 40) }
+            if !isUser { Spacer(minLength: 48) }
         }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 6)
     }
 
     @ViewBuilder
-    private var content: some View {
+    private var bubble: some View {
         switch message.kind {
         case .loading:
             HStack(spacing: 6) {
-                ProgressView().controlSize(.small)
-                Text("…").foregroundStyle(.secondary)
+                TypingIndicator()
             }
+            .padding(.horizontal, 14)
+            .padding(.vertical, 12)
+            .background(MessageBubbleShape(hardCornerAtLeft: true).fill(AppColors.agentBubble))
         case .error:
-            Text(message.text).font(.callout)
+            Text(message.text)
+                .font(.callout)
+                .foregroundStyle(AppColors.onErrorContainer)
+                .padding(.horizontal, 14)
+                .padding(.vertical, 10)
+                .background(MessageBubbleShape(hardCornerAtLeft: message.role != .user).fill(AppColors.errorContainer))
         case .text:
-            Text(message.text).font(.body).textSelection(.enabled)
+            let isUser = message.role == .user
+            Text(message.text)
+                .font(.body)
+                .textSelection(.enabled)
+                .foregroundStyle(isUser ? AppColors.onUserBubble : AppColors.onAgentBubble)
+                .padding(.horizontal, 14)
+                .padding(.vertical, 10)
+                .background(
+                    MessageBubbleShape(hardCornerAtLeft: !isUser)
+                        .fill(isUser ? AppColors.userBubble : AppColors.agentBubble)
+                )
         }
     }
+}
 
-    private var bubbleColor: Color {
-        switch (message.role, message.kind) {
-        case (.user, _): return .accentColor
-        case (_, .error): return .red.opacity(0.15)
-        default: return Color(.secondarySystemBackground)
+private struct TypingIndicator: View {
+    @State private var phase: Int = 0
+    private let timer = Timer.publish(every: 0.35, on: .main, in: .common).autoconnect()
+    var body: some View {
+        HStack(spacing: 4) {
+            ForEach(0..<3) { i in
+                Circle()
+                    .fill(AppColors.onSurfaceVariant)
+                    .frame(width: 6, height: 6)
+                    .opacity(phase == i ? 1 : 0.3)
+            }
         }
+        .onReceive(timer) { _ in phase = (phase + 1) % 3 }
     }
-    private var textColor: Color {
-        switch (message.role, message.kind) {
-        case (.user, _): return .white
-        case (_, .error): return .red
-        default: return .primary
+}
+
+private struct EmptyChatState: View {
+    var body: some View {
+        VStack(spacing: 12) {
+            Image(systemName: "sparkles")
+                .font(.system(size: 56))
+                .foregroundStyle(AppColors.primary.opacity(0.5))
+            Text("Start a conversation")
+                .font(.title3.weight(.semibold))
+                .foregroundStyle(AppColors.onSurface)
+            Text("Send a message to chat with the model on-device.")
+                .font(.callout)
+                .foregroundStyle(AppColors.onSurfaceVariant)
+                .multilineTextAlignment(.center)
+                .padding(.horizontal, 48)
         }
     }
 }
