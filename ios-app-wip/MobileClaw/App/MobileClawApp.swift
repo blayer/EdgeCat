@@ -10,6 +10,9 @@ struct MobileClawApp: App {
             AppRouter()
                 .onOpenURL { url in EvalEntryPoint.handle(url) }
         }
-        .modelContainer(for: [Conversation.self, StoredMessage.self])
+        .modelContainer(for: [
+            Conversation.self, StoredMessage.self,
+            EpisodeEntity.self, RepairRecordEntity.self, DeviceFactEntity.self,
+        ])
     }
 }
