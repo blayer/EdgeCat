@@ -55,7 +55,7 @@ struct ModelManagerView: View {
                 }
             } else {
                 ForEach(sideloaded, id: \.self) { url in
-                    Button(action: { onModelChosen(url) }) {
+                    Button(action: { onModelChosen(url) }, label: {
                         HStack {
                             VStack(alignment: .leading, spacing: 2) {
                                 Text(url.deletingPathExtension().lastPathComponent)
@@ -65,7 +65,7 @@ struct ModelManagerView: View {
                             Spacer()
                             Image(systemName: "chevron.right").foregroundStyle(.tertiary)
                         }
-                    }
+                    })
                     .swipeActions(edge: .trailing) {
                         Button(role: .destructive) { pendingDelete = url } label: {
                             Label("Delete", systemImage: "trash")
@@ -95,10 +95,17 @@ struct ModelManagerView: View {
     // MARK: - Logic
 
     private var modelsDirectory: URL {
-        let docs = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first!
-        let dir = docs.appendingPathComponent("Models", isDirectory: true)
-        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
-        return dir
+        do {
+            let docs = try FileManager.default.url(for: .documentDirectory,
+                                                   in: .userDomainMask,
+                                                   appropriateFor: nil,
+                                                   create: true)
+            let dir = docs.appendingPathComponent("Models", isDirectory: true)
+            try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+            return dir
+        } catch {
+            fatalError("Failed to access Models directory: \(error)")
+        }
     }
 
     private func reload() {
@@ -163,8 +170,15 @@ private struct CatalogRow: View {
     private var actionButton: some View {
         if isInstalled {
             Button("Use") {
-                let docs = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first!
-                onUse(docs.appendingPathComponent("Models").appendingPathComponent(model.modelFile))
+                do {
+                    let docs = try FileManager.default.url(for: .documentDirectory,
+                                                           in: .userDomainMask,
+                                                           appropriateFor: nil,
+                                                           create: true)
+                    onUse(docs.appendingPathComponent("Models").appendingPathComponent(model.modelFile))
+                } catch {
+                    assertionFailure("Failed to resolve Documents directory: \(error)")
+                }
             }.buttonStyle(.bordered)
         } else if isInFlight, case .downloading = downloader.status {
             Button("Cancel") { downloader.cancel() }.tint(.red)

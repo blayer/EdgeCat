@@ -41,7 +41,7 @@ public final class ChatViewModel {
     public func send(_ prompt: String, imageData: [Data] = [], audioData: [Data] = []) {
         let trimmed = prompt.trimmingCharacters(in: .whitespacesAndNewlines)
         let hasAttachments = !imageData.isEmpty || !audioData.isEmpty
-        guard (!trimmed.isEmpty || hasAttachments), !isStreaming else { return }
+        guard !trimmed.isEmpty || hasAttachments, !isStreaming else { return }
 
         let userText: String
         if !trimmed.isEmpty { userText = trimmed }

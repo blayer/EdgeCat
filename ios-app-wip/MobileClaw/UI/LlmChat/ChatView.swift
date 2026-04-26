@@ -20,7 +20,7 @@ struct ChatView: View {
     init(conversation: Conversation) {
         // ConversationStore needs the same context the conversation lives in;
         // SwiftData exposes that via the entity's modelContext property at runtime.
-        let ctx = conversation.modelContext ?? ModelContext(try! ModelContainer(for: Conversation.self, StoredMessage.self))
+        let ctx = conversation.modelContext ?? Self.makeFallbackContext()
         let store = ConversationStore(context: ctx)
         _viewModel = State(initialValue: ChatViewModel(conversation: conversation, store: store))
     }
@@ -120,6 +120,15 @@ struct ChatView: View {
         attachedImages = []
         attachedAudio = []
         viewModel.send(text, imageData: images, audioData: audio)
+    }
+
+    private static func makeFallbackContext() -> ModelContext {
+        do {
+            let container = try ModelContainer(for: Conversation.self, StoredMessage.self)
+            return ModelContext(container)
+        } catch {
+            fatalError("Failed to create fallback SwiftData container for ChatView: \(error)")
+        }
     }
 }
 

@@ -2,17 +2,17 @@ import XCTest
 @testable import MobileClaw
 
 final class SamplerSettingsTests: XCTestCase {
-    private var defaults: UserDefaults!
+    private var defaults: UserDefaults?
     private let suiteName = "SamplerSettingsTests-\(UUID().uuidString)"
 
-    override func setUp() {
-        super.setUp()
-        defaults = UserDefaults(suiteName: suiteName)!
-        defaults.removePersistentDomain(forName: suiteName)
+    override func setUpWithError() throws {
+        try super.setUpWithError()
+        defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+        try XCTUnwrap(defaults).removePersistentDomain(forName: suiteName)
     }
 
     override func tearDown() {
-        defaults.removePersistentDomain(forName: suiteName)
+        defaults?.removePersistentDomain(forName: suiteName)
         super.tearDown()
     }
 

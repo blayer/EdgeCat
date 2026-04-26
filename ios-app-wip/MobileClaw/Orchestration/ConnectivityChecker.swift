@@ -21,7 +21,7 @@ public enum ConnectivityChecker {
             semaphore.signal()
             monitor.cancel()
         }
-        monitor.start(queue: DispatchQueue(label: "com.mobileclaw.connectivity"))
+        monitor.start(queue: DispatchQueue(label: "com.mobileclawapp.connectivity"))
         _ = semaphore.wait(timeout: .now() + .milliseconds(200))
         return status == .satisfied
     }

@@ -14,7 +14,7 @@ final class FtsIndex: @unchecked Sendable {
     static let shared = FtsIndex()
 
     private var db: OpaquePointer?
-    private let queue = DispatchQueue(label: "com.mobileclaw.fts", qos: .utility)
+    private let queue = DispatchQueue(label: "com.mobileclawapp.fts", qos: .utility)
 
     private init() {
         queue.sync { open() }

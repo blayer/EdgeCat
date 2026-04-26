@@ -50,33 +50,51 @@ jobs:
             brew install xcodegen
           fi
 
+      - name: Install xcbeautify
+        run: brew install xcbeautify
+
       - name: Generate Xcode project
         run: xcodegen
 
       - name: List simulators
         run: xcrun simctl list runtimes && xcrun simctl list devicetypes
 
+      - name: Select simulator
+        run: |
+          SIMULATOR_NAME="$(xcrun simctl list devices available -j | /usr/bin/python3 -c '
+import json
+import sys
+
+devices = json.load(sys.stdin).get("devices", {})
+names = [
+    device["name"]
+    for runtime, entries in devices.items()
+    if runtime.startswith("com.apple.CoreSimulator.SimRuntime.iOS")
+    for device in entries
+    if device.get("isAvailable")
+]
+print(names[0] if names else "", end="")
+')"
+          if [ -z "$SIMULATOR_NAME" ]; then
+            echo "No available iOS simulator found"
+            exit 1
+          fi
+          echo "SIMULATOR_NAME=$SIMULATOR_NAME" >> "$GITHUB_ENV"
+          echo "Using simulator: $SIMULATOR_NAME"
+
       - name: Build & test
         run: |
           set -o pipefail
+          rm -rf TestResults.xcresult
           xcodebuild \
             -project MobileClaw.xcodeproj \
             -scheme MobileClaw \
             -sdk iphonesimulator \
             -configuration Debug \
-            -destination 'platform=iOS Simulator,name=iPhone 16 Pro,OS=latest' \
+            -destination "platform=iOS Simulator,name=${SIMULATOR_NAME}" \
             -enableCodeCoverage YES \
             -resultBundlePath TestResults.xcresult \
-            test | xcbeautify --renderer github-actions || \
-          xcodebuild \
-            -project MobileClaw.xcodeproj \
-            -scheme MobileClaw \
-            -sdk iphonesimulator \
-            -configuration Debug \
-            -destination 'platform=iOS Simulator,name=iPhone 16 Pro,OS=latest' \
-            -enableCodeCoverage YES \
-            -resultBundlePath TestResults.xcresult \
-            test
+            test | xcbeautify --renderer github-actions
 
       - name: Upload test results
         if: always()
@@ -104,6 +122,29 @@ jobs:
       - name: Generate Xcode project
         run: xcodegen
 
+      - name: Select simulator
+        run: |
+          SIMULATOR_NAME="$(xcrun simctl list devices available -j | /usr/bin/python3 -c '
+import json
+import sys
+
+devices = json.load(sys.stdin).get("devices", {})
+names = [
+    device["name"]
+    for runtime, entries in devices.items()
+    if runtime.startswith("com.apple.CoreSimulator.SimRuntime.iOS")
+    for device in entries
+    if device.get("isAvailable")
+]
+print(names[0] if names else "", end="")
+')"
+          if [ -z "$SIMULATOR_NAME" ]; then
+            echo "No available iOS simulator found"
+            exit 1
+          fi
+          echo "SIMULATOR_NAME=$SIMULATOR_NAME" >> "$GITHUB_ENV"
+          echo "Using simulator: $SIMULATOR_NAME"
+
       - name: Build for simulator
         run: |
           set -o pipefail
@@ -112,6 +153,6 @@ jobs:
             -scheme MobileClaw \
             -sdk iphonesimulator \
             -configuration Debug \
-            -destination 'platform=iOS Simulator,name=iPhone 16 Pro,OS=latest' \
+            -destination "platform=iOS Simulator,name=${SIMULATOR_NAME}" \
             CODE_SIGN_IDENTITY="" CODE_SIGNING_REQUIRED=NO \
             build

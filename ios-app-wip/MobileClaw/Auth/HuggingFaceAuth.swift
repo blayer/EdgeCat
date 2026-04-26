@@ -7,7 +7,7 @@ import Security
 // ASWebAuthenticationSession OAuth dance can replace it later.
 
 public enum HuggingFaceAuth {
-    private static let service = "com.mobileclaw.app.huggingface"
+    private static let service = "com.mobileclawapp.app.huggingface"
     private static let account = "user-token"
 
     public static func setToken(_ token: String?) {

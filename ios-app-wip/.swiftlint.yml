@@ -33,13 +33,15 @@ opt_in_rules:
   - contains_over_filter_count
   - contains_over_first_not_nil
   - redundant_nil_coalescing
-  - unused_import
-  - unused_declaration
   - private_outlet
   - explicit_init
   - convenience_type
   - force_unwrapping
   - implicit_return
+
+analyzer_rules:
+  - unused_import
+  - unused_declaration
 
 force_unwrapping:
   severity: warning

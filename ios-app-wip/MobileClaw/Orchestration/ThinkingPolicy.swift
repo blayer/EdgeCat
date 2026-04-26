@@ -66,6 +66,10 @@ public struct ThinkingPolicy: Sendable {
 
     private static let simplePrefix: NSRegularExpression = {
         let pattern = #"^(what time|what['’]?s? the time|set (a )?timer|set (a )?reminder|call |text |open |launch |show me |turn (on|off) )"#
-        return try! NSRegularExpression(pattern: pattern, options: [.caseInsensitive])
+        do {
+            return try NSRegularExpression(pattern: pattern, options: [.caseInsensitive])
+        } catch {
+            fatalError("Failed to compile ThinkingPolicy simplePrefix regex: \(error)")
+        }
     }()
 }

@@ -48,14 +48,14 @@ public final class JsSkillRunner: NSObject, WKNavigationDelegate {
         return "\(result ?? "")"
     }
 
-    nonisolated public func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
+    nonisolated public func webView(_ webView: WKWebView, didFinish navigation: WKNavigation?) {
         Task { @MainActor in
             self.loadContinuation?.resume()
             self.loadContinuation = nil
         }
     }
 
-    nonisolated public func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error) {
+    nonisolated public func webView(_ webView: WKWebView, didFail navigation: WKNavigation?, withError error: Error) {
         Task { @MainActor in
             self.loadContinuation?.resume(throwing: error)
             self.loadContinuation = nil

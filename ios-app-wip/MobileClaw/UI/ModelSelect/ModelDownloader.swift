@@ -27,9 +27,13 @@ public final class ModelDownloader: NSObject, URLSessionDownloadDelegate {
             status = .failed("invalid download URL")
             return
         }
-        let docs = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first!
-        let dir = docs.appendingPathComponent("Models", isDirectory: true)
-        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        let dir: URL
+        do {
+            dir = try Self.modelsDirectory()
+        } catch {
+            status = .failed("unable to access Models directory: \(error.localizedDescription)")
+            return
+        }
         let dest = dir.appendingPathComponent(model.modelFile)
         if FileManager.default.fileExists(atPath: dest.path) {
             status = .succeeded(dest)
@@ -45,7 +49,7 @@ public final class ModelDownloader: NSObject, URLSessionDownloadDelegate {
         // session — re-using the same identifier across instances would
         // attach to an existing background task instead of starting fresh.
         let config = URLSessionConfiguration.background(
-            withIdentifier: "com.mobileclaw.app.modelDownloader.\(model.id)")
+            withIdentifier: "com.mobileclawapp.app.modelDownloader.\(model.id)")
         config.allowsCellularAccess = true
         config.isDiscretionary = false
         config.sessionSendsLaunchEvents = true
@@ -88,8 +92,15 @@ public final class ModelDownloader: NSObject, URLSessionDownloadDelegate {
         // The temp file at `location` is deleted by URLSession when this call
         // returns, so we must move synchronously before hopping back to main.
         let code = (downloadTask.response as? HTTPURLResponse)?.statusCode ?? -1
-        let docs = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first!
-        let dst = docs.appendingPathComponent("Models").appendingPathComponent(downloadTask.originalRequest?.url?.lastPathComponent ?? "downloaded.litertlm")
+        let dst: URL
+        do {
+            dst = try Self.modelsDirectory()
+                .appendingPathComponent(downloadTask.originalRequest?.url?.lastPathComponent ?? "downloaded.litertlm")
+        } catch {
+            try? FileManager.default.removeItem(at: location)
+            Task { @MainActor in self.status = .failed("unable to access Models directory: \(error.localizedDescription)") }
+            return
+        }
         if !(200..<400).contains(code) {
             try? FileManager.default.removeItem(at: location)
             Task { @MainActor in self.status = .failed("HTTP \(code) — model may be HF-gated") }
@@ -110,5 +121,20 @@ public final class ModelDownloader: NSObject, URLSessionDownloadDelegate {
         if let error {
             Task { @MainActor in self.status = .failed("\(error)") }
         }
+    }
+
+    // `nonisolated` because the URLSessionDownloadDelegate callbacks above are
+    // `nonisolated` (they fire from URLSession's background thread) and need
+    // to compute the destination synchronously before the temp file at
+    // `location` is reaped by URLSession on return. Pure FileManager work is
+    // thread-safe; no main-actor state is touched.
+    nonisolated private static func modelsDirectory(fileManager: FileManager = .default) throws -> URL {
+        let docs = try fileManager.url(for: .documentDirectory,
+                                       in: .userDomainMask,
+                                       appropriateFor: nil,
+                                       create: true)
+        let dir = docs.appendingPathComponent("Models", isDirectory: true)
+        try fileManager.createDirectory(at: dir, withIntermediateDirectories: true)
+        return dir
     }
 }

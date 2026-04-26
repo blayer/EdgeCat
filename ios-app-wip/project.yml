@@ -1,7 +1,7 @@
 name: MobileClaw
 
 options:
-  bundleIdPrefix: com.mobileclaw
+  bundleIdPrefix: com.mobileclawapp
   deploymentTarget:
     iOS: "17.0"
   createIntermediateGroups: true
@@ -68,12 +68,12 @@ targets:
         # ADB intent entry point. Trigger via:
         #   xcrun simctl openurl <udid> "mobileclaw://eval?prompt=hi&model=gemma-4-E2B-it.litertlm"
         CFBundleURLTypes:
-          - CFBundleURLName: com.mobileclaw.app.url
+          - CFBundleURLName: com.mobileclawapp.app.url
             CFBundleURLSchemes:
               - mobileclaw   # handles both eval ("mobileclaw://eval...") + HF OAuth callback ("mobileclaw://hf-callback")
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: com.mobileclaw.app
+        PRODUCT_BUNDLE_IDENTIFIER: com.mobileclawapp.app
         TARGETED_DEVICE_FAMILY: "1,2"
         INFOPLIST_KEY_UIRequiresFullScreen: NO
     dependencies:
@@ -101,7 +101,7 @@ targets:
       - path: MobileClawTests
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: com.mobileclaw.app.tests
+        PRODUCT_BUNDLE_IDENTIFIER: com.mobileclawapp.app.tests
         GENERATE_INFOPLIST_FILE: YES
         BUNDLE_LOADER: "$(TEST_HOST)"
         TEST_HOST: "$(BUILT_PRODUCTS_DIR)/MobileClaw.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/MobileClaw"
@@ -131,7 +131,7 @@ targets:
           - $(SRCROOT)/LiteRtLmBridge/Vendor/litert_lm
         # Public header so the app target can `import LiteRtLmBridge`.
         SWIFT_INCLUDE_PATHS: $(SRCROOT)/LiteRtLmBridge/include
-        PRODUCT_BUNDLE_IDENTIFIER: com.mobileclaw.litertlmbridge
+        PRODUCT_BUNDLE_IDENTIFIER: com.mobileclawapp.litertlmbridge
     dependencies:
       # The bridge target links the LiteRT-LM xcframework at build time so the
       # .mm file's calls to litert_lm_engine_* resolve. The app target embeds

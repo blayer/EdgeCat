@@ -6,7 +6,7 @@ import Foundation
 
 public final class SkillRegistry: ToolExecutor, @unchecked Sendable {
     private var skillsByName: [String: Skill] = [:]
-    private let queue = DispatchQueue(label: "com.mobileclaw.skillregistry", attributes: .concurrent)
+    private let queue = DispatchQueue(label: "com.mobileclawapp.skillregistry", attributes: .concurrent)
 
     public init(skills: [Skill] = []) {
         for s in skills { register(s) }
