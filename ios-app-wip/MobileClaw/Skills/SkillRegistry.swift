@@ -81,6 +81,14 @@ public final class SkillRegistry: ToolExecutor, @unchecked Sendable {
             .filter { $0.hasJsScripts && !nativeNames.contains($0.slug) }
             .map { JsSkill(manifest: $0) }
 
-        return SkillRegistry(skills: nativeSkills + jsSkills)
+        let registry = SkillRegistry(skills: nativeSkills + jsSkills)
+        // search-skills must register *after* the registry exists so it
+        // can closure-capture `registry.allSkills()` for catalog lookup.
+        // Mirrors android-app/.../OrchestrationBridge.kt's `searchSkills`.
+        let searchSkills = SearchSkillsSkill { [weak registry] in
+            registry?.allSkills() ?? []
+        }
+        registry.register(searchSkills)
+        return registry
     }
 }
