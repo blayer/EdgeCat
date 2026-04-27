@@ -9,6 +9,11 @@ struct MobileClawApp: App {
         WindowGroup {
             AppRouter()
                 .environment(\.theme, MobileClawTheme.shared)
+                // Match Android's `darkTheme = true` in MobileClawTheme.kt —
+                // the Android app forces dark mode regardless of system
+                // preference. iOS mirrors that here so the violet-on-deep-dark
+                // palette in AppColors.swift always wins.
+                .preferredColorScheme(.dark)
                 .onOpenURL { url in EvalEntryPoint.handle(url) }
         }
         .modelContainer(for: [

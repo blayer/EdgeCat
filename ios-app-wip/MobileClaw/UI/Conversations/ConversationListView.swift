@@ -1,15 +1,16 @@
 import SwiftUI
 import SwiftData
 
-// 1:1 port of android-app/.../ui/conversations/ConversationListScreen.kt for
-// Phase B scope. Empty state + list of pinned/recent conversations + Extended
-// FAB ("New"). Swipe-to-pin/delete uses SwiftUI's swipeActions (functionally
-// equivalent to Android's RevealableConversationRow).
+// 1:1 port of android-app/.../ui/conversations/ConversationListScreen.kt.
+// Top bar shows rocket icon + "Mobile Agent" branded title (primary color)
+// with a tap-to-change model chip below — matching Android exactly. The
+// settings gear is intentionally absent on this screen; on Android too,
+// settings is reachable only from inside a chat (chat top bar's gear). The
+// list itself is empty state + pinned/recent rows + Extended FAB ("New").
 
 struct ConversationListView: View {
     @Environment(\.modelContext) private var context
     @Query(sort: \Conversation.updatedAt, order: .reverse) private var conversationsRaw: [Conversation]
-    @State private var showSettings = false
 
     let onConversationOpened: (Conversation) -> Void
     let onOpenModelSelect: () -> Void
@@ -28,10 +29,21 @@ struct ConversationListView: View {
         }
     }
 
+    /// Mirrors Android's "current model" chip — shows the most-recent
+    /// conversation's model (Android tracks this on the activity; we
+    /// derive it from SwiftData since the list view has no separate state).
+    private var currentModelLabel: String {
+        guard let recent = conversationsRaw.first(where: { !$0.modelPath.isEmpty }) else {
+            return "empty"
+        }
+        return URL(fileURLWithPath: recent.modelPath)
+            .deletingPathExtension().lastPathComponent
+    }
+
     var body: some View {
         VStack(spacing: 0) {
-            ConversationListHeader(onSettings: { showSettings = true })
-            Divider()
+            ConversationListHeader(modelLabel: currentModelLabel,
+                                   onTapModel: onOpenModelSelect)
             if conversations.isEmpty {
                 EmptyState()
             } else {
@@ -42,6 +54,7 @@ struct ConversationListView: View {
                         })
                         .buttonStyle(.plain)
                         .listRowInsets(EdgeInsets(top: 0, leading: 0, bottom: 0, trailing: 0))
+                        .listRowBackground(AppColors.surface)
                         .swipeActions(edge: .trailing) {
                             Button(role: .destructive) { delete(conv) } label: {
                                 Label("Delete", systemImage: "trash")
@@ -53,6 +66,7 @@ struct ConversationListView: View {
                     }
                 }
                 .listStyle(.plain)
+                .scrollContentBackground(.hidden)
             }
         }
         .background(AppColors.surface.ignoresSafeArea())
@@ -61,7 +75,6 @@ struct ConversationListView: View {
                 .padding(.trailing, 16)
                 .padding(.bottom, 16)
         }
-        .sheet(isPresented: $showSettings) { SettingsView() }
     }
 
     private func createConversation() {
@@ -86,25 +99,61 @@ struct ConversationListView: View {
 // MARK: - Pieces
 
 private struct ConversationListHeader: View {
-    let onSettings: () -> Void
+    let modelLabel: String
+    let onTapModel: () -> Void
+
     var body: some View {
-        ZStack {
-            Text("Conversations")
-                .font(.headline)
-                .foregroundStyle(AppColors.onSurface)
-            HStack {
-                Spacer()
-                Button(action: onSettings) {
-                    Image(systemName: "gearshape")
-                        .font(.system(size: 17, weight: .semibold))
-                        .foregroundStyle(AppColors.onSurface)
-                }
-                .padding(.trailing, 16)
+        VStack(spacing: 6) {
+            // Rocket task-icon + "Mobile Agent" — Android paints both in the
+            // task tint (primary). The rocket is Material's `RocketLaunch`;
+            // the closest SF Symbol is `paperplane.fill` rotated, but
+            // `arrow.up.right.circle.fill` with a tilt also reads close.
+            // SF Symbols ship a `figure.run` style "rocket" — use SF
+            // Symbols' actual `airplane.departure` / fall back to
+            // `paperplane.fill` for the closest visual.
+            HStack(spacing: 6) {
+                Image(systemName: "paperplane.fill")
+                    .font(.system(size: 18, weight: .semibold))
+                    .foregroundStyle(AppColors.primary)
+                    .rotationEffect(.degrees(-45))
+                Text("Mobile Agent")
+                    .font(.headline.weight(.semibold))
+                    .foregroundStyle(AppColors.primary)
             }
+            ModelPickerChip(label: modelLabel, onTap: onTapModel)
         }
         .frame(maxWidth: .infinity)
-        .padding(.vertical, 14)
+        .padding(.top, 14)
+        .padding(.bottom, 8)
         .background(AppColors.surface)
+    }
+}
+
+/// Pill-shaped chip showing the current model. Tap → model select.
+/// Mirrors Android's `ModelPickerChip` styling: surface-variant container,
+/// caret on the right, accent text color.
+private struct ModelPickerChip: View {
+    let label: String
+    let onTap: () -> Void
+
+    var body: some View {
+        Button(action: onTap) {
+            HStack(spacing: 4) {
+                Text(label)
+                    .font(.callout)
+                    .foregroundStyle(AppColors.onSurface)
+                Image(systemName: "chevron.down")
+                    .font(.caption2.weight(.semibold))
+                    .foregroundStyle(AppColors.onSurfaceVariant)
+            }
+            .padding(.horizontal, 14)
+            .padding(.vertical, 6)
+            .background(
+                Capsule().fill(AppColors.surfaceVariant)
+            )
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("Current model is \(label). Tap to change model.")
     }
 }
 
@@ -124,6 +173,7 @@ private struct EmptyState: View {
             Spacer()
         }
         .frame(maxWidth: .infinity)
+        .background(AppColors.surface)
     }
 }
 
