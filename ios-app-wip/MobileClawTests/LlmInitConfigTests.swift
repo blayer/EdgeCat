@@ -8,7 +8,8 @@ final class LlmInitConfigTests: XCTestCase {
     func testDefaultsMatchAndroidParity() {
         let cfg = LlmInitConfig(modelPath: url)
         // Engine-level defaults
-        XCTAssertEqual(cfg.backend, .gpu, "Android DEFAULT_ACCELERATORS = [GPU]")
+        XCTAssertEqual(cfg.backend, .cpu,
+                       "iOS dylib is CPU-only (cc_binary :engine_cpu) — flip to .gpu when Metal build ships")
         XCTAssertEqual(cfg.visionBackend, .default)
         XCTAssertEqual(cfg.audioBackend, .default)
         XCTAssertEqual(cfg.maxTokens, 1024)

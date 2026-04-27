@@ -62,7 +62,14 @@ public enum SamplerSettings {
     /// Model-knob defaults. Strings are used for accelerator so an empty
     /// value can encode "follow parent".
     public static let modelDefaults = (
-        accelerator: "gpu",                      // matches Android DEFAULT_ACCELERATORS
+        // Default to CPU on iOS even though Android defaults to GPU. The
+        // libLiteRtLm.dylib we ship is built from `:engine_cpu` only — the
+        // Metal accelerator isn't linked in, so passing backend="gpu" to
+        // litert_lm_engine_create returns NULL ("engine_create returned
+        // NULL"). When the GPU-enabled dylib build lands (Bazel target
+        // `:engine_metal` + xcframework rebuild), flip this back to "gpu"
+        // to match Android.
+        accelerator: "cpu",
         visionAccelerator: "",                   // empty = follow `accelerator`
         audioAccelerator: "",                    // empty = follow `accelerator`
         samplerType: 0,                          // 0=TopP, 1=Greedy
