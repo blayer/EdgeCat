@@ -16,6 +16,9 @@ struct SkillManagerView: View {
     @State private var editorMode: SkillEditorView.Mode?
     @State private var customExpanded: Bool = true
     @State private var builtInExpanded: Bool = true
+    @State private var showAddSheet: Bool = false
+    @State private var showFolderImporter: Bool = false
+    @State private var importErrorMessage: String?
 
     fileprivate struct Row: Identifiable, Equatable {
         let id: String      // skill slug — stable across launches
@@ -88,17 +91,41 @@ struct SkillManagerView: View {
             }
             .listStyle(.insetGrouped)
             .searchable(text: $search, placement: .navigationBarDrawer(displayMode: .always))
-            .navigationTitle("Skills")
-            .navigationBarTitleDisplayMode(.inline)
+            .navigationTitle("Manage Skills")
+            .navigationBarTitleDisplayMode(.large)
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {
                     Button("Done") { dismiss() }
                 }
                 ToolbarItem(placement: .topBarTrailing) {
-                    Button { editorMode = .add } label: {
+                    Button { showAddSheet = true } label: {
                         MIcon(name: MIconName.add, size: 22, weight: .regular)
                     }
                 }
+            }
+            .confirmationDialog("Add a skill", isPresented: $showAddSheet,
+                                titleVisibility: .visible) {
+                Button("Add manually") {
+                    editorMode = .add
+                }
+                Button("Import from local folder…") {
+                    showFolderImporter = true
+                }
+                Button("Cancel", role: .cancel) { }
+            } message: {
+                Text("Add a custom skill manually, or import a folder containing SKILL.md and scripts/.")
+            }
+            .fileImporter(isPresented: $showFolderImporter,
+                          allowedContentTypes: [.folder],
+                          allowsMultipleSelection: false) { result in
+                handleFolderImport(result)
+            }
+            .alert("Import failed",
+                   isPresented: Binding(get: { importErrorMessage != nil },
+                                        set: { if !$0 { importErrorMessage = nil } })) {
+                Button("OK", role: .cancel) { importErrorMessage = nil }
+            } message: {
+                Text(importErrorMessage ?? "")
             }
             .sheet(item: $secretEditorTarget) { row in
                 SkillSecretEditor(skillName: row.id,
@@ -110,6 +137,33 @@ struct SkillManagerView: View {
             .sheet(item: $editorMode) { mode in
                 SkillEditorView(mode: mode, onSaved: { reloadAll() })
             }
+        }
+    }
+
+    private func handleFolderImport(_ result: Result<[URL], Error>) {
+        switch result {
+        case .success(let urls):
+            guard let src = urls.first else { return }
+            do {
+                _ = try SkillFolderImporter.importFolder(at: src)
+                reloadAll()
+            } catch SkillFolderImportError.notADirectory {
+                importErrorMessage = "Pick a folder, not a file."
+            } catch SkillFolderImportError.missingManifest {
+                importErrorMessage = "The folder doesn't have a SKILL.md at its root."
+            } catch SkillFolderImportError.alreadyExists(let slug) {
+                importErrorMessage = "A custom skill named \"\(slug)\" already exists. Delete it first."
+            } catch SkillFolderImportError.directoryUnavailable {
+                importErrorMessage = "Couldn't open the Documents directory."
+            } catch SkillFolderImportError.copyFailed(let detail) {
+                importErrorMessage = "Copy failed: \(detail)"
+            } catch {
+                importErrorMessage = "\(error)"
+            }
+        case .failure(let error):
+            let nsErr = error as NSError
+            if nsErr.code == NSUserCancelledError { return }
+            importErrorMessage = error.localizedDescription
         }
     }
 
