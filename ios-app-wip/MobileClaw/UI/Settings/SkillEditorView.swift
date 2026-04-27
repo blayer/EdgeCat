@@ -162,7 +162,7 @@ struct SkillEditorView: View {
         Section {
             Button(role: .destructive) { showDeleteConfirm = true } label: {
                 HStack {
-                    Image(systemName: "trash")
+                    MIcon(name: MIconName.delete, size: 18, weight: .regular)
                     Text("Delete this skill")
                 }
             }

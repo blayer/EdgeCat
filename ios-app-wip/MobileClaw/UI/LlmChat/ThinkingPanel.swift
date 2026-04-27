@@ -18,8 +18,7 @@ struct ThinkingPanel: View {
                     .textSelection(.enabled)
             } label: {
                 HStack(spacing: 6) {
-                    Image(systemName: "lightbulb")
-                        .font(.caption)
+                    MIcon(name: MIconName.lightbulb, size: 14, weight: .regular)
                     Text("Thinking")
                         .font(.caption.weight(.semibold))
                 }

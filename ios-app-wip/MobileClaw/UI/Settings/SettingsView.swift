@@ -23,7 +23,6 @@ struct SettingsView: View {
     @Environment(\.dismiss) private var dismiss
     @State private var selectedTab: Tab = .model
     @State private var hfToken: String = HuggingFaceAuth.token() ?? ""
-    @State private var convPrompt: String = ""
     @State private var memoryClearedAt: Date?
     @State private var showSkills = false
 
@@ -41,55 +40,27 @@ struct SettingsView: View {
     @AppStorage(SamplerSettings.agentTracesKey) private var agentTraces: Bool = SamplerSettings.agentDefaults.traces
     @AppStorage(SamplerSettings.userPortraitKey) private var userPortrait: String = ""
 
-    // Model knobs added in the bridge audit. Defaults sourced from
-    // SamplerSettings.modelDefaults so they stay in sync across the app.
+    // Model knobs sourced from SamplerSettings.modelDefaults so they stay
+    // in sync with bridge defaults. Only the ones the UI surfaces today
+    // are bound; the rest of the audit is reachable code-level via
+    // `LlmInitConfig` / `SamplerSettings.current()` for callers that want
+    // to override them programmatically.
     @AppStorage(SamplerSettings.acceleratorKey) private var accelerator: String = SamplerSettings.modelDefaults.accelerator
-    @AppStorage(SamplerSettings.visionAcceleratorKey) private var visionAccelerator: String = SamplerSettings.modelDefaults.visionAccelerator
-    @AppStorage(SamplerSettings.audioAcceleratorKey) private var audioAccelerator: String = SamplerSettings.modelDefaults.audioAccelerator
     @AppStorage(SamplerSettings.samplerTypeKey) private var samplerType: Int = SamplerSettings.modelDefaults.samplerType
     @AppStorage(SamplerSettings.seedKey) private var seed: Int = SamplerSettings.modelDefaults.seed
     @AppStorage(SamplerSettings.maxOutputTokensKey) private var maxOutputTokens: Int = SamplerSettings.modelDefaults.maxOutputTokens
-    @AppStorage(SamplerSettings.applyPromptTemplateKey) private var applyPromptTemplate: Bool = SamplerSettings.modelDefaults.applyPromptTemplate
-    @AppStorage(SamplerSettings.enableConstrainedDecodingKey) private var enableConstrainedDecoding: Bool = SamplerSettings.modelDefaults.enableConstrainedDecoding
-    @AppStorage(SamplerSettings.parallelFileLoadingKey) private var parallelFileLoading: Bool = SamplerSettings.modelDefaults.parallelFileLoading
-    @AppStorage(SamplerSettings.activationDtypeKey) private var activationDtype: Int = SamplerSettings.modelDefaults.activationDtype
-    @AppStorage(SamplerSettings.prefillChunkSizeKey) private var prefillChunkSize: Int = SamplerSettings.modelDefaults.prefillChunkSize
-    @AppStorage(SamplerSettings.speculativeDecodingKey) private var speculativeDecoding: Bool = SamplerSettings.modelDefaults.speculativeDecoding
-    @AppStorage(SamplerSettings.debugLogLevelKey) private var debugLogLevel: Int = SamplerSettings.modelDefaults.debugLogLevel
 
     init(conversation: Conversation? = nil) {
+        // The conversation parameter is kept for API stability — chat-side
+        // callers still pass it, even though we no longer surface a per-
+        // conversation system-prompt section here. Removed per user
+        // direction so Settings tracks Android's ConfigDialog scope.
         self.conversation = conversation
-        _convPrompt = State(initialValue: conversation?.systemPromptOverride ?? "")
     }
 
     var body: some View {
         NavigationStack {
             Form {
-                // Per-conversation header — shown only when a conversation is
-                // bound. Mirrors Android's "this chat" surface above the tabs.
-                if let conversation {
-                    Section {
-                        TextEditor(text: $convPrompt)
-                            .frame(minHeight: 60)
-                            .font(.callout)
-                        Button("Use global default") {
-                            convPrompt = ""
-                            conversation.systemPromptOverride = nil
-                            try? conversation.modelContext?.save()
-                        }
-                        .foregroundStyle(.red)
-                    } header: {
-                        Text("System prompt — this conversation")
-                    } footer: {
-                        Text("Overrides the global system prompt for just this chat. Empty + Save = use the global default.")
-                            .font(.caption)
-                    }
-                    .onChange(of: convPrompt) { _, new in
-                        conversation.systemPromptOverride = new.isEmpty ? nil : new
-                        try? conversation.modelContext?.save()
-                    }
-                }
-
                 // Tab picker — same three labels as Android's PrimaryTabRow.
                 Section {
                     Picker("Tab", selection: $selectedTab) {
@@ -106,13 +77,6 @@ struct SettingsView: View {
                 case .prompt:   systemPromptTab
                 case .agent:    agentTab
                 }
-
-                // Advanced — power-user knobs that map to additional
-                // litert_lm_engine_settings_* / session_config_* setters.
-                // Always visible (not gated to a tab) since these mostly
-                // matter only when something's wrong; matches what an
-                // Android developer-options menu would surface.
-                advancedSection
 
                 skillsSection
 
@@ -140,11 +104,10 @@ struct SettingsView: View {
         Section {
             Button { showSkills = true } label: {
                 HStack {
-                    Image(systemName: "puzzlepiece.extension")
+                    MIcon(name: MIconName.extension_, size: 20, weight: .regular)
                     Text("Manage Skills")
                     Spacer()
-                    Image(systemName: "chevron.right")
-                        .font(.footnote)
+                    MIcon(name: MIconName.chevronRight, size: 18, weight: .regular)
                         .foregroundStyle(.tertiary)
                 }
             }
@@ -375,53 +338,6 @@ struct SettingsView: View {
                     .font(.caption)
                     .foregroundStyle(AppColors.primary)
             }
-        }
-    }
-
-    // MARK: - Advanced — power-user LiteRT-LM knobs
-
-    @ViewBuilder
-    private var advancedSection: some View {
-        Section {
-            // Vision + audio backends. Empty string ("Default") falls back to
-            // the compute accelerator, matching Android's behavior where
-            // visionAccelerator inherits from defaultConfig.
-            Picker("Vision backend", selection: $visionAccelerator) {
-                Text("Match compute").tag("")
-                Text("CPU").tag("cpu")
-                Text("GPU").tag("gpu")
-            }
-            Picker("Audio backend", selection: $audioAccelerator) {
-                Text("Match compute").tag("")
-                Text("CPU").tag("cpu")
-                Text("GPU").tag("gpu")
-            }
-            Toggle("Apply prompt template", isOn: $applyPromptTemplate)
-            Toggle("Constrained decoding", isOn: $enableConstrainedDecoding)
-            Toggle("Speculative decoding", isOn: $speculativeDecoding)
-            Toggle("Parallel file loading", isOn: $parallelFileLoading)
-            Picker("Activation precision", selection: $activationDtype) {
-                Text("Default").tag(-1)
-                Text("F32").tag(0)
-                Text("F16").tag(1)
-                Text("I16").tag(2)
-                Text("I8").tag(3)
-            }
-            Stepper("Prefill chunk size: \(prefillChunkSize == 0 ? "unset" : "\(prefillChunkSize)")",
-                    value: $prefillChunkSize, in: 0...4096, step: 64)
-            Picker("Debug log level", selection: $debugLogLevel) {
-                Text("Silent").tag(1000)
-                Text("Error").tag(4)
-                Text("Warning").tag(3)
-                Text("Info").tag(2)
-                Text("Debug").tag(1)
-                Text("Verbose").tag(0)
-            }
-        } header: {
-            Text("Advanced")
-        } footer: {
-            Text("Maps directly to litert_lm_engine_settings_* / session_config_* setters. Defaults are safe; touch only when debugging or chasing speed/quality. Constrained decoding requires a grammar — leave off for normal chat.")
-                .font(.caption)
         }
     }
 

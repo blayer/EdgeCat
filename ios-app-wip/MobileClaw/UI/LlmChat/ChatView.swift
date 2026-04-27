@@ -272,44 +272,58 @@ private struct EmptyChatState: View {
 
     var body: some View {
         VStack(spacing: 16) {
-            Image(systemName: "sparkles")
-                .font(.system(size: 56))
-                .foregroundStyle(AppColors.primary.opacity(0.5))
-            Text("Start a conversation")
-                .font(.title3.weight(.semibold))
-                .foregroundStyle(AppColors.onSurface)
-            Text("Tap a prompt below or type your own.")
+            // Gradient-styled invitation. Android paints the headline with
+            // a `Brush.linearGradient(task color → onSurface)`; SwiftUI
+            // gets the same effect via `LinearGradient` masked by a Text.
+            Text("Try an example prompt")
+                .font(.title2.weight(.bold))
+                .foregroundStyle(
+                    LinearGradient(
+                        colors: [AppColors.primary, AppColors.onSurface],
+                        startPoint: .leading,
+                        endPoint: .trailing
+                    )
+                )
+                .multilineTextAlignment(.center)
+                .padding(.horizontal, 32)
+                .padding(.top, 8)
+            Text("Or make your own")
                 .font(.callout)
                 .foregroundStyle(AppColors.onSurfaceVariant)
-                .multilineTextAlignment(.center)
-                .padding(.horizontal, 48)
-            VStack(alignment: .leading, spacing: 8) {
+            VStack(spacing: 12) {
                 ForEach(PromptTemplates.load(), id: \.self) { prompt in
                     Button {
                         onPromptTap(prompt)
                     } label: {
-                        HStack {
+                        // Card tile mirroring Android's `Card` with a 1dp
+                        // primary-30%-alpha border, 24dp corner, and a soft
+                        // shadow tinted with the same primary color.
+                        VStack(alignment: .leading, spacing: 6) {
                             Text(prompt)
-                                .font(.callout)
+                                .font(.body.weight(.semibold))
                                 .foregroundStyle(AppColors.onSurface)
                                 .multilineTextAlignment(.leading)
-                            Spacer()
-                            Image(systemName: "arrow.up.left")
-                                .font(.caption)
-                                .foregroundStyle(AppColors.onSurfaceVariant)
+                                .lineLimit(3)
+                                .frame(maxWidth: .infinity, alignment: .leading)
                         }
-                        .padding(.horizontal, 14)
-                        .padding(.vertical, 10)
+                        .padding(.horizontal, 16)
+                        .padding(.vertical, 18)
                         .background(
-                            RoundedRectangle(cornerRadius: 12, style: .continuous)
-                                .fill(AppColors.surfaceVariant.opacity(0.6))
+                            RoundedRectangle(cornerRadius: 24, style: .continuous)
+                                .fill(AppColors.surface)
                         )
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 24, style: .continuous)
+                                .stroke(AppColors.primary.opacity(0.3), lineWidth: 1)
+                        )
+                        .shadow(color: AppColors.primary.opacity(0.15),
+                                radius: 6, x: 0, y: 2)
                     }
                     .buttonStyle(.plain)
                 }
             }
             .padding(.horizontal, 24)
-            .padding(.top, 8)
+            .padding(.top, 4)
         }
     }
 }
@@ -337,7 +351,7 @@ private struct ModelSwitchSheet: View {
                                     Text(url.deletingPathExtension().lastPathComponent)
                                     Spacer()
                                     if url == currentURL {
-                                        Image(systemName: "checkmark")
+                                        MIcon(name: MIconName.check, size: 18, weight: .regular)
                                             .foregroundStyle(AppColors.primary)
                                     }
                                 }
