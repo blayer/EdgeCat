@@ -19,6 +19,11 @@ public final class ModelDownloader: NSObject, URLSessionDownloadDelegate {
 
     private var task: URLSessionDownloadTask?
     private var destination: URL?
+    /// True between `cancel()` and the next `start()`. URLSession fires
+    /// `didCompleteWithError` with `NSURLErrorCancelled` after we cancel —
+    /// we must ignore that callback so it doesn't overwrite the clean
+    /// `.idle` state with a raw error string.
+    private var cancelled: Bool = false
 
     public override init() { super.init() }
 
@@ -42,6 +47,7 @@ public final class ModelDownloader: NSObject, URLSessionDownloadDelegate {
         destination = dest
         totalBytes = model.sizeInBytes
         bytesDownloaded = 0
+        cancelled = false
         status = .downloading(0)
 
         // Background config so the download survives the app being suspended
@@ -66,8 +72,11 @@ public final class ModelDownloader: NSObject, URLSessionDownloadDelegate {
     }
 
     public func cancel() {
+        cancelled = true
         task?.cancel()
         task = nil
+        bytesDownloaded = 0
+        totalBytes = 0
         status = .idle
     }
 
@@ -103,7 +112,8 @@ public final class ModelDownloader: NSObject, URLSessionDownloadDelegate {
         }
         if !(200..<400).contains(code) {
             try? FileManager.default.removeItem(at: location)
-            Task { @MainActor in self.status = .failed("HTTP \(code) — model may be HF-gated") }
+            let message = Self.friendlyHttpMessage(code: code)
+            Task { @MainActor in self.status = .failed(message) }
             return
         }
         do {
@@ -111,15 +121,86 @@ public final class ModelDownloader: NSObject, URLSessionDownloadDelegate {
             try FileManager.default.moveItem(at: location, to: dst)
             Task { @MainActor in self.status = .succeeded(dst) }
         } catch {
-            Task { @MainActor in self.status = .failed("\(error)") }
+            Task { @MainActor in
+                self.status = .failed("Couldn't save the downloaded file. Please try again.")
+            }
         }
     }
 
     nonisolated public func urlSession(_ session: URLSession,
                                        task: URLSessionTask,
                                        didCompleteWithError error: Error?) {
-        if let error {
-            Task { @MainActor in self.status = .failed("\(error)") }
+        guard let error else { return }
+        Task { @MainActor in
+            // User-initiated cancellation: clean state, never expose
+            // "Error Domain=NSURLErrorDomain Code=-999 …" to the UI.
+            if self.cancelled || Self.isCancellationError(error) {
+                self.status = .idle
+                return
+            }
+            self.status = .failed(Self.friendlyTransportMessage(error))
+        }
+    }
+
+    /// Whether an `Error` from URLSession represents user cancellation. We
+    /// treat both `NSURLErrorCancelled` and Swift's `CancellationError` the
+    /// same — they fire when the user taps Cancel mid-download, when
+    /// `start()` is called twice, or when the app is force-quit.
+    nonisolated private static func isCancellationError(_ error: Error) -> Bool {
+        let nsError = error as NSError
+        if nsError.domain == NSURLErrorDomain, nsError.code == NSURLErrorCancelled {
+            return true
+        }
+        if error is CancellationError { return true }
+        return false
+    }
+
+    /// Translate non-2xx HTTP responses into messages a non-developer can
+    /// act on. 401/403 are by far the most common — both mean the user
+    /// needs to sign in to or accept terms on Hugging Face.
+    nonisolated static func friendlyHttpMessage(code: Int) -> String {
+        switch code {
+        case 401:
+            return "Sign in to Hugging Face to download this model."
+        case 403:
+            return "This model is gated. Accept its terms on huggingface.co, then try again."
+        case 404:
+            return "Model file not found. The URL in the catalog may be out of date."
+        case 408, 504:
+            return "Network timed out. Please try again."
+        case 429:
+            return "Hugging Face rate-limited the request. Please try again in a minute."
+        case 500...599:
+            return "Hugging Face is having trouble (HTTP \(code)). Please try again later."
+        default:
+            return "Download failed (HTTP \(code))."
+        }
+    }
+
+    /// Translate transport-level errors (no DNS, no route, lost connection,
+    /// SSL failure, etc.) into friendly messages. Falls back to a generic
+    /// "Download failed" so we never leak the raw NSError description.
+    nonisolated static func friendlyTransportMessage(_ error: Error) -> String {
+        let nsError = error as NSError
+        guard nsError.domain == NSURLErrorDomain else {
+            return "Download failed. Please try again."
+        }
+        switch nsError.code {
+        case NSURLErrorNotConnectedToInternet,
+             NSURLErrorNetworkConnectionLost,
+             NSURLErrorDataNotAllowed:
+            return "No internet connection. Reconnect and try again."
+        case NSURLErrorTimedOut:
+            return "Network timed out. Please try again."
+        case NSURLErrorCannotFindHost,
+             NSURLErrorDNSLookupFailed:
+            return "Couldn't reach Hugging Face. Check your connection and try again."
+        case NSURLErrorSecureConnectionFailed,
+             NSURLErrorServerCertificateUntrusted,
+             NSURLErrorClientCertificateRejected:
+            return "Secure connection to Hugging Face failed. Please try again."
+        default:
+            return "Download failed. Please try again."
         }
     }
 
