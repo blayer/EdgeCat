@@ -20,7 +20,10 @@ final class SamplerSettingsTests: XCTestCase {
         XCTAssertEqual(SamplerSettings.defaults.topK, 40)
         XCTAssertEqual(SamplerSettings.defaults.topP, 0.95, accuracy: 0.001)
         XCTAssertEqual(SamplerSettings.defaults.temperature, 1.0, accuracy: 0.001)
-        XCTAssertEqual(SamplerSettings.defaults.maxTokens, 1024)
+        // 4096 (raised from 1024) — agentic-mode planner prompts run
+        // 1100+ tokens; 1024 KV cache trips
+        // "INVALID_ARGUMENT: Input token ids are too long" on first send.
+        XCTAssertEqual(SamplerSettings.defaults.maxTokens, 4096)
     }
 
     func testAgentDefaults() {
@@ -42,7 +45,8 @@ final class SamplerSettingsTests: XCTestCase {
         XCTAssertEqual(snap.topK, 40)
         XCTAssertEqual(snap.topP, 0.95, accuracy: 0.001)
         XCTAssertEqual(snap.temperature, 1.0, accuracy: 0.001)
-        XCTAssertEqual(snap.maxTokens, 1024)
+        XCTAssertEqual(snap.maxTokens, 4096,
+                       "Default raised from 1024 to fit agentic-mode planner prompts")
         XCTAssertEqual(snap.systemPrompt, "")
     }
 

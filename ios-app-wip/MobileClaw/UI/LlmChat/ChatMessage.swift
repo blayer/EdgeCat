@@ -8,7 +8,7 @@ public enum MessageRole: String, Sendable {
 }
 
 public struct ChatMessage: Identifiable, Sendable, Equatable {
-    public enum Kind: Sendable, Equatable { case text, loading, error, thinking }
+    public enum Kind: Sendable, Equatable { case text, loading, error, thinking, agentLog }
     public let id: UUID
     public let role: MessageRole
     public var text: String
@@ -16,6 +16,13 @@ public struct ChatMessage: Identifiable, Sendable, Equatable {
     /// Optional thinking-channel content (Gemma's CoT). Renders in a
     /// collapsible panel above the text bubble when non-empty.
     public var thought: String?
+    /// Per-line orchestration progress trace (planning, step results,
+    /// evaluation, …). Populated only when `kind == .agentLog` —
+    /// mirrors android-app's `ChatMessageOrchestrationLog.logLines`.
+    public var logLines: [String]
+    /// True while the orchestrator is still emitting events into
+    /// `logLines`; the UI uses it to show a spinner under the last line.
+    public var logInProgress: Bool
     /// User-attached images for this turn (PNG/JPEG bytes). Rendered as
     /// inline thumbnails above the text bubble for user messages.
     public var images: [Data]
@@ -27,10 +34,14 @@ public struct ChatMessage: Identifiable, Sendable, Equatable {
     public let createdAt: Date
 
     public init(id: UUID = UUID(), role: MessageRole, text: String, kind: Kind = .text,
-                thought: String? = nil, images: [Data] = [], audio: [Data] = [],
+                thought: String? = nil,
+                logLines: [String] = [], logInProgress: Bool = false,
+                images: [Data] = [], audio: [Data] = [],
                 latencyMs: Int64? = nil, createdAt: Date = Date()) {
         self.id = id; self.role = role; self.text = text; self.kind = kind
-        self.thought = thought; self.images = images; self.audio = audio
+        self.thought = thought
+        self.logLines = logLines; self.logInProgress = logInProgress
+        self.images = images; self.audio = audio
         self.latencyMs = latencyMs; self.createdAt = createdAt
     }
 }

@@ -56,8 +56,16 @@ public enum SamplerSettings {
                                        traces: true)
 
     /// Defaults match the Gemma 4 E2B metadata block (TOP_P, k=1, p=0.95,
-    /// temperature=1) plus the prefill_1024 signature for max_tokens.
-    public static let defaults = (topK: 40, topP: 0.95, temperature: 1.0, maxTokens: 1024)
+    /// temperature=1). max_tokens raised to 4096 — Android's
+    /// DEFAULT_MAX_TOKEN is 1024 too, but its UI slider clamps the
+    /// effective minimum to 2000, and agentic-mode planner prompts on
+    /// iOS routinely run 1100+ tokens (skill catalog + date hint +
+    /// memory + conversation context), which trips
+    /// "INVALID_ARGUMENT: Input token ids are too long" on a 1024-token
+    /// KV cache. 4096 leaves headroom for a multi-turn agentic chat
+    /// without paying memory we don't need; users can still bump it
+    /// further in Settings → Model configs.
+    public static let defaults = (topK: 40, topP: 0.95, temperature: 1.0, maxTokens: 4096)
 
     /// Model-knob defaults. Strings are used for accelerator so an empty
     /// value can encode "follow parent".

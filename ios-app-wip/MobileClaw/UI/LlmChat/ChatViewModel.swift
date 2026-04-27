@@ -21,6 +21,15 @@ public final class ChatViewModel {
     private let store: ConversationStore
     private var streamTask: Task<Void, Never>?
 
+    /// Snapshot of the engine-affecting settings used at the last
+    /// `engine.initialize` call. When the user changes any of these in
+    /// Settings, the next `send()` detects the diff and tears down +
+    /// re-initializes the engine. Without this the user would have to
+    /// restart the app for `maxTokens` / `accelerator` / etc. changes
+    /// to take effect — which is what produced the 1024-token error
+    /// users hit when bumping max tokens to 4000 in Settings.
+    private var loadedConfigHash: Int?
+
     /// When true, route user messages through the orchestration loop
     /// (Planner → Executor → Evaluator) instead of direct chat. Sources, in
     /// priority order: launch env var MOBILECLAW_AGENTIC=1, then the
@@ -60,12 +69,21 @@ public final class ChatViewModel {
         streamTask = Task { [weak self] in
             guard let self else { return }
             do {
-                if loadStatus == nil {
+                let s = SamplerSettings.current()
+                // Per-conversation override wins over the global setting.
+                let prompt = conversation.systemPromptOverride
+                    ?? (s.systemPrompt.isEmpty ? nil : s.systemPrompt)
+                let configHash = Self.engineConfigHash(settings: s, systemPrompt: prompt)
+
+                // First-load OR settings changed → tear down + re-init.
+                // The engine holds the C-side conversation, sampler params,
+                // and KV-cache size; none of those can be mutated after
+                // construction, so we destroy the live engine and build a
+                // fresh one. Slow (5-30 s for big models) but correct.
+                let needsReload = (loadStatus == nil) || (configHash != loadedConfigHash)
+                if needsReload {
+                    if loadStatus != nil { engine.cleanUp() }
                     self.loadStatus = "Loading model…"
-                    let s = SamplerSettings.current()
-                    // Per-conversation override wins over the global setting.
-                    let prompt = conversation.systemPromptOverride
-                        ?? (s.systemPrompt.isEmpty ? nil : s.systemPrompt)
                     let visionDefault = LlmBackend.parse(s.visionAccelerator)
                         ?? LlmBackend.parse(s.accelerator)
                         ?? .gpu
@@ -95,6 +113,7 @@ public final class ChatViewModel {
                         enableConstrainedDecoding: s.enableConstrainedDecoding
                     ))
                     self.loadStatus = "Ready"
+                    self.loadedConfigHash = configHash
                 }
 
                 // Agentic mode: drive a Planner → Executor → Evaluator loop
@@ -124,8 +143,7 @@ public final class ChatViewModel {
                         // formatted as "role: text". Snapshot the messages
                         // here so the orchestrator's @Sendable closure
                         // doesn't need to hop back to the MainActor during
-                        // a planner run. Bounded to `historyWindow * 2`
-                        // entries since the renderer trims further.
+                        // a planner run.
                         let historyWindow = s.agentHistoryWindow
                         let snapshot = ChatViewModel.recentHistory(self.messages,
                                                                     take: historyWindow)
@@ -140,8 +158,35 @@ public final class ChatViewModel {
                             tracesEnabled: s.agentTraces,
                             memory: memoryProvider,
                             conversationContext: conversationContextProvider)
+
+                        // Replace the "loading" placeholder with a fresh
+                        // orchestration-log bubble. The observer Task below
+                        // appends lines (Planning…, step results, evaluation)
+                        // as the controller's @Observable state changes.
+                        // Mirrors android-app's `ChatMessageOrchestrationLog`.
+                        let logId = assistantId
+                        self.replace(id: logId,
+                                     with: ChatMessage(id: logId, role: .assistant,
+                                                       text: "", kind: .agentLog,
+                                                       logLines: ["💡 Planning…"],
+                                                       logInProgress: true))
+
+                        let observerTask = Task { @MainActor [weak self] in
+                            await self?.observeOrchestration(logId: logId,
+                                                             controller: controller)
+                        }
+                        defer { observerTask.cancel() }
+
                         let final = try await controller.handle(userMessage: trimmed)
-                        self.update(id: assistantId, text: final, kind: .text, thought: nil)
+                        observerTask.cancel()
+                        // Finalize the log and emit the answer as a
+                        // separate text bubble so the user can copy /
+                        // run-again on it independently of the trace.
+                        self.appendOrchestrationLine(id: logId, "🎉 Task complete")
+                        self.finalizeOrchestrationLog(id: logId)
+                        let answerId = UUID()
+                        self.messages.append(ChatMessage(id: answerId, role: .assistant,
+                                                         text: final, kind: .text))
                         try? store.appendMessage(to: conversation, role: "assistant", content: final)
                         self.isStreaming = false
                         return
@@ -253,6 +298,41 @@ public final class ChatViewModel {
         try? engine.resetConversation(systemInstruction: nil)
         messages.removeAll()
         loadStatus = nil
+        loadedConfigHash = nil
+    }
+
+    /// Hash over every setting that requires reconstructing the LiteRT-LM
+    /// engine (those passed to `litert_lm_engine_settings_*` /
+    /// `litert_lm_session_config_*` / `litert_lm_conversation_config_*`,
+    /// none of which can be mutated after engine creation). Sampler-only
+    /// changes (topK/topP/temperature) ALSO require a re-init because we
+    /// pass them at conversation creation time. Skip pure UI settings.
+    /// `nonisolated` because it touches no actor state — pure Hasher work
+    /// over an immutable Snapshot. Without this, tests calling it from a
+    /// nonisolated XCTestCase context fail under stricter Swift 6
+    /// concurrency in CI.
+    nonisolated static func engineConfigHash(settings s: SamplerSettings.Snapshot,
+                                             systemPrompt: String?) -> Int {
+        var hasher = Hasher()
+        hasher.combine(s.maxTokens)
+        hasher.combine(s.accelerator)
+        hasher.combine(s.visionAccelerator)
+        hasher.combine(s.audioAccelerator)
+        hasher.combine(s.parallelFileLoading)
+        hasher.combine(s.activationDtype)
+        hasher.combine(s.prefillChunkSize)
+        hasher.combine(s.speculativeDecoding)
+        hasher.combine(s.debugLogLevel)
+        hasher.combine(s.samplerType)
+        hasher.combine(s.topK)
+        hasher.combine(s.topP)
+        hasher.combine(s.temperature)
+        hasher.combine(s.seed)
+        hasher.combine(s.maxOutputTokens)
+        hasher.combine(s.applyPromptTemplate)
+        hasher.combine(s.enableConstrainedDecoding)
+        hasher.combine(systemPrompt ?? "")
+        return hasher.finalize()
     }
 
     private func loadHistoryFromStore() {
@@ -288,6 +368,151 @@ public final class ChatViewModel {
         messages[idx].text = text
         messages[idx].kind = kind
         if let thought { messages[idx].thought = thought }
+    }
+
+    /// Wholesale replacement keeping ID stable. Used to swap a `loading`
+    /// placeholder for an `agentLog` bubble when agentic mode kicks in.
+    private func replace(id: UUID, with new: ChatMessage) {
+        guard let idx = messages.firstIndex(where: { $0.id == id }) else {
+            messages.append(new); return
+        }
+        messages[idx] = new
+    }
+
+    private func appendOrchestrationLine(id: UUID, _ line: String) {
+        guard let idx = messages.firstIndex(where: { $0.id == id }) else { return }
+        // Whole-struct replacement so @Observable's setter on `messages`
+        // fires and SwiftUI re-renders. Nested in-place mutation
+        // (`messages[idx].logLines.append(...)`) sometimes doesn't
+        // trip the observation under iOS 17 in our setup.
+        var msg = messages[idx]
+        msg.logLines.append(line)
+        messages[idx] = msg
+    }
+
+    /// Replace the most recent line that starts with `prefix` (e.g. an
+    /// "in-progress" `…` line) with `replacement`. No-op when no match.
+    private func replaceOrchestrationLine(id: UUID,
+                                          prefix: String,
+                                          with replacement: String) {
+        guard let idx = messages.firstIndex(where: { $0.id == id }) else { return }
+        var msg = messages[idx]
+        if let lineIdx = msg.logLines.lastIndex(where: { $0.hasPrefix(prefix) }) {
+            msg.logLines[lineIdx] = replacement
+        } else {
+            msg.logLines.append(replacement)
+        }
+        messages[idx] = msg
+    }
+
+    private func finalizeOrchestrationLog(id: UUID) {
+        guard let idx = messages.firstIndex(where: { $0.id == id }) else { return }
+        var msg = messages[idx]
+        msg.logInProgress = false
+        messages[idx] = msg
+    }
+
+    /// Polls `OrchestrationController.state` while the run is active and
+    /// translates state transitions into log lines on the active log
+    /// bubble. Mirrors android-app's `controller.state.collect { … }` in
+    /// AgentChatScreen. We poll instead of using a stream because
+    /// `@Observable` doesn't expose an AsyncSequence directly; the
+    /// 50ms tick is well below any user-noticeable lag.
+    @MainActor
+    private func observeOrchestration(logId: UUID,
+                                      controller: OrchestrationController) async {
+        var lastStatus: OrchestrationStatus = .idle
+        var lastIteration: Int = -1
+        var emittedSteps: Set<String> = []
+        // Track whether we already announced memory recall / planning thinking
+        // so each event renders exactly once.
+        var memoryAnnounced = false
+
+        while !Task.isCancelled {
+            let s = controller.state
+
+            // Memory recall — fires once.
+            if !memoryAnnounced, let recalled = s.memoryRecalled {
+                memoryAnnounced = true
+                appendOrchestrationLine(id: logId,
+                                        recalled ? "🧠 Memory recalled"
+                                                 : "🧠 No memory found")
+            }
+
+            // Plan ready → resolve "Planning…" and list the steps.
+            if let plan = s.plan, s.iteration != lastIteration {
+                lastIteration = s.iteration
+                let label = s.iteration == 0 ? "💡 Planned" : "🔄 Re-planned"
+                replaceOrchestrationLine(id: logId, prefix: "💡 Planning",
+                                         with: label)
+                replaceOrchestrationLine(id: logId, prefix: "🔄 Re-planning",
+                                         with: label)
+                let iterTag = s.iteration > 0 ? " (iter \(s.iteration + 1))" : ""
+                appendOrchestrationLine(id: logId, "📋 \(plan.goal)\(iterTag)")
+                for step in plan.steps {
+                    let skill = step.skillName.map { " [\($0)]" } ?? ""
+                    appendOrchestrationLine(id: logId, "   • \(step.description)\(skill)")
+                }
+                emittedSteps.removeAll()
+            }
+
+            // Step transitions during execution.
+            if s.status == .executing {
+                for (id, result) in s.stepResults {
+                    let key = "\(id):\(result.status.rawValue)"
+                    if emittedSteps.contains(key) { continue }
+                    emittedSteps.insert(key)
+                    let desc = s.plan?.steps.first(where: { $0.id == id })?.description ?? id
+                    switch result.status {
+                    case .completed:
+                        let dur = result.durationMs > 0
+                            ? String(format: " (%.1fs)", Double(result.durationMs) / 1000)
+                            : ""
+                        appendOrchestrationLine(id: logId, "✅ \(desc)\(dur)")
+                    case .failed:
+                        let err = (result.error ?? "unknown").prefix(80)
+                        appendOrchestrationLine(id: logId, "❌ \(desc) — \(err)")
+                    case .skipped:
+                        appendOrchestrationLine(id: logId, "⏭ \(desc)")
+                    case .running, .pending:
+                        break
+                    }
+                }
+            }
+
+            // Evaluation result.
+            if let eval = s.evaluation, lastStatus == .evaluating, s.status != .evaluating {
+                if eval.goalAchieved {
+                    appendOrchestrationLine(id: logId, "🔍 Evaluated → goal achieved")
+                } else {
+                    let snippet = eval.assessment.prefix(100)
+                    appendOrchestrationLine(id: logId, "⚠️ \(snippet)")
+                    if eval.shouldReplan {
+                        appendOrchestrationLine(id: logId, "🔄 Re-planning…")
+                    }
+                }
+            }
+
+            // Phase transitions for status-only updates (no plan/eval change).
+            if s.status != lastStatus {
+                switch s.status {
+                case .formatting:
+                    appendOrchestrationLine(id: logId, "✍️ Formatting response…")
+                case .repairing:
+                    appendOrchestrationLine(id: logId, "🔧 Diagnosing failed step…")
+                default:
+                    break
+                }
+                lastStatus = s.status
+            }
+
+            // Completed / cancelled / error end states.
+            if s.status == .completed || s.status == .cancelled || s.status == .error {
+                return
+            }
+
+            try? await Task.sleep(nanoseconds: 50_000_000)
+        }
     }
 
     private func setLatency(id: UUID, ms: Int64) {
