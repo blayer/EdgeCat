@@ -10,8 +10,14 @@ xcuserdata/
 *.xcworkspace/xcuserdata/
 
 # Vendored LiteRT-LM artifacts produced by scripts/fetch-litertlm.sh
-# (built from source via Bazel for iOS arm64).
-LiteRtLmBridge/Vendor/litert_lm/
+# (built from source via Bazel for iOS arm64). Heavy binaries (dylibs,
+# static archives) stay local-only — but the public C API header is text
+# and small enough to track so CI can compile the bridge .mm without
+# running an 8-minute Bazel build.
+LiteRtLmBridge/Vendor/litert_lm/*
+!LiteRtLmBridge/Vendor/litert_lm/c/
+LiteRtLmBridge/Vendor/litert_lm/c/*
+!LiteRtLmBridge/Vendor/litert_lm/c/engine.h
 LiteRtLmBridge/Vendor/ios/
 LiteRtLmBridge/Vendor/sim/
 
