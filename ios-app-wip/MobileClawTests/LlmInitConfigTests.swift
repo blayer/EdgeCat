@@ -9,7 +9,7 @@ final class LlmInitConfigTests: XCTestCase {
         let cfg = LlmInitConfig(modelPath: url)
         // Engine-level defaults
         XCTAssertEqual(cfg.backend, .cpu,
-                       "iOS dylib is CPU-only (cc_binary :engine_cpu) — flip to .gpu when Metal build ships")
+                       "GPU support shipped via LiteRtLmMetalAccelerator.xcframework, but default CPU because of an iOS sim Metal kernel limit (see SamplerSettings.modelDefaults).")
         XCTAssertEqual(cfg.visionBackend, .default)
         XCTAssertEqual(cfg.audioBackend, .default)
         XCTAssertEqual(cfg.maxTokens, 1024)

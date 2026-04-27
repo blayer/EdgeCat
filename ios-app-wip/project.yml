@@ -130,6 +130,15 @@ targets:
         embed: true
         codeSign: true
         link: false
+      # Metal accelerator — loaded at runtime by libLiteRtLm.dylib via
+      # dlopen("libLiteRtMetalAccelerator.dylib") when the engine is
+      # asked for backend=gpu. embed=true copies the resolved slice to
+      # MobileClaw.app/Frameworks/, where dyld's @rpath search finds it.
+      # link=false because we don't reference its symbols at build time.
+      - framework: LiteRtLmBridge/Vendor/LiteRtLmMetalAccelerator.xcframework
+        embed: true
+        codeSign: true
+        link: false
 
   MobileClawTests:
     type: bundle.unit-test

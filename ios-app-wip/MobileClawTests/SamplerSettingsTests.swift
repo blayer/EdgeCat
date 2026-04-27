@@ -106,7 +106,7 @@ final class SamplerSettingsTests: XCTestCase {
 
     func testModelDefaultsMatchAndroidParity() {
         XCTAssertEqual(SamplerSettings.modelDefaults.accelerator, "cpu",
-                       "iOS libLiteRtLm.dylib is CPU-only — flip to gpu when Metal-enabled dylib ships")
+                       "GPU support is shipped (Metal xcframework embedded), but default is CPU because the iOS sim's Metal device hits a texture-binding limit on Gemma kernels. Real-device users opt into GPU via Settings.")
         XCTAssertEqual(SamplerSettings.modelDefaults.visionAccelerator, "")
         XCTAssertEqual(SamplerSettings.modelDefaults.audioAccelerator, "")
         XCTAssertEqual(SamplerSettings.modelDefaults.samplerType, 0)

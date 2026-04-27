@@ -62,13 +62,15 @@ public enum SamplerSettings {
     /// Model-knob defaults. Strings are used for accelerator so an empty
     /// value can encode "follow parent".
     public static let modelDefaults = (
-        // Default to CPU on iOS even though Android defaults to GPU. The
-        // libLiteRtLm.dylib we ship is built from `:engine_cpu` only — the
-        // Metal accelerator isn't linked in, so passing backend="gpu" to
-        // litert_lm_engine_create returns NULL ("engine_create returned
-        // NULL"). When the GPU-enabled dylib build lands (Bazel target
-        // `:engine_metal` + xcframework rebuild), flip this back to "gpu"
-        // to match Android.
+        // CPU is the safe default. GPU support IS shipped (the
+        // libLiteRtMetalAccelerator.dylib xcframework is embedded), but
+        // the iOS Simulator's Metal feature set tops out at a texture-
+        // binding argument limit that LiteRT-LM's Gemma kernels exceed
+        // (newComputePipelineStateWithFunction: "argument index 31 >
+        // 30"). Real iPhone devices clear this limit, but defaulting to
+        // GPU would make every sim-based dev hit the error on first
+        // model load. Users can still pick GPU via Settings → Model
+        // configs → Accelerator on a real device.
         accelerator: "cpu",
         visionAccelerator: "",                   // empty = follow `accelerator`
         audioAccelerator: "",                    // empty = follow `accelerator`
