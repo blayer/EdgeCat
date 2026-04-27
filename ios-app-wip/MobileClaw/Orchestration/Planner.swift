@@ -21,19 +21,38 @@ public struct Planner {
         self.historyWindow = historyWindow
     }
 
+    /// Bundles the contextual inputs for a replan call so the method
+    /// signature stays under SwiftLint's 5-parameter cap. Mirrors the
+    /// kotlin data class `ReplanContext` on Android.
+    public struct ReplanContext: Sendable {
+        public let priorPlan: ExecutionPlan
+        public let priorResults: [String: StepResult]
+        public let evaluation: EvaluationResult
+        public let replanAttempt: Int
+        public init(priorPlan: ExecutionPlan,
+                    priorResults: [String: StepResult],
+                    evaluation: EvaluationResult,
+                    replanAttempt: Int) {
+            self.priorPlan = priorPlan
+            self.priorResults = priorResults
+            self.evaluation = evaluation
+            self.replanAttempt = replanAttempt
+        }
+    }
+
     public func plan(userMessage: String,
                      availableSkills: [SkillSummary],
                      iteration: Int = 0,
                      conversationContext: String = "",
                      memoryContext: String = "") async throws -> ExecutionPlan {
         let prompt = Self.buildPlanPrompt(userMessage: userMessage,
-                                           skills: availableSkills,
-                                           userPortrait: userPortrait,
-                                           memoryContext: memoryContext,
-                                           conversationContext: bound(conversationContext))
-        let raw = try await llm.generateResponse(prompt: prompt,
-                                                 enableThinking: policy.planner(userMessage: userMessage,
-                                                                                 iteration: iteration))
+                                          skills: availableSkills,
+                                          userPortrait: userPortrait,
+                                          memoryContext: memoryContext,
+                                          conversationContext: bound(conversationContext))
+        let raw = try await llm.generateResponse(
+            prompt: prompt,
+            enableThinking: policy.planner(userMessage: userMessage, iteration: iteration))
         return try parsePlan(raw, defaultGoal: userMessage)
     }
 
@@ -43,22 +62,18 @@ public struct Planner {
     /// model knows what to fix.
     public func replan(userMessage: String,
                        availableSkills: [SkillSummary],
-                       priorPlan: ExecutionPlan,
-                       priorResults: [String: StepResult],
-                       evaluation: EvaluationResult,
-                       replanAttempt: Int,
+                       context: ReplanContext,
                        conversationContext: String = "",
                        memoryContext: String = "") async throws -> ExecutionPlan {
         let prompt = Self.buildReplanPrompt(userMessage: userMessage,
-                                             skills: availableSkills,
-                                             priorPlan: priorPlan,
-                                             priorResults: priorResults,
-                                             evaluation: evaluation,
-                                             userPortrait: userPortrait,
-                                             memoryContext: memoryContext,
-                                             conversationContext: bound(conversationContext))
-        let raw = try await llm.generateResponse(prompt: prompt,
-                                                 enableThinking: policy.replan(replanAttempt: replanAttempt))
+                                            skills: availableSkills,
+                                            context: context,
+                                            userPortrait: userPortrait,
+                                            memoryContext: memoryContext,
+                                            conversationContext: bound(conversationContext))
+        let raw = try await llm.generateResponse(
+            prompt: prompt,
+            enableThinking: policy.replan(replanAttempt: context.replanAttempt))
         return try parsePlan(raw, defaultGoal: userMessage)
     }
 
@@ -114,12 +129,13 @@ public struct Planner {
 
     static func buildReplanPrompt(userMessage: String,
                                   skills: [SkillSummary],
-                                  priorPlan: ExecutionPlan,
-                                  priorResults: [String: StepResult],
-                                  evaluation: EvaluationResult,
+                                  context: ReplanContext,
                                   userPortrait: String = "",
                                   memoryContext: String = "",
                                   conversationContext: String = "") -> String {
+        let priorPlan = context.priorPlan
+        let priorResults = context.priorResults
+        let evaluation = context.evaluation
         var sections: [String] = [
             "Your previous plan didn't fully satisfy the user. Build a NEW plan that fixes the gaps.",
             "",
@@ -132,9 +148,9 @@ public struct Planner {
             "",
             "Previous step results:",
             priorPlan.steps.map { step -> String in
-                let r = priorResults[step.id]
-                let status = r?.status.rawValue ?? "?"
-                let out = r?.output.prefix(280) ?? ""
+                let result = priorResults[step.id]
+                let status = result?.status.rawValue ?? "?"
+                let out = result?.output.prefix(280) ?? ""
                 return "- \(step.id) [\(status)] (\(step.skillName ?? "no-skill")) — \(out)"
             }.joined(separator: "\n"),
             "",
@@ -225,12 +241,12 @@ public struct Planner {
                 return PlanParseResult(plan: plan, repairTier: "none")
             }
             let tiers: [(String, (String) -> String)] = [
-                ("commas",         Self.repairCommas),
-                ("quotes",         Self.repairQuotes),
-                ("unquoted-keys",  Self.repairUnquotedKeys),
+                ("commas", Self.repairCommas),
+                ("quotes", Self.repairQuotes),
+                ("unquoted-keys", Self.repairUnquotedKeys),
                 ("strip-comments", Self.repairStripComments),
                 ("balance-braces", Self.repairBalanceBraces),
-                ("full",           Self.repairAll),
+                ("full", Self.repairAll),
             ]
             for (name, fn) in tiers {
                 let repaired = fn(extracted)

@@ -80,9 +80,11 @@ final class PlannerTests: XCTestCase {
         let initial = Planner.buildPlanPrompt(userMessage: "hello", skills: [])
         let replan = Planner.buildReplanPrompt(
             userMessage: "hello", skills: [],
-            priorPlan: ExecutionPlan(goal: "hello", reasoning: "", steps: []),
-            priorResults: [:],
-            evaluation: EvaluationResult(goalAchieved: false, assessment: "x", shouldReplan: true))
+            context: Planner.ReplanContext(
+                priorPlan: ExecutionPlan(goal: "hello", reasoning: "", steps: []),
+                priorResults: [:],
+                evaluation: EvaluationResult(goalAchieved: false, assessment: "x", shouldReplan: true),
+                replanAttempt: 1))
         XCTAssertTrue(initial.contains("planner that turns"))
         XCTAssertTrue(replan.contains("plan that fixes the gaps"))
         XCTAssertNotEqual(initial, replan)

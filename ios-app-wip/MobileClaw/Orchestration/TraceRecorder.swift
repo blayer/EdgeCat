@@ -27,19 +27,25 @@ public actor TraceRecorder {
         self.url = dir?.appendingPathComponent("\(runId).jsonl")
     }
 
-    public func phase<T>(kind: String, name: String,
-                          attrs: [String: Any] = [:],
-                          _ block: () async throws -> T) async rethrows -> T {
+    public func phase<T>(kind: String,
+                         name: String,
+                         attrs: [String: Any] = [:],
+                         _ block: () async throws -> T) async rethrows -> T {
         guard enabled else { return try await block() }
         let start = DispatchTime.now()
         do {
             let value = try await block()
-            emit(kind: kind, name: name, start: start, ok: true, error: nil, attrs: attrs)
+            emit(kind: kind, name: name, start: start, outcome: .ok, attrs: attrs)
             return value
         } catch {
-            emit(kind: kind, name: name, start: start, ok: false, error: "\(error)", attrs: attrs)
+            emit(kind: kind, name: name, start: start, outcome: .error("\(error)"), attrs: attrs)
             throw error
         }
+    }
+
+    private enum Outcome {
+        case ok
+        case error(String)
     }
 
     public func event(kind: String, name: String, payload: [String: String] = [:]) async {
@@ -52,14 +58,22 @@ public actor TraceRecorder {
     /// Snapshot of recorded entries. Used by tests; ordering matches emission.
     public func recordedEvents() -> [[String: Any]] { inMemory }
 
-    private func emit(kind: String, name: String, start: DispatchTime,
-                      ok: Bool, error: String?, attrs: [String: Any]) {
+    private func emit(kind: String,
+                      name: String,
+                      start: DispatchTime,
+                      outcome: Outcome,
+                      attrs: [String: Any]) {
         let elapsed = Double(DispatchTime.now().uptimeNanoseconds - start.uptimeNanoseconds) / 1_000_000
         var record: [String: Any] = baseRecord(kind: kind, name: name)
         record["duration_ms"] = elapsed
-        record["ok"] = ok
-        if let error { record["error"] = error }
-        for (k, v) in attrs { record[k] = v }
+        switch outcome {
+        case .ok:
+            record["ok"] = true
+        case .error(let message):
+            record["ok"] = false
+            record["error"] = message
+        }
+        for (key, value) in attrs { record[key] = value }
         write(record)
     }
 

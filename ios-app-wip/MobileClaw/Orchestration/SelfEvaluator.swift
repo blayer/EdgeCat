@@ -18,14 +18,14 @@ public struct SelfEvaluator {
     /// `triageEvaluation` shortcut — saves ~one inference per successful
     /// turn on the happy path.
     public func triage(userMessage: String,
-                        plan: ExecutionPlan,
-                        results: [String: StepResult]) -> EvaluationResult? {
+                       plan: ExecutionPlan,
+                       results: [String: StepResult]) -> EvaluationResult? {
         guard !plan.steps.isEmpty else { return nil }
         // Every planned step must have a result and be COMPLETED.
         for step in plan.steps {
-            guard let r = results[step.id], r.status == .completed else { return nil }
-            if r.output.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { return nil }
-            let lower = r.output.lowercased()
+            guard let result = results[step.id], result.status == .completed else { return nil }
+            if result.output.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { return nil }
+            let lower = result.output.lowercased()
             for marker in ["error", "failed", "unable", "could not"] where lower.contains(marker) {
                 return nil
             }

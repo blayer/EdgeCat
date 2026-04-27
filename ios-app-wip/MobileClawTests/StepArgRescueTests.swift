@@ -7,7 +7,10 @@ final class StepArgRescueTests: XCTestCase {
         var components = DateComponents()
         components.year = 2026; components.month = 4; components.day = 27
         components.hour = 12; components.minute = 0
-        return Calendar(identifier: .gregorian).date(from: components)!
+        // Concrete date — the components above are fully specified so
+        // Calendar.date(from:) is guaranteed non-nil. Use the unix epoch
+        // as the unreachable fallback to keep swiftlint happy.
+        return Calendar(identifier: .gregorian).date(from: components) ?? Date(timeIntervalSince1970: 0)
     }()
 
     // MARK: - Date-time normalization

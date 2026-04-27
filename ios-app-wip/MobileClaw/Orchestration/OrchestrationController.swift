@@ -89,14 +89,16 @@ public final class OrchestrationController {
                         memoryContext: memoryContext)
                 }
             } else if let priorPlan = plan, let priorEval = lastEvaluation {
+                let replanContext = Planner.ReplanContext(
+                    priorPlan: priorPlan,
+                    priorResults: results,
+                    evaluation: priorEval,
+                    replanAttempt: state.iteration)
                 p = try await trace.phase(kind: "phase", name: "replan") {
                     try await planner.replan(
                         userMessage: userMessage,
                         availableSkills: skills,
-                        priorPlan: priorPlan,
-                        priorResults: results,
-                        evaluation: priorEval,
-                        replanAttempt: state.iteration,
+                        context: replanContext,
                         conversationContext: conversationContext,
                         memoryContext: memoryContext)
                 }

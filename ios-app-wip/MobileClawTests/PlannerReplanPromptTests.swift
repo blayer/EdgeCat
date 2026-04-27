@@ -22,17 +22,24 @@ final class PlannerReplanPromptTests: XCTestCase {
                           error: "permission denied")]
     }
 
+    private func makeContext(evaluation: EvaluationResult? = nil) -> Planner.ReplanContext {
+        let evalResult = evaluation ?? EvaluationResult(
+            goalAchieved: false, assessment: "calendar failed",
+            missingItems: ["event creation"],
+            shouldReplan: true,
+            failedCriteria: ["event created"])
+        return Planner.ReplanContext(
+            priorPlan: makePlan(),
+            priorResults: makeResults(),
+            evaluation: evalResult,
+            replanAttempt: 1)
+    }
+
     func testReplanPromptContainsPriorGoalAndStepOutputs() {
         let prompt = Planner.buildReplanPrompt(
             userMessage: "book meeting tomorrow at 3pm",
             skills: [SkillSummary(name: "calendar", description: "calendar CRUD")],
-            priorPlan: makePlan(),
-            priorResults: makeResults(),
-            evaluation: EvaluationResult(goalAchieved: false,
-                                          assessment: "calendar failed",
-                                          missingItems: ["event creation"],
-                                          shouldReplan: true,
-                                          failedCriteria: ["event created"]))
+            context: makeContext())
         XCTAssertTrue(prompt.contains("Previous goal: book meeting tomorrow at 3pm"))
         XCTAssertTrue(prompt.contains("s1 [failed]"))
         XCTAssertTrue(prompt.contains("no calendar permission"))
@@ -41,12 +48,12 @@ final class PlannerReplanPromptTests: XCTestCase {
     func testReplanPromptContainsEvaluatorFeedback() {
         let prompt = Planner.buildReplanPrompt(
             userMessage: "x", skills: [],
-            priorPlan: makePlan(), priorResults: makeResults(),
-            evaluation: EvaluationResult(goalAchieved: false,
-                                          assessment: "calendar perms missing",
-                                          missingItems: ["event"],
-                                          shouldReplan: true,
-                                          failedCriteria: ["event created"]))
+            context: makeContext(evaluation: EvaluationResult(
+                goalAchieved: false,
+                assessment: "calendar perms missing",
+                missingItems: ["event"],
+                shouldReplan: true,
+                failedCriteria: ["event created"])))
         XCTAssertTrue(prompt.contains("calendar perms missing"))
         XCTAssertTrue(prompt.contains("Missing: event"))
         XCTAssertTrue(prompt.contains("Failed criteria: event created"))
@@ -55,8 +62,8 @@ final class PlannerReplanPromptTests: XCTestCase {
     func testReplanPromptIncludesPortraitAndMemoryWhenProvided() {
         let prompt = Planner.buildReplanPrompt(
             userMessage: "x", skills: [],
-            priorPlan: makePlan(), priorResults: makeResults(),
-            evaluation: EvaluationResult(goalAchieved: false, assessment: "x", shouldReplan: true),
+            context: makeContext(evaluation: EvaluationResult(
+                goalAchieved: false, assessment: "x", shouldReplan: true)),
             userPortrait: "uses google calendar",
             memoryContext: "prior episode: succeeded last week")
         XCTAssertTrue(prompt.contains("uses google calendar"))

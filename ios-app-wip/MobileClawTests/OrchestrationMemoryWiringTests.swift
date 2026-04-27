@@ -48,7 +48,7 @@ final class OrchestrationMemoryWiringTests: XCTestCase {
         _ = try await controller.handle(userMessage: "book a meeting")
 
         XCTAssertFalse(llm.prompts.isEmpty, "Planner should have been invoked")
-        let plannerPrompt = llm.prompts.first!
+        let plannerPrompt = try XCTUnwrap(llm.prompts.first)
         XCTAssertTrue(
             plannerPrompt.contains("Relevant prior episodes:"),
             "Memory section must be in the prompt")
@@ -68,7 +68,7 @@ final class OrchestrationMemoryWiringTests: XCTestCase {
             policy: ThinkingPolicy(mode: .off))
         _ = try await controller.handle(userMessage: "x")
 
-        let plannerPrompt = llm.prompts.first!
+        let plannerPrompt = try XCTUnwrap(llm.prompts.first)
         XCTAssertFalse(plannerPrompt.contains("Relevant prior episodes:"),
                        "Memory section must be omitted when nothing is recalled")
         XCTAssertEqual(controller.state.memoryRecalled, false)
@@ -85,7 +85,7 @@ final class OrchestrationMemoryWiringTests: XCTestCase {
             conversationContext: { "user: previously asked about pasta" })
         _ = try await controller.handle(userMessage: "what's for dinner?")
 
-        let plannerPrompt = llm.prompts.first!
+        let plannerPrompt = try XCTUnwrap(llm.prompts.first)
         XCTAssertTrue(plannerPrompt.contains("Recent conversation:"))
         XCTAssertTrue(plannerPrompt.contains("previously asked about pasta"))
     }

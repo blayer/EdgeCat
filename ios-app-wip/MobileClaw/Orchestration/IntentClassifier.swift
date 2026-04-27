@@ -54,7 +54,7 @@ public enum IntentClassifier {
     ].compactMap { try? NSRegularExpression(pattern: $0) }
 
     public static func classify(_ userMessage: String,
-                                 hasPriorAssistantTurn: Bool = false) -> Intent {
+                                hasPriorAssistantTurn: Bool = false) -> Intent {
         let lower = userMessage
             .lowercased()
             .trimmingCharacters(in: .whitespacesAndNewlines)
