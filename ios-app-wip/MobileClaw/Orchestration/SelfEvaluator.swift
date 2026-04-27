@@ -13,9 +13,58 @@ public struct SelfEvaluator {
         self.policy = policy
     }
 
+    /// Cheap rules-first triage. Returns a non-nil `EvaluationResult` when
+    /// the answer is obviously yes (skip the LLM call). Mirrors Android's
+    /// `triageEvaluation` shortcut — saves ~one inference per successful
+    /// turn on the happy path.
+    public func triage(userMessage: String,
+                       plan: ExecutionPlan,
+                       results: [String: StepResult]) -> EvaluationResult? {
+        guard !plan.steps.isEmpty else { return nil }
+        // Every planned step must have a result and be COMPLETED.
+        for step in plan.steps {
+            guard let result = results[step.id], result.status == .completed else { return nil }
+            if result.output.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { return nil }
+            let lower = result.output.lowercased()
+            for marker in ["error", "failed", "unable", "could not"] where lower.contains(marker) {
+                return nil
+            }
+        }
+        // At least one step output should mention a goal token or a
+        // success-criteria token so we know the work is on-target.
+        let combinedOutput = plan.steps
+            .compactMap { results[$0.id]?.output }
+            .joined(separator: " ")
+            .lowercased()
+        let goalTokens = Self.tokens(from: plan.goal)
+        let criteriaTokens = plan.successCriteria.flatMap { Self.tokens(from: $0) }
+        let allTokens = goalTokens + criteriaTokens
+        let hit = allTokens.contains { token in
+            !token.isEmpty && combinedOutput.contains(token)
+        }
+        guard hit else { return nil }
+
+        return EvaluationResult(
+            goalAchieved: true,
+            assessment: "triage-shortcut",
+            missingItems: [],
+            shouldReplan: false,
+            failedCriteria: [])
+    }
+
+    private static func tokens(from text: String) -> [String] {
+        text.lowercased()
+            .split(whereSeparator: { !$0.isLetter && !$0.isNumber })
+            .map(String.init)
+            .filter { $0.count >= 4 }   // skip "the", "and", articles
+    }
+
     public func evaluate(userMessage: String,
                          plan: ExecutionPlan,
                          results: [String: StepResult]) async throws -> EvaluationResult {
+        if let triaged = triage(userMessage: userMessage, plan: plan, results: results) {
+            return triaged
+        }
         let summary = plan.steps.map { step -> String in
             let r = results[step.id]
             return "- \(step.id) [\(r?.status.rawValue ?? "?")] — \(r?.output ?? "")"

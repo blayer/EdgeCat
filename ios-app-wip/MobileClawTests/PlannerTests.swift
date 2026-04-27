@@ -77,10 +77,17 @@ final class PlannerTests: XCTestCase {
     }
 
     func testReplanPromptDiffersFromInitial() {
-        let initial = Planner.buildPrompt(userMessage: "hello", skills: [], iteration: 0)
-        let replan = Planner.buildPrompt(userMessage: "hello", skills: [], iteration: 1)
+        let initial = Planner.buildPlanPrompt(userMessage: "hello", skills: [])
+        let replan = Planner.buildReplanPrompt(
+            userMessage: "hello", skills: [],
+            context: Planner.ReplanContext(
+                priorPlan: ExecutionPlan(goal: "hello", reasoning: "", steps: []),
+                priorResults: [:],
+                evaluation: EvaluationResult(goalAchieved: false, assessment: "x", shouldReplan: true),
+                replanAttempt: 1))
         XCTAssertTrue(initial.contains("planner that turns"))
-        XCTAssertTrue(replan.contains("Replan"))
+        XCTAssertTrue(replan.contains("plan that fixes the gaps"))
+        XCTAssertNotEqual(initial, replan)
     }
 
     func testPlannerThinkingFlagDelegatesToPolicy() async throws {
