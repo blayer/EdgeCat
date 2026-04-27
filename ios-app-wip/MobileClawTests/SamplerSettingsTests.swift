@@ -105,8 +105,8 @@ final class SamplerSettingsTests: XCTestCase {
     // MARK: - Model knob defaults (added in the bridge audit)
 
     func testModelDefaultsMatchAndroidParity() {
-        XCTAssertEqual(SamplerSettings.modelDefaults.accelerator, "gpu",
-                       "Android DEFAULT_ACCELERATORS = [GPU]")
+        XCTAssertEqual(SamplerSettings.modelDefaults.accelerator, "cpu",
+                       "iOS libLiteRtLm.dylib is CPU-only — flip to gpu when Metal-enabled dylib ships")
         XCTAssertEqual(SamplerSettings.modelDefaults.visionAccelerator, "")
         XCTAssertEqual(SamplerSettings.modelDefaults.audioAccelerator, "")
         XCTAssertEqual(SamplerSettings.modelDefaults.samplerType, 0)
@@ -135,7 +135,7 @@ final class SamplerSettingsTests: XCTestCase {
         for k in keys { UserDefaults.standard.removeObject(forKey: k) }
 
         let snap = SamplerSettings.current()
-        XCTAssertEqual(snap.accelerator, "gpu")
+        XCTAssertEqual(snap.accelerator, "cpu")
         XCTAssertEqual(snap.visionAccelerator, "")
         XCTAssertEqual(snap.audioAccelerator, "")
         XCTAssertEqual(snap.samplerType, 0)
