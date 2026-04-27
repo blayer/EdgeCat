@@ -61,20 +61,19 @@ jobs:
 
       - name: Select simulator
         run: |
-          SIMULATOR_NAME="$(xcrun simctl list devices available -j | /usr/bin/python3 -c '
-import json
-import sys
-
-devices = json.load(sys.stdin).get("devices", {})
-names = [
-    device["name"]
-    for runtime, entries in devices.items()
-    if runtime.startswith("com.apple.CoreSimulator.SimRuntime.iOS")
-    for device in entries
-    if device.get("isAvailable")
-]
-print(names[0] if names else "", end="")
-')"
+          # Pick the first available iOS simulator. macos-15 ships several
+          # iPhone 15 / 16 / 17 variants; we don't care which, only that
+          # one is bootable. jq + a small filter beats embedding python in
+          # a YAML scalar (the previous attempt at that broke the workflow
+          # parser when the python lines lost indent).
+          SIMULATOR_NAME="$(xcrun simctl list devices available -j \
+            | jq -r '.devices
+                       | to_entries[]
+                       | select(.key | startswith("com.apple.CoreSimulator.SimRuntime.iOS"))
+                       | .value[]?
+                       | select(.isAvailable)
+                       | .name' \
+            | head -n1)"
           if [ -z "$SIMULATOR_NAME" ]; then
             echo "No available iOS simulator found"
             exit 1
@@ -124,20 +123,19 @@ print(names[0] if names else "", end="")
 
       - name: Select simulator
         run: |
-          SIMULATOR_NAME="$(xcrun simctl list devices available -j | /usr/bin/python3 -c '
-import json
-import sys
-
-devices = json.load(sys.stdin).get("devices", {})
-names = [
-    device["name"]
-    for runtime, entries in devices.items()
-    if runtime.startswith("com.apple.CoreSimulator.SimRuntime.iOS")
-    for device in entries
-    if device.get("isAvailable")
-]
-print(names[0] if names else "", end="")
-')"
+          # Pick the first available iOS simulator. macos-15 ships several
+          # iPhone 15 / 16 / 17 variants; we don't care which, only that
+          # one is bootable. jq + a small filter beats embedding python in
+          # a YAML scalar (the previous attempt at that broke the workflow
+          # parser when the python lines lost indent).
+          SIMULATOR_NAME="$(xcrun simctl list devices available -j \
+            | jq -r '.devices
+                       | to_entries[]
+                       | select(.key | startswith("com.apple.CoreSimulator.SimRuntime.iOS"))
+                       | .value[]?
+                       | select(.isAvailable)
+                       | .name' \
+            | head -n1)"
           if [ -z "$SIMULATOR_NAME" ]; then
             echo "No available iOS simulator found"
             exit 1
