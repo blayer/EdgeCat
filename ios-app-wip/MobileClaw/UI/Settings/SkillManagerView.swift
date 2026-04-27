@@ -14,6 +14,8 @@ struct SkillManagerView: View {
     @State private var rows: [Row] = SkillManagerView.loadRows()
     @State private var secretEditorTarget: Row?
     @State private var editorMode: SkillEditorView.Mode?
+    @State private var customExpanded: Bool = true
+    @State private var builtInExpanded: Bool = true
 
     fileprivate struct Row: Identifiable, Equatable {
         let id: String      // skill slug — stable across launches
@@ -46,24 +48,42 @@ struct SkillManagerView: View {
 
                 if !customRows.isEmpty {
                     Section {
-                        ForEach(customRows) { row in
-                            rowView(row)
+                        if customExpanded {
+                            ForEach(customRows) { row in
+                                rowView(row)
+                            }
+                            .onDelete(perform: deleteCustom)
                         }
-                        .onDelete(perform: deleteCustom)
                     } header: {
-                        Text("Custom")
+                        sectionHeader(title: "Custom",
+                                      count: customRows.count,
+                                      expanded: customExpanded) {
+                            withAnimation(.easeInOut(duration: 0.18)) {
+                                customExpanded.toggle()
+                            }
+                        }
                     } footer: {
-                        Text("Stored under Documents/skills/ — fully editable. Swipe a row to delete it.")
-                            .font(.caption)
+                        if customExpanded {
+                            Text("Stored under Documents/skills/ — fully editable. Swipe a row to delete it.")
+                                .font(.bodySmallNunito)
+                        }
                     }
                 }
 
                 Section {
-                    ForEach(builtInRows) { row in
-                        rowView(row)
+                    if builtInExpanded {
+                        ForEach(builtInRows) { row in
+                            rowView(row)
+                        }
                     }
                 } header: {
-                    Text("Built-in")
+                    sectionHeader(title: "Built-in",
+                                  count: builtInRows.count,
+                                  expanded: builtInExpanded) {
+                        withAnimation(.easeInOut(duration: 0.18)) {
+                            builtInExpanded.toggle()
+                        }
+                    }
                 }
             }
             .listStyle(.insetGrouped)
@@ -100,7 +120,35 @@ struct SkillManagerView: View {
         SkillRow(row: row,
                  onToggle: { setEnabled($0, for: row.id) },
                  onTapSecret: { secretEditorTarget = row },
-                 onTapEdit: { editorMode = .edit(slug: row.id, source: row.source) })
+                 onTapEdit: { editorMode = .edit(slug: row.id, source: row.source) },
+                 onTapView: { editorMode = .edit(slug: row.id, source: row.source) })
+    }
+
+    /// Tappable section header with caret + per-section item count.
+    /// Mirrors Android's `SkillManagerBottomSheet` collapsible-section
+    /// styling: caret on the leading side, label, count chip on trailing.
+    @ViewBuilder
+    private func sectionHeader(title: String, count: Int, expanded: Bool,
+                               onTap: @escaping () -> Void) -> some View {
+        Button(action: onTap) {
+            HStack(spacing: 8) {
+                MIcon(name: expanded ? MIconName.expandLess : MIconName.expandMore,
+                      size: 18, weight: .regular)
+                    .foregroundStyle(AppColors.onSurfaceVariant)
+                Text(title)
+                    .font(.labelLargeNunito.weight(.semibold))
+                    .foregroundStyle(AppColors.onSurface)
+                Text("\(count)")
+                    .font(.labelMediumNunito)
+                    .foregroundStyle(AppColors.onSurfaceVariant)
+                    .padding(.horizontal, 6)
+                    .padding(.vertical, 2)
+                    .background(Capsule().fill(AppColors.surfaceVariant))
+                Spacer()
+            }
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
     }
 
     // MARK: - Filtering
@@ -195,52 +243,77 @@ private struct SkillRow: View {
     let onToggle: (Bool) -> Void
     let onTapSecret: () -> Void
     let onTapEdit: () -> Void
+    let onTapView: () -> Void
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 4) {
+        VStack(alignment: .leading, spacing: 6) {
             HStack(alignment: .top) {
-                Button(action: onTapEdit) {
-                    VStack(alignment: .leading, spacing: 2) {
-                        HStack(spacing: 6) {
-                            Text(row.displayName)
-                                .font(.body.weight(.medium))
-                                .foregroundStyle(.primary)
-                            if row.source == .custom {
-                                Text("CUSTOM")
-                                    .font(.caption2.weight(.bold))
-                                    .padding(.horizontal, 6).padding(.vertical, 1)
-                                    .background(AppColors.primary.opacity(0.15))
-                                    .foregroundStyle(AppColors.primary)
-                                    .clipShape(Capsule())
-                            }
-                        }
-                        if !row.description.isEmpty {
-                            Text(row.description)
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                                .lineLimit(3)
-                                .multilineTextAlignment(.leading)
+                VStack(alignment: .leading, spacing: 2) {
+                    HStack(spacing: 6) {
+                        Text(row.displayName)
+                            .font(.bodyMediumNunito.weight(.semibold))
+                            .foregroundStyle(AppColors.onSurface)
+                        if row.source == .custom {
+                            Text("CUSTOM")
+                                .font(.labelSmallNunito.weight(.bold))
+                                .padding(.horizontal, 6).padding(.vertical, 1)
+                                .background(AppColors.primary.opacity(0.15))
+                                .foregroundStyle(AppColors.primary)
+                                .clipShape(Capsule())
                         }
                     }
-                    .frame(maxWidth: .infinity, alignment: .leading)
+                    if !row.description.isEmpty {
+                        Text(row.description)
+                            .font(.bodySmallNunito)
+                            .foregroundStyle(AppColors.onSurfaceVariant)
+                            .lineLimit(3)
+                            .multilineTextAlignment(.leading)
+                    }
                 }
-                .buttonStyle(.plain)
+                .frame(maxWidth: .infinity, alignment: .leading)
                 Toggle("", isOn: Binding(get: { row.enabled }, set: onToggle))
                     .labelsHidden()
             }
-            if row.requireSecret {
-                Button(action: onTapSecret) {
-                    HStack(spacing: 6) {
-                        MIcon(name: MIconName.key, size: 16, weight: .regular)
-                            .foregroundStyle(row.hasSecret ? AppColors.primary : .secondary)
-                        Text(row.hasSecret ? "Secret set — tap to edit"
-                                            : "Secret required — tap to set")
-                            .font(.bodySmallNunito)
+
+            // Action button row, Android parity: View (always), Secret
+            // (when require-secret), and an implicit Delete on swipe.
+            // Tapping View opens the editor — built-ins are read-only
+            // except instructions; custom skills are fully editable.
+            HStack(spacing: 8) {
+                Button(action: onTapView) {
+                    HStack(spacing: 4) {
+                        MIcon(name: row.source == .custom
+                                    ? MIconName.tune
+                                    : MIconName.visibility,
+                              size: 16, weight: .regular)
+                        Text(row.source == .custom ? "Edit" : "View")
+                            .font(.labelMediumNunito)
                     }
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 5)
+                    .background(Capsule().fill(AppColors.surfaceVariant))
+                    .foregroundStyle(AppColors.onSurface)
                 }
                 .buttonStyle(.plain)
-                .padding(.top, 2)
+
+                if row.requireSecret {
+                    Button(action: onTapSecret) {
+                        HStack(spacing: 4) {
+                            MIcon(name: MIconName.key, size: 16, weight: .regular)
+                                .foregroundStyle(row.hasSecret ? AppColors.primary : AppColors.onSurfaceVariant)
+                            Text(row.hasSecret ? "Edit secret" : "Add secret")
+                                .font(.labelMediumNunito)
+                        }
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 5)
+                        .background(Capsule().fill(AppColors.surfaceVariant))
+                        .foregroundStyle(AppColors.onSurface)
+                    }
+                    .buttonStyle(.plain)
+                }
+                Spacer()
             }
+            .padding(.top, 2)
         }
         .padding(.vertical, 4)
     }
