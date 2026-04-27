@@ -3,21 +3,23 @@ import SwiftUI
 // 1:1 port of the user-facing surface in
 // android-app/.../customtasks/agentchat/SkillManagerBottomSheet.kt:
 // search-filtered list of every shipped skill, per-row enable toggle,
-// "Turn On All / Off All" header buttons, and per-row "key" affordance for
-// skills whose SKILL.md declares `require-secret: true`. We deliberately
-// skip Android's "Add Custom Skill" / multi-select-delete / inline-script
-// editor — none of those are wired up here yet (deferred for a follow-up).
+// "Turn On All / Off All" header buttons, per-row "key" affordance for
+// skills whose SKILL.md declares `require-secret: true`, plus + button
+// to add custom skills, tap-row to edit, and swipe-to-delete on custom
+// rows. Custom and built-in skills live in separate sections.
 
 struct SkillManagerView: View {
     @Environment(\.dismiss) private var dismiss
     @State private var search: String = ""
     @State private var rows: [Row] = SkillManagerView.loadRows()
     @State private var secretEditorTarget: Row?
+    @State private var editorMode: SkillEditorView.Mode?
 
     fileprivate struct Row: Identifiable, Equatable {
         let id: String      // skill slug — stable across launches
         let displayName: String
         let description: String
+        let source: SkillManifest.Source
         let requireSecret: Bool
         let requireSecretDescription: String
         var enabled: Bool
@@ -42,14 +44,26 @@ struct SkillManagerView: View {
                         .font(.caption)
                 }
 
+                if !customRows.isEmpty {
+                    Section {
+                        ForEach(customRows) { row in
+                            rowView(row)
+                        }
+                        .onDelete(perform: deleteCustom)
+                    } header: {
+                        Text("Custom")
+                    } footer: {
+                        Text("Stored under Documents/skills/ — fully editable. Swipe a row to delete it.")
+                            .font(.caption)
+                    }
+                }
+
                 Section {
-                    ForEach(filteredRows) { row in
-                        SkillRow(row: row,
-                                 onToggle: { setEnabled($0, for: row.id) },
-                                 onTapSecret: { secretEditorTarget = row })
+                    ForEach(builtInRows) { row in
+                        rowView(row)
                     }
                 } header: {
-                    Text("Skills")
+                    Text("Built-in")
                 }
             }
             .listStyle(.insetGrouped)
@@ -57,8 +71,13 @@ struct SkillManagerView: View {
             .navigationTitle("Skills")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                ToolbarItem(placement: .topBarTrailing) {
+                ToolbarItem(placement: .topBarLeading) {
                     Button("Done") { dismiss() }
+                }
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button { editorMode = .add } label: {
+                        Image(systemName: "plus")
+                    }
                 }
             }
             .sheet(item: $secretEditorTarget) { row in
@@ -68,10 +87,23 @@ struct SkillManagerView: View {
                                           : row.requireSecretDescription,
                                   onSaved: { reloadOne(row.id) })
             }
+            .sheet(item: $editorMode) { mode in
+                SkillEditorView(mode: mode, onSaved: { reloadAll() })
+            }
         }
     }
 
-    // MARK: - Filtering + state mutation
+    // MARK: - Row composition
+
+    @ViewBuilder
+    private func rowView(_ row: Row) -> some View {
+        SkillRow(row: row,
+                 onToggle: { setEnabled($0, for: row.id) },
+                 onTapSecret: { secretEditorTarget = row },
+                 onTapEdit: { editorMode = .edit(slug: row.id, source: row.source) })
+    }
+
+    // MARK: - Filtering
 
     private var filteredRows: [Row] {
         let q = search.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
@@ -81,6 +113,11 @@ struct SkillManagerView: View {
                 || $0.description.lowercased().contains(q)
         }
     }
+
+    private var customRows:  [Row] { filteredRows.filter { $0.source == .custom } }
+    private var builtInRows: [Row] { filteredRows.filter { $0.source == .builtIn } }
+
+    // MARK: - Actions
 
     private func setEnabled(_ enabled: Bool, for slug: String) {
         SkillToggles.setEnabled(enabled, for: slug)
@@ -99,27 +136,54 @@ struct SkillManagerView: View {
         rows[idx].hasSecret = SkillSecrets.hasToken(for: slug)
     }
 
+    private func reloadAll() { rows = Self.loadRows() }
+
+    private func deleteCustom(at offsets: IndexSet) {
+        let targets = offsets.map { customRows[$0].id }
+        for slug in targets {
+            try? CustomSkillStore.delete(slug: slug)
+            SkillInstructions.clear(slug: slug)
+            SkillSecrets.setToken(nil, for: slug)
+        }
+        reloadAll()
+    }
+
     // MARK: - Row hydration
 
-    /// Load the catalog from the same pipeline the planner uses, then
-    /// decorate with per-row state (enabled, secret-set). Done once at sheet
-    /// open; the manager doesn't re-scan in response to live filesystem
-    /// changes since the bundle is read-only.
+    /// Pull the merged catalog (built-ins + custom from Documents/) and
+    /// decorate every row with enabled + secret state. Done at open and
+    /// after each save/delete; we don't watch the filesystem for changes
+    /// since edits go through this view's own Save buttons.
     @MainActor fileprivate static func loadRows() -> [Row] {
         let summaries = SkillRegistry.defaultSet().allSkills()
         let manifestsBySlug = Dictionary(uniqueKeysWithValues:
-            SkillBundle.scanResources().map { ($0.slug, $0) })
+            SkillBundle.scanAll().map { ($0.slug, $0) })
         return summaries.map { summary in
             let manifest = manifestsBySlug[summary.name]
             return Row(
                 id: summary.name,
                 displayName: summary.name,
                 description: summary.description,
+                // Native (non-JS) skills don't have a manifest in the
+                // Documents-or-bundle scan and aren't editable, so they
+                // always count as built-in here.
+                source: manifest?.source ?? .builtIn,
                 requireSecret: manifest?.requireSecret ?? false,
                 requireSecretDescription: manifest?.requireSecretDescription ?? "",
                 enabled: SkillToggles.isEnabled(summary.name),
                 hasSecret: SkillSecrets.hasToken(for: summary.name)
             )
+        }
+    }
+}
+
+// MARK: - Editor mode → Identifiable for sheet(item:)
+
+extension SkillEditorView.Mode: Identifiable {
+    public var id: String {
+        switch self {
+        case .add: return "_add"
+        case .edit(let slug, _): return slug
         }
     }
 }
@@ -130,21 +194,37 @@ private struct SkillRow: View {
     let row: SkillManagerView.Row
     let onToggle: (Bool) -> Void
     let onTapSecret: () -> Void
+    let onTapEdit: () -> Void
 
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
             HStack(alignment: .top) {
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(row.displayName)
-                        .font(.body.weight(.medium))
-                    if !row.description.isEmpty {
-                        Text(row.description)
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                            .lineLimit(3)
+                Button(action: onTapEdit) {
+                    VStack(alignment: .leading, spacing: 2) {
+                        HStack(spacing: 6) {
+                            Text(row.displayName)
+                                .font(.body.weight(.medium))
+                                .foregroundStyle(.primary)
+                            if row.source == .custom {
+                                Text("CUSTOM")
+                                    .font(.caption2.weight(.bold))
+                                    .padding(.horizontal, 6).padding(.vertical, 1)
+                                    .background(AppColors.primary.opacity(0.15))
+                                    .foregroundStyle(AppColors.primary)
+                                    .clipShape(Capsule())
+                            }
+                        }
+                        if !row.description.isEmpty {
+                            Text(row.description)
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                                .lineLimit(3)
+                                .multilineTextAlignment(.leading)
+                        }
                     }
+                    .frame(maxWidth: .infinity, alignment: .leading)
                 }
-                Spacer()
+                .buttonStyle(.plain)
                 Toggle("", isOn: Binding(get: { row.enabled }, set: onToggle))
                     .labelsHidden()
             }

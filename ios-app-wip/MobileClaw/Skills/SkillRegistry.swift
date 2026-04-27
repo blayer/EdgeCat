@@ -72,12 +72,12 @@ public final class SkillRegistry: ToolExecutor, @unchecked Sendable {
         ]
         let nativeNames = Set(nativeSkills.map { $0.name })
 
-        // Auto-discover JS-backed skills. Any `Resources/skills/<slug>/`
-        // directory with both a SKILL.md and `scripts/index.html` becomes a
-        // JsSkill — no per-skill registration needed. Skip slugs that
-        // collide with a native skill (the native one wins; JS variants
-        // would otherwise shadow it).
-        let jsSkills: [Skill] = SkillBundle.scanResources()
+        // Auto-discover JS-backed skills. Any `<root>/skills/<slug>/`
+        // directory (built-in OR user-authored) with a SKILL.md and a
+        // `scripts/index.html` becomes a JsSkill — no per-skill
+        // registration needed. Custom skills win on slug collision (so a
+        // user can override a built-in). Native skills shadow both.
+        let jsSkills: [Skill] = SkillBundle.scanAll()
             .filter { $0.hasJsScripts && !nativeNames.contains($0.slug) }
             .map { JsSkill(manifest: $0) }
 

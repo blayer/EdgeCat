@@ -78,24 +78,34 @@ public final class JsSkillRunner: NSObject, WKNavigationDelegate {
 @MainActor public final class JsSkill: Skill {
     nonisolated public let name: String
     nonisolated public let description: String
-    nonisolated public let instructions: String
+    /// Effective instructions surfaced to the planner — user override wins
+    /// over the SKILL.md default.
+    nonisolated public var instructions: String {
+        SkillInstructions.effective(slug: name, default: defaultInstructions)
+    }
     /// Bundle subdirectory under Resources/skills/.
     public let bundleDir: String
+    /// Where the manifest came from. Custom skills load their JS from
+    /// Documents/skills/, built-ins from the app bundle.
+    public let source: SkillManifest.Source
     /// True iff the skill's SKILL.md declares `require-secret: true`. The
     /// runner refuses to call the JS until the user has stored a secret in
     /// `SkillSecrets`.
     public let requireSecret: Bool
     public let requireSecretDescription: String
+    private let defaultInstructions: String
 
     public init(name: String, description: String, bundleDir: String,
                 instructions: String = "",
                 requireSecret: Bool = false,
-                requireSecretDescription: String = "") {
+                requireSecretDescription: String = "",
+                source: SkillManifest.Source = .builtIn) {
         self.name = name; self.description = description
         self.bundleDir = bundleDir
-        self.instructions = instructions
+        self.defaultInstructions = instructions
         self.requireSecret = requireSecret
         self.requireSecretDescription = requireSecretDescription
+        self.source = source
     }
 
     /// Convenience initializer for skills built from a parsed SKILL.md
@@ -106,7 +116,8 @@ public final class JsSkillRunner: NSObject, WKNavigationDelegate {
                   bundleDir: manifest.slug,
                   instructions: manifest.instructions,
                   requireSecret: manifest.requireSecret,
-                  requireSecretDescription: manifest.requireSecretDescription)
+                  requireSecretDescription: manifest.requireSecretDescription,
+                  source: manifest.source)
     }
 
     public func run(args: [String: String]) async -> ToolExecutionResult {
@@ -114,8 +125,22 @@ public final class JsSkillRunner: NSObject, WKNavigationDelegate {
             return ToolExecutionResult(success: false,
                                        error: "secret_required: \(requireSecretDescription.isEmpty ? name : requireSecretDescription)")
         }
-        guard let url = Bundle.main.url(forResource: "index", withExtension: "html",
-                                        subdirectory: "skills/\(bundleDir)/scripts") else {
+        // Custom skills are read from Documents/skills/, built-ins from
+        // the app bundle. The JsSkillRunner needs a real on-disk file URL
+        // either way; WKWebView grants the loader read access to the
+        // containing directory.
+        let url: URL? = {
+            switch source {
+            case .custom:
+                return CustomSkillStore.skillsRootURL?
+                    .appendingPathComponent(bundleDir)
+                    .appendingPathComponent("scripts/index.html")
+            case .builtIn:
+                return Bundle.main.url(forResource: "index", withExtension: "html",
+                                        subdirectory: "skills/\(bundleDir)/scripts")
+            }
+        }()
+        guard let url, FileManager.default.fileExists(atPath: url.path) else {
             return ToolExecutionResult(success: false, error: "index.html missing for \(name)")
         }
         let runner = JsSkillRunner()
