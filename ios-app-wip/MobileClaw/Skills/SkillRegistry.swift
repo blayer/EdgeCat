@@ -2,7 +2,9 @@ import Foundation
 
 // Mirrors android-app/.../customtasks/agentchat/SkillManagerViewModel.kt's
 // catalog-of-skills surface. Each Skill registers itself; ToolExecutor
-// dispatches by name.
+// dispatches by name. The registry knows about every shipped skill;
+// `getAvailableSkills()` filters to user-enabled skills via
+// `SkillToggles` so the planner only sees what the user wants exposed.
 
 public final class SkillRegistry: ToolExecutor, @unchecked Sendable {
     private var skillsByName: [String: Skill] = [:]
@@ -24,25 +26,36 @@ public final class SkillRegistry: ToolExecutor, @unchecked Sendable {
         return await skill.run(args: args)
     }
 
+    /// Skills the planner should see — drops anything the user has toggled
+    /// off via the Skill Manager. The full catalog (including disabled
+    /// rows) is reachable through `allSkills()` for the Settings UI.
     public func getAvailableSkills() -> [SkillSummary] {
+        queue.sync {
+            skillsByName.values
+                .filter { SkillToggles.isEnabled($0.name) }
+                .map { $0.summary }
+                .sorted { $0.name < $1.name }
+        }
+    }
+
+    /// Full catalog regardless of enabled state. Used by SkillManagerView.
+    public func allSkills() -> [SkillSummary] {
         queue.sync { skillsByName.values.map { $0.summary }.sorted { $0.name < $1.name } }
     }
 
-    /// Bundle of platform-portable skills suitable for Phase D MVP plus
-    /// permission-gated iOS skills (Contacts, Calendar, Reminders, Photos,
-    /// Location, Phone, SMS, Flashlight, Share). Stubs for skills with no
-    /// iOS equivalent (DND toggle, set-alarm, list-apps) round out the set
-    /// so the planner can address the same skill catalog as Android and the
-    /// evaluator can replan around the not_supported_on_ios surface.
+    /// Bundle of native iOS skills (permission-gated platform integrations
+    /// and on-device computations) plus every JS skill auto-loaded from
+    /// `Resources/skills/<slug>/SKILL.md`. Stubs for skills without an iOS
+    /// equivalent (DND toggle, set-alarm, list-apps) round out the catalog
+    /// so the planner addresses the same names Android does and the
+    /// evaluator can replan around `not_supported_on_ios` errors.
     @MainActor public static func defaultSet() -> SkillRegistry {
-        SkillRegistry(skills: [
-            // Platform-portable
+        let nativeSkills: [Skill] = [
             CalculatorSkill(),
             ClipboardSkill(),
             DeviceInfoSkill(),
             FetchWebContentSkill(),
             SearchWebSkill(),
-            // Native iOS — permission-gated
             ContactsSkill(),
             CalendarSkill(),
             RemindersSkill(),
@@ -53,16 +66,21 @@ public final class SkillRegistry: ToolExecutor, @unchecked Sendable {
             FlashlightSkill(),
             ShareContentSkill(),
             BarcodeSkill(),
-            // JS-backed skills (Resources/skills/<name>/scripts/index.html
-            // loaded into WKWebView, invoked via JsSkillRunner)
-            JsSkill(name: "query-wikipedia",
-                    description: "Look up a topic on Wikipedia and return a summary.",
-                    jsFunction: "queryWikipedia",
-                    bundleDir: "query-wikipedia"),
-            // Not supported on iOS — return structured errors for the evaluator
             DoNotDisturbSkill(),
             SetAlarmSkill(),
             ListAppsSkill(),
-        ])
+        ]
+        let nativeNames = Set(nativeSkills.map { $0.name })
+
+        // Auto-discover JS-backed skills. Any `Resources/skills/<slug>/`
+        // directory with both a SKILL.md and `scripts/index.html` becomes a
+        // JsSkill — no per-skill registration needed. Skip slugs that
+        // collide with a native skill (the native one wins; JS variants
+        // would otherwise shadow it).
+        let jsSkills: [Skill] = SkillBundle.scanResources()
+            .filter { $0.hasJsScripts && !nativeNames.contains($0.slug) }
+            .map { JsSkill(manifest: $0) }
+
+        return SkillRegistry(skills: nativeSkills + jsSkills)
     }
 }

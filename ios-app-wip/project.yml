@@ -37,8 +37,20 @@ targets:
       - MobileClaw/Resources/Assets.xcassets
       - MobileClaw/Resources/model_allowlist.json
       - MobileClaw/Resources/prompt_templates.json
-      - path: MobileClaw/Resources/skills
-        type: folder
+    # xcodegen 2.45 silently drops `type: folder` resources, so the JS skill
+    # bundle (Resources/skills/<slug>/{SKILL.md,scripts/index.html}) gets
+    # copied via an explicit Run Script phase instead. Folder reference =
+    # preserves directory layout (which the JS runner depends on for
+    # `subdirectory:` lookups). Idempotent: rsync deletes stale paths so
+    # renaming a skill in source doesn't leak into the bundle.
+    postBuildScripts:
+      - name: Copy JS skill bundle
+        outputFiles:
+          - $(BUILT_PRODUCTS_DIR)/$(WRAPPER_NAME)/skills
+        script: |
+          rsync -a --delete \
+            "$SRCROOT/MobileClaw/Resources/skills/" \
+            "$BUILT_PRODUCTS_DIR/$WRAPPER_NAME/skills/"
     info:
       path: MobileClaw/Resources/Info.plist
       properties:
