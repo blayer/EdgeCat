@@ -21,6 +21,15 @@ public final class ChatViewModel {
     private let store: ConversationStore
     private var streamTask: Task<Void, Never>?
 
+    /// Snapshot of the engine-affecting settings used at the last
+    /// `engine.initialize` call. When the user changes any of these in
+    /// Settings, the next `send()` detects the diff and tears down +
+    /// re-initializes the engine. Without this the user would have to
+    /// restart the app for `maxTokens` / `accelerator` / etc. changes
+    /// to take effect — which is what produced the 1024-token error
+    /// users hit when bumping max tokens to 4000 in Settings.
+    private var loadedConfigHash: Int?
+
     /// When true, route user messages through the orchestration loop
     /// (Planner → Executor → Evaluator) instead of direct chat. Sources, in
     /// priority order: launch env var MOBILECLAW_AGENTIC=1, then the
@@ -60,12 +69,21 @@ public final class ChatViewModel {
         streamTask = Task { [weak self] in
             guard let self else { return }
             do {
-                if loadStatus == nil {
+                let s = SamplerSettings.current()
+                // Per-conversation override wins over the global setting.
+                let prompt = conversation.systemPromptOverride
+                    ?? (s.systemPrompt.isEmpty ? nil : s.systemPrompt)
+                let configHash = Self.engineConfigHash(settings: s, systemPrompt: prompt)
+
+                // First-load OR settings changed → tear down + re-init.
+                // The engine holds the C-side conversation, sampler params,
+                // and KV-cache size; none of those can be mutated after
+                // construction, so we destroy the live engine and build a
+                // fresh one. Slow (5-30 s for big models) but correct.
+                let needsReload = (loadStatus == nil) || (configHash != loadedConfigHash)
+                if needsReload {
+                    if loadStatus != nil { engine.cleanUp() }
                     self.loadStatus = "Loading model…"
-                    let s = SamplerSettings.current()
-                    // Per-conversation override wins over the global setting.
-                    let prompt = conversation.systemPromptOverride
-                        ?? (s.systemPrompt.isEmpty ? nil : s.systemPrompt)
                     let visionDefault = LlmBackend.parse(s.visionAccelerator)
                         ?? LlmBackend.parse(s.accelerator)
                         ?? .gpu
@@ -95,6 +113,7 @@ public final class ChatViewModel {
                         enableConstrainedDecoding: s.enableConstrainedDecoding
                     ))
                     self.loadStatus = "Ready"
+                    self.loadedConfigHash = configHash
                 }
 
                 // Agentic mode: drive a Planner → Executor → Evaluator loop
@@ -253,6 +272,37 @@ public final class ChatViewModel {
         try? engine.resetConversation(systemInstruction: nil)
         messages.removeAll()
         loadStatus = nil
+        loadedConfigHash = nil
+    }
+
+    /// Hash over every setting that requires reconstructing the LiteRT-LM
+    /// engine (those passed to `litert_lm_engine_settings_*` /
+    /// `litert_lm_session_config_*` / `litert_lm_conversation_config_*`,
+    /// none of which can be mutated after engine creation). Sampler-only
+    /// changes (topK/topP/temperature) ALSO require a re-init because we
+    /// pass them at conversation creation time. Skip pure UI settings.
+    static func engineConfigHash(settings s: SamplerSettings.Snapshot,
+                                 systemPrompt: String?) -> Int {
+        var hasher = Hasher()
+        hasher.combine(s.maxTokens)
+        hasher.combine(s.accelerator)
+        hasher.combine(s.visionAccelerator)
+        hasher.combine(s.audioAccelerator)
+        hasher.combine(s.parallelFileLoading)
+        hasher.combine(s.activationDtype)
+        hasher.combine(s.prefillChunkSize)
+        hasher.combine(s.speculativeDecoding)
+        hasher.combine(s.debugLogLevel)
+        hasher.combine(s.samplerType)
+        hasher.combine(s.topK)
+        hasher.combine(s.topP)
+        hasher.combine(s.temperature)
+        hasher.combine(s.seed)
+        hasher.combine(s.maxOutputTokens)
+        hasher.combine(s.applyPromptTemplate)
+        hasher.combine(s.enableConstrainedDecoding)
+        hasher.combine(systemPrompt ?? "")
+        return hasher.finalize()
     }
 
     private func loadHistoryFromStore() {
