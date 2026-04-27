@@ -55,7 +55,7 @@ final class SelfEvaluatorTests: XCTestCase {
 
 final class ResponseFormatterTests: XCTestCase {
 
-    func testReturnsLastCompletedStepOutput() async throws {
+    func testMultiStepGoesThroughLlmSynthesis() async throws {
         let llm = StubLLM("LLM-formatted answer")
         let fmt = ResponseFormatter(llm: llm, policy: ThinkingPolicy(mode: .off))
         let plan = ExecutionPlan(goal: "g", reasoning: "r", steps: [
@@ -66,11 +66,15 @@ final class ResponseFormatterTests: XCTestCase {
             "s1": StepResult(stepId: "s1", status: .completed, output: "first"),
             "s2": StepResult(stepId: "s2", status: .completed, output: "second"),
         ]
+        // Phase 4 formatter: multi-step plans always go through LLM
+        // synthesis so the answer reads as one coherent message rather
+        // than the last skill's raw output. Mirrors Android.
         let r = try await fmt.format(userMessage: "u", plan: plan, results: results)
-        XCTAssertEqual(r, "second")
+        XCTAssertEqual(r.text, "LLM-formatted answer")
+        XCTAssertFalse(r.isHtml)
     }
 
-    func testFallsBackToJoinedOutputs() async throws {
+    func testFailedAndSkippedStepsStillTriggerLlmSynthesis() async throws {
         let llm = StubLLM("LLM-formatted answer")
         let fmt = ResponseFormatter(llm: llm, policy: ThinkingPolicy(mode: .off))
         let plan = ExecutionPlan(goal: "g", reasoning: "r", steps: [
@@ -78,15 +82,15 @@ final class ResponseFormatterTests: XCTestCase {
             PlanStep(id: "s2", description: "y", skillName: "b"),
         ])
         let results: [String: StepResult] = [
-            // No completed step has output; only failed/skipped do.
             "s1": StepResult(stepId: "s1", status: .failed, output: "partial-1"),
             "s2": StepResult(stepId: "s2", status: .skipped, output: "partial-2"),
         ]
         let r = try await fmt.format(userMessage: "u", plan: plan, results: results)
-        XCTAssertEqual(r, "partial-1\n\npartial-2")
+        XCTAssertEqual(r.text, "LLM-formatted answer",
+                       "When no successful step output, formatter still asks LLM to synthesize a user-facing message")
     }
 
-    func testFallsBackToLLMWhenAllOutputsEmpty() async throws {
+    func testEmptySuccessfulOutputFallsBackToLLMSynthesis() async throws {
         let llm = StubLLM("synthesized response")
         let fmt = ResponseFormatter(llm: llm, policy: ThinkingPolicy(mode: .off))
         let plan = ExecutionPlan(goal: "g", reasoning: "r", steps: [
@@ -96,6 +100,6 @@ final class ResponseFormatterTests: XCTestCase {
             "s1": StepResult(stepId: "s1", status: .completed, output: ""),
         ]
         let r = try await fmt.format(userMessage: "u", plan: plan, results: results)
-        XCTAssertEqual(r, "synthesized response")
+        XCTAssertEqual(r.text, "synthesized response")
     }
 }

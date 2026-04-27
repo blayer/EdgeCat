@@ -101,24 +101,34 @@ public final class ChatViewModel {
                 // and emit the final formatted response as a single bubble.
                 // Used by env var MOBILECLAW_AGENTIC=1 today; surfaces as a
                 // top-bar toggle in a follow-up commit.
+                // Agentic-mode classifier: regex heuristics decide whether
+                // the user is asking the device to do something or just
+                // chatting. Greetings / small talk fall through to the plain
+                // LLM path so we don't burn 3 plan/execute/evaluate cycles
+                // on "hi". Mirrors android-app's `Planner.classifyIntent`.
                 if self.agenticMode {
-                    let s = SamplerSettings.current()
-                    let provider = LiteRtLmInferenceProvider(engine: self.engine)
-                    let tools = SkillRegistry.defaultSet()
-                    let policy = ThinkingPolicy(mode: ThinkingMode.from(s.agentThinkingMode))
-                    let controller = OrchestrationController(
-                        llm: provider, tools: tools, policy: policy,
-                        maxIterations: s.agentMaxLoops,
-                        maxRepair: s.agentMaxRepair,
-                        skillTimeoutSecs: s.agentSkillTimeoutSecs,
-                        historyWindow: s.agentHistoryWindow,
-                        userPortrait: s.userPortrait,
-                        tracesEnabled: s.agentTraces)
-                    let final = try await controller.handle(userMessage: trimmed)
-                    self.update(id: assistantId, text: final, kind: .text, thought: nil)
-                    try? store.appendMessage(to: conversation, role: "assistant", content: final)
-                    self.isStreaming = false
-                    return
+                    let hasPrior = self.messages.contains { $0.role == .assistant }
+                    let intent = IntentClassifier.classify(trimmed, hasPriorAssistantTurn: hasPrior)
+                    if intent == .task {
+                        let s = SamplerSettings.current()
+                        let provider = LiteRtLmInferenceProvider(engine: self.engine)
+                        let tools = SkillRegistry.defaultSet()
+                        let policy = ThinkingPolicy(mode: ThinkingMode.from(s.agentThinkingMode))
+                        let controller = OrchestrationController(
+                            llm: provider, tools: tools, policy: policy,
+                            maxIterations: s.agentMaxLoops,
+                            maxRepair: s.agentMaxRepair,
+                            skillTimeoutSecs: s.agentSkillTimeoutSecs,
+                            historyWindow: s.agentHistoryWindow,
+                            userPortrait: s.userPortrait,
+                            tracesEnabled: s.agentTraces)
+                        let final = try await controller.handle(userMessage: trimmed)
+                        self.update(id: assistantId, text: final, kind: .text, thought: nil)
+                        try? store.appendMessage(to: conversation, role: "assistant", content: final)
+                        self.isStreaming = false
+                        return
+                    }
+                    // Intent == .chat → fall through to the plain LLM stream.
                 }
 
                 let stream = engine.runInference(prompt: trimmed,

@@ -54,6 +54,31 @@ final class TraceRecorderEnabledTests: XCTestCase {
         XCTAssertNotNil(events.first?["duration_ms"])
     }
 
+    func testEventsIncludeThermalAndMemoryAttrs() async {
+        let rec = TraceRecorder(runId: "test-attrs-\(UUID().uuidString)", enabled: true)
+        await rec.event(kind: "step.start", name: "s1")
+        let events = await rec.recordedEvents()
+        XCTAssertEqual(events.count, 1)
+        let thermal = events[0]["thermal_state"] as? String
+        XCTAssertNotNil(thermal)
+        XCTAssertTrue(["nominal", "fair", "serious", "critical", "unknown"].contains(thermal ?? ""),
+                      "Unexpected thermal label: \(thermal ?? "nil")")
+        XCTAssertNotNil(events[0]["memory_mb"] as? Double,
+                        "Resident memory should be present (may be 0.0)")
+    }
+
+    func testPhaseAttrsRideAlongInRecord() async throws {
+        let rec = TraceRecorder(runId: "test-phase-attrs-\(UUID().uuidString)", enabled: true)
+        _ = try await rec.phase(kind: "phase", name: "plan",
+                                 attrs: ["iteration": 0, "thinking": true]) {
+            "ok"
+        }
+        let events = await rec.recordedEvents()
+        XCTAssertEqual(events.count, 1)
+        XCTAssertEqual(events[0]["iteration"] as? Int, 0)
+        XCTAssertEqual(events[0]["thinking"] as? Bool, true)
+    }
+
     func testDisabledRecorderWritesNoFile() async {
         let runId = "test-no-file-\(UUID().uuidString)"
         let rec = TraceRecorder(runId: runId, enabled: false)

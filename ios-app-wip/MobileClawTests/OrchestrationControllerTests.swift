@@ -32,8 +32,9 @@ private final class ScriptedExecutor: ToolExecutor, @unchecked Sendable {
 final class OrchestrationControllerTests: XCTestCase {
 
     func testHappyPathPlanExecuteEvaluateFormat() async throws {
-        // 1st prompt = planner, 2nd = evaluator (returns goalAchieved).
-        // No 3rd needed because formatter falls through to last step's output.
+        // Planner emits skillName "calculator" → SkillTools resolves to
+        // tool "calculate" (matches Android NATIVE_SKILL_TOOLS map).
+        // Single completed step + plain output → formatter passes through.
         let llm = ScriptedLLM([
             #"""
             {"goal":"calc","reasoning":"r","steps":[{"id":"s1","description":"compute","skillName":"calculator","toolArgs":{"expression":"2+2"}}],"successCriteria":[]}
@@ -43,7 +44,7 @@ final class OrchestrationControllerTests: XCTestCase {
             """#,
         ])
         let tools = ScriptedExecutor([
-            "calculator": ToolExecutionResult(success: true, output: "4"),
+            "calculate": ToolExecutionResult(success: true, output: "4"),
         ])
         let ctrl = OrchestrationController(llm: llm, tools: tools,
                                            policy: ThinkingPolicy(mode: .off),
@@ -75,7 +76,7 @@ final class OrchestrationControllerTests: XCTestCase {
             """#,
         ])
         let tools = ScriptedExecutor([
-            "calculator": ToolExecutionResult(success: true, output: "ok"),
+            "calculate": ToolExecutionResult(success: true, output: "ok"),
         ])
         let ctrl = OrchestrationController(llm: llm, tools: tools,
                                            policy: ThinkingPolicy(mode: .off),
@@ -87,11 +88,12 @@ final class OrchestrationControllerTests: XCTestCase {
 
     func testCapsAtMaxIterations() async throws {
         // Always responds replan=true; controller should cap at maxIterations.
+        // Use toolName directly so we don't hit the SkillTools routing.
         let evaluatorReplan = #"""
         {"goalAchieved":false,"shouldReplan":true,"assessment":"never","missingItems":[],"failedCriteria":[]}
         """#
         let plan = #"""
-        {"goal":"x","reasoning":"r","steps":[{"id":"s1","description":"x","skillName":"calc"}]}
+        {"goal":"x","reasoning":"r","steps":[{"id":"s1","description":"x","toolName":"calc"}]}
         """#
         let llm = ScriptedLLM(Array(repeating: [plan, evaluatorReplan], count: 5).flatMap { $0 })
         let tools = ScriptedExecutor(["calc": ToolExecutionResult(success: true, output: "y")])
@@ -108,7 +110,7 @@ final class OrchestrationControllerTests: XCTestCase {
     func testFailedSkillStillFormatsBestEffort() async throws {
         let llm = ScriptedLLM([
             #"""
-            {"goal":"x","reasoning":"r","steps":[{"id":"s1","description":"x","skillName":"will-fail"}]}
+            {"goal":"x","reasoning":"r","steps":[{"id":"s1","description":"x","toolName":"will-fail"}]}
             """#,
             #"""
             {"goalAchieved":false,"shouldReplan":false,"assessment":"failed but stop"}

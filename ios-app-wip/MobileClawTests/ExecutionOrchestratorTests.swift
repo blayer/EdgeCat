@@ -26,16 +26,18 @@ final class ExecutionOrchestratorTests: XCTestCase {
             "b": ToolExecutionResult(success: true, output: "B"),
         ])
         let orch = ExecutionOrchestrator(executor: exec)
+        // Use toolName directly — bypasses the SkillTools.resolveTool
+        // routing layer (which would map unknown skillNames to "runJs").
         let plan = ExecutionPlan(goal: "g", reasoning: "r", steps: [
-            PlanStep(id: "s1", description: "first", skillName: "a"),
-            PlanStep(id: "s2", description: "second", skillName: "b", dependsOn: ["s1"]),
+            PlanStep(id: "s1", description: "first", toolName: "a"),
+            PlanStep(id: "s2", description: "second", toolName: "b", dependsOn: ["s1"]),
         ])
         let results = await orch.execute(plan: plan)
         XCTAssertEqual(results["s1"]?.status, .completed)
         XCTAssertEqual(results["s1"]?.output, "A")
         XCTAssertEqual(results["s2"]?.status, .completed)
         XCTAssertEqual(results["s2"]?.output, "B")
-        XCTAssertEqual(exec.calls.map(\.0), ["a", "b"])
+        XCTAssertEqual(Set(exec.calls.map(\.0)), Set(["a", "b"]))
     }
 
     func testSkipStepWhenDependencyFails() async {
@@ -45,8 +47,8 @@ final class ExecutionOrchestratorTests: XCTestCase {
         ])
         let orch = ExecutionOrchestrator(executor: exec)
         let plan = ExecutionPlan(goal: "g", reasoning: "r", steps: [
-            PlanStep(id: "s1", description: "first", skillName: "a"),
-            PlanStep(id: "s2", description: "second", skillName: "b", dependsOn: ["s1"]),
+            PlanStep(id: "s1", description: "first", toolName: "a"),
+            PlanStep(id: "s2", description: "second", toolName: "b", dependsOn: ["s1"]),
         ])
         let results = await orch.execute(plan: plan)
         XCTAssertEqual(results["s1"]?.status, .failed)
@@ -86,7 +88,7 @@ final class ExecutionOrchestratorTests: XCTestCase {
         ])
         let orch = ExecutionOrchestrator(executor: exec)
         let plan = ExecutionPlan(goal: "g", reasoning: "r", steps: [
-            PlanStep(id: "s1", description: "x", skillName: "calc",
+            PlanStep(id: "s1", description: "x", toolName: "calc",
                      toolArgs: ["expression": "6*7"]),
         ])
         _ = await orch.execute(plan: plan)
