@@ -56,12 +56,24 @@ public enum SkillTools {
     /// tool to invoke, or `nil` if the step should be executed by the LLM
     /// itself (LLM-only skill or no skill at all).
     public static func resolveTool(skillName: String?, toolName: String?) -> String? {
+        // Explicit toolName overrides everything (planner can opt out of
+        // routing).
         if let toolName, !toolName.isEmpty { return toolName }
         guard let skillName, !skillName.isEmpty else { return nil }
         let normalized = normalize(skillName)
-        if let native = native[normalized] { return native }
+        // On iOS each skill is its own `Skill` class registered in
+        // `SkillRegistry` under its skill name (e.g. "search-web"), so
+        // the tool name passed to `executor.executeTool` IS the skill
+        // name. Android's `NATIVE_SKILL_TOOLS` values (e.g. "searchWeb")
+        // are AgentTools method names — iOS doesn't need that indirection.
+        // The map's keys are still useful as a "known native skill" set
+        // so we can short-circuit JS-skill routing.
+        if native[normalized] != nil { return normalized }
         if llmOnly.contains(normalized) { return nil }
-        return "runJs"
+        // Unknown skill name — assume it's a user-installed JS skill and
+        // route to the `JsSkill` registered under the same slug. (When
+        // no such skill exists, the registry returns "unknown skill: …".)
+        return normalized
     }
 
     /// Topological sort of plan steps into parallel-safe batches. Steps

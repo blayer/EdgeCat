@@ -52,7 +52,7 @@ final class MemoryWriteBackTests: XCTestCase {
         let memory = RecordingMemory()
         let ctrl = OrchestrationController(
             llm: llm,
-            tools: StubTools(["calculate": ToolExecutionResult(success: true, output: "4")]),
+            tools: StubTools(["calculator": ToolExecutionResult(success: true, output: "4")]),
             policy: ThinkingPolicy(mode: .off),
             memory: memory)
         let final = try await ctrl.handle(userMessage: "what's 2+2")

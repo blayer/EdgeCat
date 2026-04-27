@@ -44,7 +44,7 @@ final class OrchestrationControllerTests: XCTestCase {
             """#,
         ])
         let tools = ScriptedExecutor([
-            "calculate": ToolExecutionResult(success: true, output: "4"),
+            "calculator": ToolExecutionResult(success: true, output: "4"),
         ])
         let ctrl = OrchestrationController(llm: llm, tools: tools,
                                            policy: ThinkingPolicy(mode: .off),
@@ -76,7 +76,7 @@ final class OrchestrationControllerTests: XCTestCase {
             """#,
         ])
         let tools = ScriptedExecutor([
-            "calculate": ToolExecutionResult(success: true, output: "ok"),
+            "calculator": ToolExecutionResult(success: true, output: "ok"),
         ])
         let ctrl = OrchestrationController(llm: llm, tools: tools,
                                            policy: ThinkingPolicy(mode: .off),

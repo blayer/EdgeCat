@@ -7,7 +7,12 @@ import Foundation
 // iteration has enough info to actually use them.
 
 public final class SearchSkillsSkill: Skill, @unchecked Sendable {
-    public let name = "searchSkills"
+    // Registered under the iOS skill name "search-skills" (matching the
+    // catalog name the planner sees) — same convention the rest of the
+    // native skills follow. The Android `NATIVE_SKILL_TOOLS` value
+    // ("searchSkills") was an Android-side method name, not a routing
+    // requirement on iOS.
+    public let name = "search-skills"
     public let description = "Loads deferred-tier skill instructions on demand. Pass a `query` arg with keywords; returns matching skills with their usage instructions."
     public let tier = "base"
 
