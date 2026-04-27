@@ -230,15 +230,23 @@ class DefaultDownloadRepository(
 
           WorkInfo.State.FAILED,
           WorkInfo.State.CANCELLED -> {
-            var status = ModelDownloadStatusType.FAILED
-            val errorMessage = workInfo.outputData.getString(KEY_MODEL_DOWNLOAD_ERROR_MESSAGE) ?: ""
+            val rawError = workInfo.outputData.getString(KEY_MODEL_DOWNLOAD_ERROR_MESSAGE) ?: ""
             Log.d(
               "repo",
-              "worker %s FAILED or CANCELLED: %s".format(workerId.toString(), errorMessage),
+              "worker %s FAILED or CANCELLED: %s".format(workerId.toString(), rawError),
             )
-            if (workInfo.state == WorkInfo.State.CANCELLED) {
-              status = ModelDownloadStatusType.NOT_DOWNLOADED
-            } else {
+            val isCancelled =
+              workInfo.state == WorkInfo.State.CANCELLED || isCancellationMessage(rawError)
+            val status =
+              if (isCancelled) ModelDownloadStatusType.NOT_DOWNLOADED
+              else ModelDownloadStatusType.FAILED
+            // On cancel, suppress the error string entirely — surfacing
+            // raw HF / WorkManager messages is what we're fixing here.
+            // On real failures, translate well-known patterns into
+            // actionable copy and fall back to a generic message
+            // otherwise so we never expose IOException internals.
+            val displayError = if (isCancelled) "" else friendlyDownloadError(rawError)
+            if (!isCancelled) {
               sendNotification(
                 title = context.getString(R.string.notification_title_fail),
                 text = context.getString(R.string.notification_content_success).format(model.name),
@@ -248,7 +256,7 @@ class DefaultDownloadRepository(
             }
             onStatusUpdated(
               model,
-              ModelDownloadStatus(status = status, errorMessage = errorMessage),
+              ModelDownloadStatus(status = status, errorMessage = displayError),
             )
 
             val startTime = downloadStartTimeSharedPreferences.getLong(model.name, 0L)
@@ -340,4 +348,81 @@ class DefaultDownloadRepository(
       notify(1, builder.build())
     }
   }
+}
+
+/**
+ * Heuristic check for "this 'failure' was actually a cancel". WorkManager
+ * usually sets state=CANCELLED when the user cancels, but in race conditions
+ * the worker can throw a cancel-shaped IOException first and report FAILED
+ * instead. Treat those the same way as an explicit CANCELLED.
+ */
+internal fun isCancellationMessage(message: String): Boolean {
+  if (message.isBlank()) return false
+  val lower = message.lowercase()
+  return lower.contains("cancel") ||
+    lower.contains("interrupt") ||
+    lower.contains("job was cancelled") ||
+    lower.contains("aborted")
+}
+
+/**
+ * Translate raw `IOException`-from-the-worker messages into something a
+ * non-developer can act on. The worker emits messages like
+ * "HTTP error code: 401" or "HTTP error code: 403" for HF auth/gating
+ * failures, and the underlying network stack emits things like
+ * "Unable to resolve host" / "Software caused connection abort". None of
+ * those should leak to the UI verbatim.
+ */
+internal fun friendlyDownloadError(raw: String): String {
+  if (raw.isBlank()) return "Download failed. Please try again."
+  val lower = raw.lowercase()
+  // HF-gated / auth failures — by far the most common.
+  if (lower.contains("http error code: 401")) {
+    return "Sign in to Hugging Face to download this model."
+  }
+  if (lower.contains("http error code: 403")) {
+    return "This model is gated. Accept its terms on huggingface.co, then try again."
+  }
+  if (lower.contains("http error code: 404")) {
+    return "Model file not found. The URL in the catalog may be out of date."
+  }
+  if (lower.contains("http error code: 408") || lower.contains("http error code: 504")) {
+    return "Network timed out. Please try again."
+  }
+  if (lower.contains("http error code: 429")) {
+    return "Hugging Face rate-limited the request. Please try again in a minute."
+  }
+  // 5xx — server-side trouble at HF.
+  Regex("""http error code: 5\d\d""").find(lower)?.let {
+    return "Hugging Face is having trouble. Please try again later."
+  }
+  // Network transport errors.
+  if (
+    lower.contains("unable to resolve host") ||
+      lower.contains("no address associated") ||
+      lower.contains("unknownhostexception")
+  ) {
+    return "Couldn't reach Hugging Face. Check your connection and try again."
+  }
+  if (
+    lower.contains("connection abort") ||
+      lower.contains("connection reset") ||
+      lower.contains("connection refused") ||
+      lower.contains("software caused connection")
+  ) {
+    return "Network connection was lost. Please try again."
+  }
+  if (lower.contains("timeout") || lower.contains("timed out")) {
+    return "Network timed out. Please try again."
+  }
+  if (lower.contains("ssl") || lower.contains("tls") || lower.contains("certificate")) {
+    return "Secure connection to Hugging Face failed. Please try again."
+  }
+  if (lower.contains("size mismatch") || lower.contains("download size mismatch")) {
+    // Worker self-detected truncation — retrying generally fixes it.
+    return "Download didn't complete. Please try again."
+  }
+  // Fall-through: never expose the raw stacktrace-flavored text. A generic
+  // friendly message is strictly better than `IOException: ...`.
+  return "Download failed. Please try again."
 }
