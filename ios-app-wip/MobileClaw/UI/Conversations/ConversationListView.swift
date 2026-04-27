@@ -112,12 +112,10 @@ private struct ConversationListHeader: View {
             // Symbols' actual `airplane.departure` / fall back to
             // `paperplane.fill` for the closest visual.
             HStack(spacing: 6) {
-                Image(systemName: "paperplane.fill")
-                    .font(.system(size: 18, weight: .semibold))
+                MIcon(name: MIconName.rocketLaunch, size: 22, weight: .semibold)
                     .foregroundStyle(AppColors.primary)
-                    .rotationEffect(.degrees(-45))
                 Text("Mobile Agent")
-                    .font(.headline.weight(.semibold))
+                    .font(.titleMediumNunito.weight(.semibold))
                     .foregroundStyle(AppColors.primary)
             }
             ModelPickerChip(label: modelLabel, onTap: onTapModel)
@@ -138,12 +136,12 @@ private struct ModelPickerChip: View {
 
     var body: some View {
         Button(action: onTap) {
-            HStack(spacing: 4) {
+            HStack(spacing: 2) {
                 Text(label)
-                    .font(.callout)
+                    .font(.bodyMediumNunito)
                     .foregroundStyle(AppColors.onSurface)
-                Image(systemName: "chevron.down")
-                    .font(.caption2.weight(.semibold))
+                MIcon(name: MIconName.arrowDropDown, size: 18,
+                      weight: .regular)
                     .foregroundStyle(AppColors.onSurfaceVariant)
             }
             .padding(.horizontal, 14)
@@ -161,14 +159,13 @@ private struct EmptyState: View {
     var body: some View {
         VStack(spacing: 8) {
             Spacer()
-            Image(systemName: "bubble.left.and.bubble.right")
-                .font(.system(size: 32))
+            MIcon(name: MIconName.chatBubbleOutline, size: 36, weight: .regular)
                 .foregroundStyle(AppColors.onSurfaceVariant)
             Text("No conversations yet")
-                .font(.body)
+                .font(.bodyMediumNunito)
                 .foregroundStyle(AppColors.onSurfaceVariant)
             Text("Tap \"New\" to start chatting")
-                .font(.footnote)
+                .font(.bodySmallNunito)
                 .foregroundStyle(AppColors.onSurfaceVariant)
             Spacer()
         }
@@ -217,10 +214,10 @@ private struct NewConversationFAB: View {
     var body: some View {
         Button(action: onTap) {
             HStack(spacing: 8) {
-                Image(systemName: "plus")
+                MIcon(name: MIconName.add, size: 20, weight: .semibold)
                 Text("New")
+                    .font(.labelLargeNunito.weight(.semibold))
             }
-            .font(.body.weight(.semibold))
             .padding(.horizontal, 18)
             .padding(.vertical, 14)
             .background(Capsule().fill(AppColors.primary))

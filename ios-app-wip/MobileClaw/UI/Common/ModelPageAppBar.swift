@@ -20,11 +20,10 @@ struct ModelPageAppBarContent: View {
             // in the primary tint.
             VStack(spacing: 4) {
                 HStack(spacing: 6) {
-                    Image(systemName: "sparkles")
-                        .font(.system(size: 18, weight: .semibold))
+                    MIcon(name: MIconName.autoAwesome, size: 20, weight: .semibold)
                         .foregroundStyle(AppColors.primary)
                     Text("LLM Chat")
-                        .font(.headline.weight(.semibold))
+                        .font(.titleMediumNunito.weight(.semibold))
                         .foregroundStyle(AppColors.primary)
                 }
                 Button(action: onSwitchModel) {
@@ -34,28 +33,26 @@ struct ModelPageAppBarContent: View {
                 .disabled(isStreaming)
                 .opacity(isStreaming ? 0.6 : 1)
             }
-            // Leading: back. Trailing: settings (Material's `Tune` ↔ SF
-            // `slider.horizontal.3` is the closest visual). Both are
+            // Leading: back. Trailing: settings (`tune` is the same Material
+            // glyph Android's `Icons.Rounded.Tune` resolves to). Both are
             // disabled during streaming to match Android's behavior of
             // greying every interactive icon while inference is running.
             HStack {
                 Button(action: onBack) {
-                    Image(systemName: "chevron.backward")
-                        .font(.system(size: 17, weight: .semibold))
+                    MIcon(name: MIconName.arrowBack, size: 22, weight: .regular)
                         .foregroundStyle(AppColors.onSurface)
                 }
                 .disabled(isStreaming)
                 .opacity(isStreaming ? 0.5 : 1)
                 Spacer()
                 Button(action: onSettings) {
-                    Image(systemName: "slider.horizontal.3")
-                        .font(.system(size: 17, weight: .semibold))
+                    MIcon(name: MIconName.tune, size: 22, weight: .regular)
                         .foregroundStyle(AppColors.onSurface)
                 }
                 .disabled(isStreaming)
                 .opacity(isStreaming ? 0.5 : 1)
             }
-            .padding(.horizontal, 8)
+            .padding(.horizontal, 12)
         }
         .frame(height: 64)
         .padding(.horizontal, 4)
@@ -66,13 +63,12 @@ struct ModelPageAppBarContent: View {
 private struct ModelChip: View {
     let label: String
     var body: some View {
-        HStack(spacing: 6) {
+        HStack(spacing: 2) {
             Text(label)
-                .font(.caption)
+                .font(.bodySmallNunito)
                 .lineLimit(1)
                 .truncationMode(.middle)
-            Image(systemName: "chevron.down")
-                .font(.system(size: 10, weight: .semibold))
+            MIcon(name: MIconName.arrowDropDown, size: 16, weight: .regular)
         }
         .padding(.horizontal, 10)
         .padding(.vertical, 4)

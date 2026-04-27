@@ -49,6 +49,18 @@
 	<string>Mobile-Claw reads photos when you ask the assistant to find or share images.</string>
 	<key>NSRemindersUsageDescription</key>
 	<string>Mobile-Claw creates reminders at your request.</string>
+	<key>UIAppFonts</key>
+	<array>
+		<string>MaterialSymbolsRounded.ttf</string>
+		<string>nunito_regular.ttf</string>
+		<string>nunito_medium.ttf</string>
+		<string>nunito_semibold.ttf</string>
+		<string>nunito_bold.ttf</string>
+		<string>nunito_extrabold.ttf</string>
+		<string>nunito_light.ttf</string>
+		<string>nunito_extralight.ttf</string>
+		<string>nunito_black.ttf</string>
+	</array>
 	<key>UIApplicationSceneManifest</key>
 	<dict>
 		<key>UIApplicationSupportsMultipleScenes</key>

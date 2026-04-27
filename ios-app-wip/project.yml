@@ -37,6 +37,18 @@ targets:
       - MobileClaw/Resources/Assets.xcassets
       - MobileClaw/Resources/model_allowlist.json
       - MobileClaw/Resources/prompt_templates.json
+      # Material Symbols Rounded — same icon set Compose uses on Android
+      # via `Icons.Rounded.*`. Nunito is the body typography family that
+      # Android also bundles (android-app/.../res/font/).
+      - MobileClaw/Resources/Fonts/MaterialSymbolsRounded.ttf
+      - MobileClaw/Resources/Fonts/nunito_regular.ttf
+      - MobileClaw/Resources/Fonts/nunito_medium.ttf
+      - MobileClaw/Resources/Fonts/nunito_semibold.ttf
+      - MobileClaw/Resources/Fonts/nunito_bold.ttf
+      - MobileClaw/Resources/Fonts/nunito_extrabold.ttf
+      - MobileClaw/Resources/Fonts/nunito_light.ttf
+      - MobileClaw/Resources/Fonts/nunito_extralight.ttf
+      - MobileClaw/Resources/Fonts/nunito_black.ttf
     # xcodegen 2.45 silently drops `type: folder` resources, so the JS skill
     # bundle (Resources/skills/<slug>/{SKILL.md,scripts/index.html}) gets
     # copied via an explicit Run Script phase instead. Folder reference =
@@ -66,6 +78,19 @@ targets:
           - UIInterfaceOrientationPortrait
           - UIInterfaceOrientationLandscapeLeft
           - UIInterfaceOrientationLandscapeRight
+        # Material Symbols Rounded + Nunito body font — copied from Android
+        # to keep visual parity. CTFontManager registers each on first
+        # launch; SwiftUI references them by PostScript name.
+        UIAppFonts:
+          - MaterialSymbolsRounded.ttf
+          - nunito_regular.ttf
+          - nunito_medium.ttf
+          - nunito_semibold.ttf
+          - nunito_bold.ttf
+          - nunito_extrabold.ttf
+          - nunito_light.ttf
+          - nunito_extralight.ttf
+          - nunito_black.ttf
         # Privacy strings — present from day one so we don't have to revisit Info.plist
         # every time we add a skill in Phase D. The strings are user-facing rationales.
         NSContactsUsageDescription: "Mobile-Claw uses your contacts when you ask the assistant to call or message someone."
