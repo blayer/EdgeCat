@@ -75,10 +75,10 @@ public struct LlmInitConfig: Sendable {
 
     public init(
         modelPath: URL,
-        // Default to CPU on iOS — the libLiteRtLm.dylib in
-        // LiteRtLmBridge/Vendor/ is built CPU-only (cc_binary +
-        // :engine_cpu). Asking for GPU returns NULL from engine_create.
-        // Flip back to .gpu when a Metal-enabled dylib ships.
+        // CPU default — see SamplerSettings.modelDefaults for why
+        // (sim-side Metal kernel limit). GPU support is shipped via
+        // LiteRtLmMetalAccelerator.xcframework; flip to .gpu when
+        // running on real devices.
         backend: LlmBackend = .cpu,
         visionBackend: LlmBackend = .default,
         audioBackend: LlmBackend = .default,
