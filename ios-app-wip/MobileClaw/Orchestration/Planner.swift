@@ -8,33 +8,70 @@ import Foundation
 public struct Planner {
     public let llm: LlmInferenceProvider
     public let policy: ThinkingPolicy
+    public let userPortrait: String
+    public let historyWindow: Int
 
-    public init(llm: LlmInferenceProvider, policy: ThinkingPolicy) {
+    public init(llm: LlmInferenceProvider,
+                policy: ThinkingPolicy,
+                userPortrait: String = "",
+                historyWindow: Int = 6) {
         self.llm = llm
         self.policy = policy
+        self.userPortrait = userPortrait
+        self.historyWindow = historyWindow
     }
 
     public func plan(userMessage: String,
                      availableSkills: [SkillSummary],
-                     iteration: Int = 0) async throws -> ExecutionPlan {
-        let prompt = Self.buildPrompt(userMessage: userMessage, skills: availableSkills, iteration: iteration)
+                     iteration: Int = 0,
+                     conversationContext: String = "") async throws -> ExecutionPlan {
+        let prompt = Self.buildPrompt(userMessage: userMessage,
+                                       skills: availableSkills,
+                                       iteration: iteration,
+                                       userPortrait: userPortrait,
+                                       conversationContext: bound(conversationContext))
         let raw = try await llm.generateResponse(prompt: prompt,
                                                  enableThinking: policy.planner(userMessage: userMessage,
                                                                                  iteration: iteration))
         return try parsePlan(raw, defaultGoal: userMessage)
     }
 
-    static func buildPrompt(userMessage: String, skills: [SkillSummary], iteration: Int) -> String {
+    /// Cap conversation context to roughly `historyWindow` turns (~280 chars
+    /// per turn). Keeps the planner prompt within Gemma 4 E2B's working
+    /// window without an exact tokenizer dependency.
+    private func bound(_ context: String) -> String {
+        let limit = max(0, historyWindow) * 280
+        if context.count <= limit { return context }
+        let start = context.index(context.endIndex, offsetBy: -limit)
+        return String(context[start...])
+    }
+
+    static func buildPrompt(userMessage: String,
+                            skills: [SkillSummary],
+                            iteration: Int,
+                            userPortrait: String = "",
+                            conversationContext: String = "") -> String {
         let catalog = skills.map { "- \($0.name): \($0.description)" }.joined(separator: "\n")
         let header = iteration == 0
             ? "You are a planner that turns user requests into a step-by-step plan."
             : "Your previous plan didn't satisfy the user. Replan."
-        return """
-        \(header)
 
-        Available skills:
-        \(catalog)
+        var sections: [String] = [header, "", "Available skills:", catalog]
 
+        if !userPortrait.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            sections.append("")
+            sections.append("User portrait (what the user has told you about themselves):")
+            sections.append(userPortrait)
+        }
+
+        if !conversationContext.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            sections.append("")
+            sections.append("Recent conversation:")
+            sections.append(conversationContext)
+        }
+
+        sections.append("")
+        sections.append("""
         Respond with strict JSON of the form:
         {
           "goal": "...",
@@ -46,7 +83,9 @@ public struct Planner {
         }
 
         User request: \(userMessage)
-        """
+        """)
+
+        return sections.joined(separator: "\n")
     }
 
     func parsePlan(_ raw: String, defaultGoal: String) throws -> ExecutionPlan {

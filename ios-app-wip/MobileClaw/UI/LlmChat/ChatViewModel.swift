@@ -108,7 +108,12 @@ public final class ChatViewModel {
                     let policy = ThinkingPolicy(mode: ThinkingMode.from(s.agentThinkingMode))
                     let controller = OrchestrationController(
                         llm: provider, tools: tools, policy: policy,
-                        maxIterations: s.agentMaxLoops)
+                        maxIterations: s.agentMaxLoops,
+                        maxRepair: s.agentMaxRepair,
+                        skillTimeoutSecs: s.agentSkillTimeoutSecs,
+                        historyWindow: s.agentHistoryWindow,
+                        userPortrait: s.userPortrait,
+                        tracesEnabled: s.agentTraces)
                     let final = try await controller.handle(userMessage: trimmed)
                     self.update(id: assistantId, text: final, kind: .text, thought: nil)
                     try? store.appendMessage(to: conversation, role: "assistant", content: final)

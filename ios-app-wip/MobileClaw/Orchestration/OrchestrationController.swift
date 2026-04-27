@@ -19,19 +19,38 @@ public final class OrchestrationController {
     private let trace: TraceRecorder
 
     public let maxIterations: Int
+    public let maxRepair: Int
+    public let skillTimeoutSecs: Int
+    public let historyWindow: Int
+    public let userPortrait: String
 
     public init(llm: LlmInferenceProvider,
                 tools: ToolExecutor,
                 policy: ThinkingPolicy = ThinkingPolicy(mode: .auto),
-                trace: TraceRecorder = TraceRecorder(),
-                maxIterations: Int = 3) {
-        self.planner = Planner(llm: llm, policy: policy)
-        self.executor = ExecutionOrchestrator(executor: tools, trace: trace)
+                trace: TraceRecorder? = nil,
+                maxIterations: Int = 3,
+                maxRepair: Int = 0,
+                skillTimeoutSecs: Int = 0,
+                historyWindow: Int = 6,
+                userPortrait: String = "",
+                tracesEnabled: Bool = true) {
+        let recorder = trace ?? TraceRecorder(enabled: tracesEnabled)
+        self.planner = Planner(llm: llm, policy: policy,
+                                userPortrait: userPortrait,
+                                historyWindow: historyWindow)
+        self.executor = ExecutionOrchestrator(executor: tools,
+                                               trace: recorder,
+                                               skillTimeoutSecs: skillTimeoutSecs,
+                                               maxRepair: maxRepair)
         self.evaluator = SelfEvaluator(llm: llm, policy: policy)
         self.formatter = ResponseFormatter(llm: llm, policy: policy)
         self.toolExecutor = tools
-        self.trace = trace
+        self.trace = recorder
         self.maxIterations = maxIterations
+        self.maxRepair = maxRepair
+        self.skillTimeoutSecs = skillTimeoutSecs
+        self.historyWindow = historyWindow
+        self.userPortrait = userPortrait
     }
 
     /// Run one user message through the orchestration loop.

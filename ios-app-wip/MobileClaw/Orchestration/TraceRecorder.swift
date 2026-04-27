@@ -7,10 +7,20 @@ import Foundation
 
 public actor TraceRecorder {
     public let runId: String
+    public let enabled: Bool
     private let url: URL?
+    /// In-memory event log. Always populated when `enabled`, regardless of
+    /// whether on-disk writes succeed — lets tests assert telemetry without
+    /// touching the filesystem.
+    private var inMemory: [[String: Any]] = []
 
-    public init(runId: String = UUID().uuidString) {
+    public init(runId: String = UUID().uuidString, enabled: Bool = true) {
         self.runId = runId
+        self.enabled = enabled
+        guard enabled else {
+            self.url = nil
+            return
+        }
         let docs = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first
         let dir = docs?.appendingPathComponent("claw-traces", isDirectory: true)
         if let dir { try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true) }
@@ -18,36 +28,42 @@ public actor TraceRecorder {
     }
 
     public func phase<T>(kind: String, name: String, _ block: () async throws -> T) async rethrows -> T {
+        guard enabled else { return try await block() }
         let start = DispatchTime.now()
         do {
             let value = try await block()
-            await emit(kind: kind, name: name, start: start, ok: true, error: nil)
+            emit(kind: kind, name: name, start: start, ok: true, error: nil)
             return value
         } catch {
-            await emit(kind: kind, name: name, start: start, ok: false, error: "\(error)")
+            emit(kind: kind, name: name, start: start, ok: false, error: "\(error)")
             throw error
         }
     }
 
     public func event(kind: String, name: String, payload: [String: String] = [:]) async {
+        guard enabled else { return }
         var record: [String: Any] = [
             "ts": Date().timeIntervalSince1970, "kind": kind, "name": name,
         ]
         for (k, v) in payload { record[k] = v }
-        await write(record)
+        write(record)
     }
 
-    private func emit(kind: String, name: String, start: DispatchTime, ok: Bool, error: String?) async {
+    /// Snapshot of recorded entries. Used by tests; ordering matches emission.
+    public func recordedEvents() -> [[String: Any]] { inMemory }
+
+    private func emit(kind: String, name: String, start: DispatchTime, ok: Bool, error: String?) {
         let elapsed = Double(DispatchTime.now().uptimeNanoseconds - start.uptimeNanoseconds) / 1_000_000
         var record: [String: Any] = [
             "ts": Date().timeIntervalSince1970, "kind": kind, "name": name,
             "duration_ms": elapsed, "ok": ok,
         ]
         if let error { record["error"] = error }
-        await write(record)
+        write(record)
     }
 
-    private func write(_ record: [String: Any]) async {
+    private func write(_ record: [String: Any]) {
+        inMemory.append(record)
         guard let url else { return }
         guard let data = try? JSONSerialization.data(withJSONObject: record),
               let line = String(data: data, encoding: .utf8) else { return }
