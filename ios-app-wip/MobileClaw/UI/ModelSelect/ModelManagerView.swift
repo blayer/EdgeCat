@@ -23,6 +23,8 @@ struct ModelManagerView: View {
     @State private var downloader = ModelDownloader()
     @State private var inFlightModelId: String?
     @State private var pendingDelete: URL?
+    @State private var importer = LitertlmImporter()
+    @State private var showFileImporter = false
 
     var body: some View {
         ScrollView {
@@ -50,6 +52,16 @@ struct ModelManagerView: View {
         .navigationTitle("")
         .navigationBarTitleDisplayMode(.inline)
         .onAppear { reload() }
+        .fileImporter(isPresented: $showFileImporter,
+                      allowedContentTypes: [.litertlm, .data],
+                      allowsMultipleSelection: false) { result in
+            handleFileImport(result)
+        }
+        .onChange(of: importer.status) { _, status in
+            if case .succeeded = status {
+                reload()
+            }
+        }
         .alert("Delete model?",
                isPresented: Binding(get: { pendingDelete != nil },
                                     set: { if !$0 { pendingDelete = nil } })) {
@@ -104,18 +116,118 @@ struct ModelManagerView: View {
 
     @ViewBuilder
     private var sideloadedSection: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            Text("Sideloaded")
-                .font(.titleSmallNunito)
-                .foregroundStyle(AppColors.onSurface)
-                .padding(.bottom, 2)
-            if sideloaded.isEmpty {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack {
+                Text("Sideloaded")
+                    .font(.titleSmallNunito)
+                    .foregroundStyle(AppColors.onSurface)
+                Spacer()
+                importButton
+            }
+            .padding(.bottom, 2)
+            if case .copying = importer.status {
+                importProgressCard
+            } else if case let .failed(msg) = importer.status {
+                importErrorCard(msg)
+            } else if sideloaded.isEmpty {
                 emptySideloadedCard
             } else {
                 ForEach(sideloaded, id: \.self) { url in
                     sideloadedCard(url)
                 }
             }
+        }
+    }
+
+    @ViewBuilder
+    private var importButton: some View {
+        Button(action: { showFileImporter = true }, label: {
+            HStack(spacing: 4) {
+                MIcon(name: MIconName.add, size: 16, weight: .semibold)
+                Text("Import")
+                    .font(.labelMediumNunito.weight(.semibold))
+            }
+            .padding(.horizontal, 10).padding(.vertical, 5)
+            .background(Capsule().fill(AppColors.primary.opacity(0.15)))
+            .foregroundStyle(AppColors.primary)
+        })
+        .buttonStyle(.plain)
+        .disabled(isCopyingActive)
+        .opacity(isCopyingActive ? 0.5 : 1)
+    }
+
+    private var isCopyingActive: Bool {
+        if case .copying = importer.status { return true }
+        return false
+    }
+
+    @ViewBuilder
+    private var importProgressCard: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("Importing…")
+                .font(.bodyMediumNunito.weight(.semibold))
+                .foregroundStyle(AppColors.onSurface)
+            if case let .copying(progress) = importer.status {
+                ProgressView(value: progress).tint(AppColors.primary)
+                Text("\(Int(progress * 100))% — \(formatBytes(importer.bytesCopied)) / \(formatBytes(importer.totalBytes))")
+                    .font(.labelSmallNunito)
+                    .foregroundStyle(AppColors.onSurfaceVariant)
+            }
+        }
+        .padding(16)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                .fill(CatalogColors.cardBg)
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                .stroke(CatalogColors.cardBorder, lineWidth: 1)
+        )
+    }
+
+    @ViewBuilder
+    private func importErrorCard(_ message: String) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text("Import failed")
+                .font(.bodyMediumNunito.weight(.semibold))
+                .foregroundStyle(.red)
+            Text(message)
+                .font(.bodySmallNunito)
+                .foregroundStyle(AppColors.onSurfaceVariant)
+            Button("Dismiss") { importer.reset() }
+                .font(.labelMediumNunito)
+                .foregroundStyle(AppColors.primary)
+                .padding(.top, 4)
+        }
+        .padding(16)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                .fill(CatalogColors.cardBg)
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                .stroke(.red.opacity(0.3), lineWidth: 1)
+        )
+    }
+
+    private func formatBytes(_ b: Int64) -> String {
+        ByteCountFormatter.string(fromByteCount: b, countStyle: .file)
+    }
+
+    private func handleFileImport(_ result: Result<[URL], Error>) {
+        switch result {
+        case .success(let urls):
+            guard let src = urls.first else { return }
+            importer.start(from: src)
+        case .failure(let error):
+            // User cancellation surfaces here too — treat both as a soft
+            // error so the UI returns to the empty / list state.
+            let nsErr = error as NSError
+            if nsErr.code == NSUserCancelledError { return }
+            // Reflect in the importer so the same UI path renders the error.
+            importer.reset()
         }
     }
 
