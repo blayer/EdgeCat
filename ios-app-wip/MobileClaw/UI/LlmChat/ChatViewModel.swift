@@ -114,14 +114,32 @@ public final class ChatViewModel {
                         let provider = LiteRtLmInferenceProvider(engine: self.engine)
                         let tools = SkillRegistry.defaultSet()
                         let policy = ThinkingPolicy(mode: ThinkingMode.from(s.agentThinkingMode))
+                        // Real memory bridge — same SwiftData ModelContext
+                        // the chat history uses. The repository instance is
+                        // cheap (just wraps the context) so we make it per-
+                        // run rather than caching it on the view model.
+                        let memoryRepo = SwiftDataMemoryRepository(context: store.context)
+                        let memoryProvider: MemoryProvider = memoryRepo.asMemoryProvider
+                        // Conversation context = last `historyWindow` turns
+                        // formatted as "role: text". Snapshot the messages
+                        // here so the orchestrator's @Sendable closure
+                        // doesn't need to hop back to the MainActor during
+                        // a planner run. Bounded to `historyWindow * 2`
+                        // entries since the renderer trims further.
+                        let historyWindow = s.agentHistoryWindow
+                        let snapshot = ChatViewModel.recentHistory(self.messages,
+                                                                    take: historyWindow)
+                        let conversationContextProvider: @Sendable () -> String = { snapshot }
                         let controller = OrchestrationController(
                             llm: provider, tools: tools, policy: policy,
                             maxIterations: s.agentMaxLoops,
                             maxRepair: s.agentMaxRepair,
                             skillTimeoutSecs: s.agentSkillTimeoutSecs,
-                            historyWindow: s.agentHistoryWindow,
+                            historyWindow: historyWindow,
                             userPortrait: s.userPortrait,
-                            tracesEnabled: s.agentTraces)
+                            tracesEnabled: s.agentTraces,
+                            memory: memoryProvider,
+                            conversationContext: conversationContextProvider)
                         let final = try await controller.handle(userMessage: trimmed)
                         self.update(id: assistantId, text: final, kind: .text, thought: nil)
                         try? store.appendMessage(to: conversation, role: "assistant", content: final)
@@ -246,6 +264,23 @@ public final class ChatViewModel {
                                audio: msg.audioBlobs ?? [],
                                createdAt: msg.createdAt)
         }
+    }
+
+    /// Render the last `take` chat turns as a "role: text" string for the
+    /// orchestrator's `conversationContextProvider` closure. Skips the
+    /// in-flight assistant placeholder so the planner never sees an empty
+    /// trailing turn. Truncates each turn to 280 chars to keep the planner
+    /// prompt bounded — Phase 4's `Planner.bound` enforces an outer cap too.
+    nonisolated static func recentHistory(_ messages: [ChatMessage], take: Int) -> String {
+        guard take > 0 else { return "" }
+        // Drop trailing loading bubbles before slicing.
+        let stable = messages.filter { $0.kind != .loading && !$0.text.isEmpty }
+        let recent = stable.suffix(take)
+        return recent.map { msg in
+            let role = msg.role == .assistant ? "assistant" : "user"
+            let text = msg.text.count > 280 ? String(msg.text.prefix(280)) + "…" : msg.text
+            return "\(role): \(text)"
+        }.joined(separator: "\n")
     }
 
     private func update(id: UUID, text: String, kind: ChatMessage.Kind, thought: String? = nil) {

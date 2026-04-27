@@ -25,16 +25,32 @@ public final class ExecutionOrchestrator: @unchecked Sendable {
     /// How many times a failed step is retried with the same args before
     /// giving up. Mirrors Android's `attemptRepair` retry counter.
     public let maxRepair: Int
+    /// Optional inference provider used for LLM-only steps (`summarize`,
+    /// `compose`) and steps with no resolved tool. When nil, those steps
+    /// fall back to echoing the step description.
+    private let llm: LlmInferenceProvider?
+    private let policy: ThinkingPolicy
     private let llmLane = LlmStepLane()
+
+    /// When non-nil, triggers a single LLM-driven diagnostic-and-retry
+    /// after `maxRepair` same-args retries have failed. Mirrors Android's
+    /// `attemptRepair`. Pass `nil` to skip diagnostic repair.
+    private let skillCreator: SkillCreator?
 
     public init(executor: ToolExecutor,
                 trace: TraceRecorder? = nil,
                 skillTimeoutSecs: Int = 0,
-                maxRepair: Int = 0) {
+                maxRepair: Int = 0,
+                llm: LlmInferenceProvider? = nil,
+                policy: ThinkingPolicy = ThinkingPolicy(mode: .auto),
+                skillCreator: SkillCreator? = nil) {
         self.executor = executor
         self.trace = trace
         self.skillTimeoutSecs = skillTimeoutSecs
         self.maxRepair = maxRepair
+        self.llm = llm
+        self.policy = policy
+        self.skillCreator = skillCreator
     }
 
     /// Execute a plan in dependency-respecting batches. Tool-only steps
@@ -84,20 +100,12 @@ public final class ExecutionOrchestrator: @unchecked Sendable {
         let normalizedSkill = step.skillName.map(SkillTools.normalize)
 
         // No tool resolved → either an LLM-only step ("summarize", "compose")
-        // or a description-only thinking step. Phase 5 keeps both as
-        // synthesis stubs that just echo the description; the dedicated
-        // LLM-step path lands when the orchestrator gains an inference
-        // provider field. The lane mutex still guards future expansion.
+        // or a description-only thinking step. Run a real LLM call with
+        // prior step outputs as context (mirrors Android's executeLlmStep).
+        // Falls back to echoing the description if no LLM was provided.
         guard let tool = resolved, !tool.isEmpty else {
-            return await llmLane.run {
-                let dur = Int64(Double(DispatchTime.now().uptimeNanoseconds - start.uptimeNanoseconds) / 1_000_000)
-                let result = StepResult(stepId: step.id, status: .completed,
-                                        output: step.description,
-                                        durationMs: dur)
-                await self.trace?.event(kind: "step.end", name: step.id,
-                                         payload: ["ok": "1", "lane": "llm"])
-                return result
-            }
+            let result = await runLlmStep(step, priorResults: priorResults, start: start)
+            return result
         }
 
         // Resolve final args: rescue placeholders + date-time + phone.
@@ -121,6 +129,47 @@ public final class ExecutionOrchestrator: @unchecked Sendable {
             res = await runWithTimeout(toolName: tool, args: finalArgs)
         }
 
+        // Diagnostic-LLM repair. After `maxRepair` same-args retries have
+        // failed and a SkillCreator is available, ask the LLM what's wrong
+        // and apply the suggested fix once. Mirrors Android's attemptRepair.
+        var diagnosticUsed = false
+        if !res.success, let skillCreator,
+           let errorText = res.error, !errorText.isEmpty {
+            await trace?.event(kind: "step.diagnose.start", name: step.id,
+                                payload: ["error": String(errorText.prefix(200))])
+            let diagnostic = await skillCreator.diagnose(
+                failedStep: step, error: errorText)
+            await trace?.event(kind: "step.diagnose.end", name: step.id,
+                                payload: ["fixType": diagnostic.fixType,
+                                          "alt": diagnostic.alternativeSkillName ?? ""])
+            switch diagnostic.fixType {
+            case "retry_with_different_args":
+                let merged = finalArgs.merging(diagnostic.alternativeArgs) { _, new in new }
+                res = await runWithTimeout(toolName: tool, args: merged)
+                if res.success { finalArgs = merged }
+                diagnosticUsed = true
+            case "use_alternative_skill":
+                if let altName = diagnostic.alternativeSkillName,
+                   let altTool = SkillTools.resolveTool(skillName: altName, toolName: nil),
+                   !altTool.isEmpty {
+                    let altArgs = diagnostic.alternativeArgs.isEmpty
+                        ? finalArgs
+                        : diagnostic.alternativeArgs
+                    res = await runWithTimeout(toolName: altTool, args: altArgs)
+                    diagnosticUsed = true
+                }
+            case "skip":
+                // Step is unnecessary — mark completed with the diagnostic
+                // explanation so downstream steps don't get marked skipped.
+                res = ToolExecutionResult(
+                    success: true,
+                    output: "skipped: \(diagnostic.diagnosis)")
+                diagnosticUsed = true
+            default:
+                break
+            }
+        }
+
         let dur = Int64(Double(DispatchTime.now().uptimeNanoseconds - start.uptimeNanoseconds) / 1_000_000)
         let result = StepResult(
             stepId: step.id,
@@ -132,8 +181,87 @@ public final class ExecutionOrchestrator: @unchecked Sendable {
         await trace?.event(kind: "step.end", name: step.id,
                             payload: ["ok": res.success ? "1" : "0",
                                       "retries": String(attempt),
+                                      "diagnostic": diagnosticUsed ? "1" : "0",
                                       "tool": tool])
         return result
+    }
+
+    /// LLM-only step (summarize / compose / no resolved tool). Builds a
+    /// prompt from prior step outputs + the step's instruction (preferring
+    /// `toolArgs["instruction"]`, falling back to `description`), then asks
+    /// the LLM. Serialized via `llmLane` so two LLM steps in the same batch
+    /// can't overlap on the single LiteRT-LM conversation.
+    /// Mirrors android-app/.../ExecutionOrchestrator.executeLlmStep.
+    private func runLlmStep(_ step: PlanStep,
+                            priorResults: [String: StepResult],
+                            start: DispatchTime) async -> StepResult {
+        let isLlmSkill = step.skillName.map(SkillTools.normalize)
+            .map { SkillTools.llmOnly.contains($0) } ?? false
+        let maxOutputLen = isLlmSkill ? 3000 : 500
+
+        var contextParts: [String] = []
+        for depId in step.dependsOn {
+            if let depResult = priorResults[depId], depResult.status == .completed {
+                let truncated = String(depResult.output.prefix(maxOutputLen))
+                contextParts.append("Result from \(depId): \(truncated)")
+            }
+        }
+
+        // Prefer explicit instruction arg. For non-summarize skills also
+        // accept "text" as the task; otherwise fall back to step.description.
+        let taskText: String
+        if let instruction = step.toolArgs["instruction"], !instruction.isEmpty {
+            taskText = instruction
+        } else if let text = step.toolArgs["text"], !text.isEmpty,
+                  step.skillName != "summarize" {
+            taskText = text
+        } else {
+            taskText = step.description
+        }
+
+        var prompt = ""
+        if !contextParts.isEmpty {
+            prompt += "Context from previous steps:\n"
+            prompt += contextParts.joined(separator: "\n")
+            prompt += "\n\n"
+        }
+        prompt += "Task: \(taskText)"
+        if isLlmSkill {
+            prompt += "\n\nIMPORTANT: Output ONLY the result text. Do not add explanations or preamble."
+        }
+
+        let llmRef = self.llm
+        return await llmLane.run { [trace] in
+            let result: StepResult
+            if let llmRef {
+                do {
+                    let response = try await llmRef.generateResponse(
+                        prompt: prompt,
+                        enableThinking: self.policy.llmStep())
+                    let dur = Int64(Double(DispatchTime.now().uptimeNanoseconds - start.uptimeNanoseconds) / 1_000_000)
+                    result = StepResult(stepId: step.id, status: .completed,
+                                        output: response, durationMs: dur)
+                    await trace?.event(kind: "step.end", name: step.id,
+                                       payload: ["ok": "1", "lane": "llm"])
+                } catch {
+                    let dur = Int64(Double(DispatchTime.now().uptimeNanoseconds - start.uptimeNanoseconds) / 1_000_000)
+                    result = StepResult(stepId: step.id, status: .failed,
+                                        error: error.localizedDescription,
+                                        durationMs: dur)
+                    await trace?.event(kind: "step.end", name: step.id,
+                                       payload: ["ok": "0", "lane": "llm"])
+                }
+            } else {
+                // No LLM injected — echo the description as before so test
+                // callers without an LLM provider keep working.
+                let dur = Int64(Double(DispatchTime.now().uptimeNanoseconds - start.uptimeNanoseconds) / 1_000_000)
+                result = StepResult(stepId: step.id, status: .completed,
+                                    output: step.description, durationMs: dur)
+                await trace?.event(kind: "step.end", name: step.id,
+                                   payload: ["ok": "1", "lane": "llm-stub"])
+            }
+            return result
+        }
     }
 
     private func runWithTimeout(toolName: String, args: [String: String]) async -> ToolExecutionResult {

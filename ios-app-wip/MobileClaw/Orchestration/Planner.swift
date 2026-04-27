@@ -44,12 +44,14 @@ public struct Planner {
                      availableSkills: [SkillSummary],
                      iteration: Int = 0,
                      conversationContext: String = "",
-                     memoryContext: String = "") async throws -> ExecutionPlan {
+                     memoryContext: String = "",
+                     isOnline: Bool = true) async throws -> ExecutionPlan {
         let prompt = Self.buildPlanPrompt(userMessage: userMessage,
                                           skills: availableSkills,
                                           userPortrait: userPortrait,
                                           memoryContext: memoryContext,
-                                          conversationContext: bound(conversationContext))
+                                          conversationContext: bound(conversationContext),
+                                          isOnline: isOnline)
         let raw = try await llm.generateResponse(
             prompt: prompt,
             enableThinking: policy.planner(userMessage: userMessage, iteration: iteration))
@@ -104,7 +106,8 @@ public struct Planner {
                                 skills: [SkillSummary],
                                 userPortrait: String = "",
                                 memoryContext: String = "",
-                                conversationContext: String = "") -> String {
+                                conversationContext: String = "",
+                                isOnline: Bool = true) -> String {
         var sections: [String] = [
             "You are a planner that turns user requests into a step-by-step plan.",
             "",
@@ -113,6 +116,10 @@ public struct Planner {
             "Available skills:",
             renderCatalog(skills),
         ]
+        if !isOnline {
+            sections.append("")
+            sections.append(offlineNote())
+        }
         appendOptional(&sections,
                        label: "User portrait (what the user has told you about themselves):",
                        value: userPortrait)
@@ -176,8 +183,32 @@ public struct Planner {
         return sections.joined(separator: "\n")
     }
 
-    private static func renderCatalog(_ skills: [SkillSummary]) -> String {
-        skills.map { "- \($0.name): \($0.description)" }.joined(separator: "\n")
+    /// Mirrors android-app's `Planner.renderSkillCatalog`. Splits skills
+    /// by tier so the planner prompt isn't bloated with deferred-skill
+    /// detail it doesn't need yet — the agent can call `search-skills`
+    /// to load full instructions when it actually wants to use one.
+    static func renderCatalog(_ skills: [SkillSummary]) -> String {
+        let base = skills.filter { $0.tier != "deferred" }
+        let deferred = skills.filter { $0.tier == "deferred" }
+
+        let baseBlock = base.map { skill -> String in
+            if skill.instructions.isEmpty {
+                return "- \(skill.name): \(skill.description)"
+            }
+            // Detail format mirrors Android — instructions on a continuation
+            // line, indented two spaces so the model can see the boundary
+            // between catalog entries cleanly.
+            return "- \(skill.name): \(skill.description)\n  \(skill.instructions)"
+        }.joined(separator: "\n")
+
+        guard !deferred.isEmpty else { return baseBlock }
+
+        let deferredBlock = deferred
+            .map { "- \($0.name): \($0.description)" }
+            .joined(separator: "\n")
+        let deferredHint = "Available on demand (call \"search-skills\" to load instructions before use):"
+        let separator = baseBlock.isEmpty ? "" : "\n\n"
+        return baseBlock + separator + deferredHint + "\n" + deferredBlock
     }
 
     private static func appendOptional(_ sections: inout [String], label: String, value: String) {
@@ -185,6 +216,12 @@ public struct Planner {
         sections.append("")
         sections.append(label)
         sections.append(value)
+    }
+
+    private static func offlineNote() -> String {
+        let internet = ConnectivityChecker.internetSkills.sorted().joined(separator: ", ")
+        return "OFFLINE MODE: the device has no internet right now. Avoid skills that require " +
+               "the network (\(internet)). Prefer on-device skills."
     }
 
     private static func dateNote() -> String {
