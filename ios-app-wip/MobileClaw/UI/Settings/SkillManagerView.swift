@@ -76,7 +76,7 @@ struct SkillManagerView: View {
                 }
                 ToolbarItem(placement: .topBarTrailing) {
                     Button { editorMode = .add } label: {
-                        Image(systemName: "plus")
+                        MIcon(name: MIconName.add, size: 22, weight: .regular)
                     }
                 }
             }
@@ -231,11 +231,11 @@ private struct SkillRow: View {
             if row.requireSecret {
                 Button(action: onTapSecret) {
                     HStack(spacing: 6) {
-                        Image(systemName: row.hasSecret ? "key.fill" : "key")
+                        MIcon(name: MIconName.key, size: 16, weight: .regular)
                             .foregroundStyle(row.hasSecret ? AppColors.primary : .secondary)
                         Text(row.hasSecret ? "Secret set — tap to edit"
                                             : "Secret required — tap to set")
-                            .font(.caption)
+                            .font(.bodySmallNunito)
                     }
                 }
                 .buttonStyle(.plain)

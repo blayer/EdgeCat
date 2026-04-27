@@ -351,7 +351,7 @@ private struct ModelSwitchSheet: View {
                                     Text(url.deletingPathExtension().lastPathComponent)
                                     Spacer()
                                     if url == currentURL {
-                                        Image(systemName: "checkmark")
+                                        MIcon(name: MIconName.check, size: 18, weight: .regular)
                                             .foregroundStyle(AppColors.primary)
                                     }
                                 }

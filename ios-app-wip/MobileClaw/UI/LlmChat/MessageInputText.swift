@@ -54,8 +54,7 @@ struct MessageInputText: View {
                             Label("Camera", systemImage: "camera")
                         }
                     } label: {
-                        Image(systemName: "photo")
-                            .font(.system(size: 22))
+                        MIcon(name: MIconName.image, size: 24, weight: .regular)
                             .foregroundStyle(AppColors.onSurfaceVariant)
                     }
                     .onChange(of: pickerItems) { _, items in loadPicked(items) }
@@ -68,8 +67,7 @@ struct MessageInputText: View {
                             recorder.start()
                         }
                     } label: {
-                        Image(systemName: recorder.isRecording ? "mic.fill" : "mic")
-                            .font(.system(size: 22))
+                        MIcon(name: MIconName.mic, size: 24, weight: .regular)
                             .foregroundStyle(recorder.isRecording ? .red : AppColors.onSurfaceVariant)
                     }
                 }
@@ -98,16 +96,14 @@ struct MessageInputText: View {
 
                 if isStreaming {
                     Button(action: onStop) {
-                        Image(systemName: "stop.fill")
-                            .font(.system(size: 18, weight: .bold))
+                        MIcon(name: MIconName.stop, size: 22, weight: .bold)
                             .foregroundStyle(.white)
                             .frame(width: 40, height: 40)
                             .background(Circle().fill(AppColors.primary))
                     }
                 } else {
                     Button(action: onSend) {
-                        Image(systemName: "arrow.up")
-                            .font(.system(size: 18, weight: .bold))
+                        MIcon(name: MIconName.send, size: 20, weight: .bold)
                             .foregroundStyle(.white)
                             .frame(width: 40, height: 40)
                             .background(Circle().fill(canSend ? AppColors.primary : AppColors.outline))
@@ -245,9 +241,9 @@ private struct ImageThumb: View {
                 RoundedRectangle(cornerRadius: 10).fill(AppColors.surfaceVariant).frame(width: 64, height: 64)
             }
             Button(action: onRemove) {
-                Image(systemName: "xmark.circle.fill")
-                    .font(.system(size: 18))
-                    .foregroundStyle(.white, .black.opacity(0.7))
+                MIcon(name: MIconName.cancel, size: 20, weight: .regular)
+                    .foregroundStyle(.white)
+                    .background(Circle().fill(.black.opacity(0.6)))
             }
             .offset(x: 6, y: -6)
         }
@@ -260,8 +256,7 @@ private struct AudioThumb: View {
     var body: some View {
         ZStack(alignment: .topTrailing) {
             HStack(spacing: 6) {
-                Image(systemName: "waveform")
-                    .font(.system(size: 22))
+                MIcon(name: MIconName.graphicEq, size: 22, weight: .regular)
                 Text(ByteCountFormatter.string(fromByteCount: Int64(bytes), countStyle: .file))
                     .font(.caption)
             }
@@ -272,9 +267,9 @@ private struct AudioThumb: View {
             )
             .foregroundStyle(AppColors.onSurfaceVariant)
             Button(action: onRemove) {
-                Image(systemName: "xmark.circle.fill")
-                    .font(.system(size: 18))
-                    .foregroundStyle(.white, .black.opacity(0.7))
+                MIcon(name: MIconName.cancel, size: 20, weight: .regular)
+                    .foregroundStyle(.white)
+                    .background(Circle().fill(.black.opacity(0.6)))
             }
             .offset(x: 6, y: -6)
         }

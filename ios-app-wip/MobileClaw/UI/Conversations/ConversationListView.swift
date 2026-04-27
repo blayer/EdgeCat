@@ -180,8 +180,7 @@ private struct ConversationRow: View {
         VStack(alignment: .leading, spacing: 4) {
             HStack(spacing: 6) {
                 if conv.pinned {
-                    Image(systemName: "pin.fill")
-                        .font(.caption)
+                    MIcon(name: MIconName.pushPin, size: 14, weight: .regular)
                         .foregroundStyle(AppColors.primary)
                 }
                 Text(conv.title.isEmpty ? "New conversation" : conv.title)

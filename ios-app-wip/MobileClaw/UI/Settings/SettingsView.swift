@@ -140,11 +140,10 @@ struct SettingsView: View {
         Section {
             Button { showSkills = true } label: {
                 HStack {
-                    Image(systemName: "puzzlepiece.extension")
+                    MIcon(name: MIconName.extension_, size: 20, weight: .regular)
                     Text("Manage Skills")
                     Spacer()
-                    Image(systemName: "chevron.right")
-                        .font(.footnote)
+                    MIcon(name: MIconName.chevronRight, size: 18, weight: .regular)
                         .foregroundStyle(.tertiary)
                 }
             }

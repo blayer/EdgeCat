@@ -63,7 +63,7 @@ struct ModelManagerView: View {
                                 Text(formatSize(url)).font(.caption).foregroundStyle(.secondary)
                             }
                             Spacer()
-                            Image(systemName: "chevron.right").foregroundStyle(.tertiary)
+                            MIcon(name: MIconName.chevronRight, size: 18, weight: .regular).foregroundStyle(.tertiary)
                         }
                     })
                     .swipeActions(edge: .trailing) {
