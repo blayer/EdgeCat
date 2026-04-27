@@ -234,6 +234,35 @@ private struct MessageRow: View {
                     MessageBubbleShape(hardCornerAtLeft: !isUser)
                         .fill(isUser ? AppColors.userBubble : AppColors.agentBubble)
                 )
+        case .agentLog:
+            // Orchestration progress log — one line per phase / step
+            // (Planning, step run, step ✓, evaluation, formatting, …).
+            // Mirrors android-app's `ChatMessageOrchestrationLog`.
+            VStack(alignment: .leading, spacing: 4) {
+                Text("Agent activity")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(AppColors.onAgentBubble.opacity(0.7))
+                    .padding(.bottom, 2)
+                ForEach(Array(message.logLines.enumerated()), id: \.offset) { _, line in
+                    Text(line)
+                        .font(.callout)
+                        .foregroundStyle(AppColors.onAgentBubble)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
+                if message.logInProgress {
+                    HStack(spacing: 6) {
+                        TypingIndicator()
+                    }
+                    .padding(.top, 2)
+                }
+            }
+            .padding(.horizontal, 14)
+            .padding(.vertical, 10)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(
+                MessageBubbleShape(hardCornerAtLeft: true)
+                    .fill(AppColors.agentBubble)
+            )
         }
     }
 
