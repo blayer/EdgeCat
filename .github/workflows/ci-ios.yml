@@ -40,9 +40,12 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Select Xcode
-        # macos-15 ships Xcode 16; pin to a version that ships the iOS 17 SDK
-        # the project's deployment target requires.
-        run: sudo xcode-select -s /Applications/Xcode_16.app/Contents/Developer || true
+        # Use the runner's default Xcode. macos-15 ships multiple Xcodes;
+        # pinning to Xcode_16 made xcodebuild ask for the iOS 18.0
+        # simulator runtime, which isn't preinstalled on the runner —
+        # the available iOS runtimes are 18.5 / 18.6 / 26.x, paired with
+        # the runner's default (newer) Xcode.
+        run: xcodebuild -version
 
       - name: Install xcodegen
         run: |
@@ -61,26 +64,35 @@ jobs:
 
       - name: Select simulator
         run: |
-          SIMULATOR_NAME="$(xcrun simctl list devices available -j | /usr/bin/python3 -c '
-import json
-import sys
-
-devices = json.load(sys.stdin).get("devices", {})
-names = [
-    device["name"]
-    for runtime, entries in devices.items()
-    if runtime.startswith("com.apple.CoreSimulator.SimRuntime.iOS")
-    for device in entries
-    if device.get("isAvailable")
-]
-print(names[0] if names else "", end="")
-')"
-          if [ -z "$SIMULATOR_NAME" ]; then
+          # Pick by UDID, not by name. macos-15 ships several iPhone
+          # 15/16/17 variants; `simctl list devices available` reports
+          # whichever names are present, but xcodebuild's destination
+          # resolver also requires the matching iOS runtime SDK to be
+          # installed under the active Xcode. A name-based destination
+          # like `name=iPhone 16 Pro` fails when simctl knows about the
+          # device but the SDK isn't installed (`iOS 18.0 is not
+          # installed`). UDIDs encode runtime + device, so an
+          # `id=<UDID>` destination always resolves.
+          SIMULATOR_UDID="$(xcrun simctl list devices available -j \
+            | jq -r '.devices
+                       | to_entries[]
+                       | select(.key | startswith("com.apple.CoreSimulator.SimRuntime.iOS"))
+                       | .value[]?
+                       | select(.isAvailable)
+                       | .udid' \
+            | head -n1)"
+          if [ -z "$SIMULATOR_UDID" ]; then
             echo "No available iOS simulator found"
+            xcrun simctl list devices available
             exit 1
           fi
-          echo "SIMULATOR_NAME=$SIMULATOR_NAME" >> "$GITHUB_ENV"
-          echo "Using simulator: $SIMULATOR_NAME"
+          # Boot the simulator so xcodebuild has a destination ready —
+          # `simctl boot` is idempotent (no-op if already booted).
+          xcrun simctl boot "$SIMULATOR_UDID" 2>/dev/null || true
+          echo "SIMULATOR_UDID=$SIMULATOR_UDID" >> "$GITHUB_ENV"
+          xcrun simctl list devices available \
+            | grep "$SIMULATOR_UDID" \
+            || echo "Using simulator UDID: $SIMULATOR_UDID"
 
       - name: Build & test
         run: |
@@ -91,7 +103,7 @@ print(names[0] if names else "", end="")
             -scheme MobileClaw \
             -sdk iphonesimulator \
             -configuration Debug \
-            -destination "platform=iOS Simulator,name=${SIMULATOR_NAME}" \
+            -destination "platform=iOS Simulator,id=${SIMULATOR_UDID}" \
             -enableCodeCoverage YES \
             -resultBundlePath TestResults.xcresult \
             test | xcbeautify --renderer github-actions
@@ -111,7 +123,8 @@ print(names[0] if names else "", end="")
       - uses: actions/checkout@v4
 
       - name: Select Xcode
-        run: sudo xcode-select -s /Applications/Xcode_16.app/Contents/Developer || true
+        # Use the runner's default Xcode — see ios-test for the same fix.
+        run: xcodebuild -version
 
       - name: Install xcodegen
         run: |
@@ -124,26 +137,35 @@ print(names[0] if names else "", end="")
 
       - name: Select simulator
         run: |
-          SIMULATOR_NAME="$(xcrun simctl list devices available -j | /usr/bin/python3 -c '
-import json
-import sys
-
-devices = json.load(sys.stdin).get("devices", {})
-names = [
-    device["name"]
-    for runtime, entries in devices.items()
-    if runtime.startswith("com.apple.CoreSimulator.SimRuntime.iOS")
-    for device in entries
-    if device.get("isAvailable")
-]
-print(names[0] if names else "", end="")
-')"
-          if [ -z "$SIMULATOR_NAME" ]; then
+          # Pick by UDID, not by name. macos-15 ships several iPhone
+          # 15/16/17 variants; `simctl list devices available` reports
+          # whichever names are present, but xcodebuild's destination
+          # resolver also requires the matching iOS runtime SDK to be
+          # installed under the active Xcode. A name-based destination
+          # like `name=iPhone 16 Pro` fails when simctl knows about the
+          # device but the SDK isn't installed (`iOS 18.0 is not
+          # installed`). UDIDs encode runtime + device, so an
+          # `id=<UDID>` destination always resolves.
+          SIMULATOR_UDID="$(xcrun simctl list devices available -j \
+            | jq -r '.devices
+                       | to_entries[]
+                       | select(.key | startswith("com.apple.CoreSimulator.SimRuntime.iOS"))
+                       | .value[]?
+                       | select(.isAvailable)
+                       | .udid' \
+            | head -n1)"
+          if [ -z "$SIMULATOR_UDID" ]; then
             echo "No available iOS simulator found"
+            xcrun simctl list devices available
             exit 1
           fi
-          echo "SIMULATOR_NAME=$SIMULATOR_NAME" >> "$GITHUB_ENV"
-          echo "Using simulator: $SIMULATOR_NAME"
+          # Boot the simulator so xcodebuild has a destination ready —
+          # `simctl boot` is idempotent (no-op if already booted).
+          xcrun simctl boot "$SIMULATOR_UDID" 2>/dev/null || true
+          echo "SIMULATOR_UDID=$SIMULATOR_UDID" >> "$GITHUB_ENV"
+          xcrun simctl list devices available \
+            | grep "$SIMULATOR_UDID" \
+            || echo "Using simulator UDID: $SIMULATOR_UDID"
 
       - name: Build for simulator
         run: |
@@ -153,6 +175,6 @@ print(names[0] if names else "", end="")
             -scheme MobileClaw \
             -sdk iphonesimulator \
             -configuration Debug \
-            -destination "platform=iOS Simulator,name=${SIMULATOR_NAME}" \
+            -destination "platform=iOS Simulator,id=${SIMULATOR_UDID}" \
             CODE_SIGN_IDENTITY="" CODE_SIGNING_REQUIRED=NO \
             build
