@@ -25,6 +25,7 @@ struct SettingsView: View {
     @State private var hfToken: String = HuggingFaceAuth.token() ?? ""
     @State private var convPrompt: String = ""
     @State private var memoryClearedAt: Date?
+    @State private var showSkills = false
 
     @AppStorage(SamplerSettings.agenticKey) private var agenticMode: Bool = false
     @AppStorage(SamplerSettings.topKKey) private var topK: Int = SamplerSettings.defaults.topK
@@ -113,6 +114,8 @@ struct SettingsView: View {
                 // Android developer-options menu would surface.
                 advancedSection
 
+                skillsSection
+
                 // iOS-only sections kept outside the tabbed area: Account
                 // (HuggingFace token) + About. They aren't part of Android's
                 // dialog because Android handles HF login on a separate screen.
@@ -126,6 +129,31 @@ struct SettingsView: View {
                     Button("Done") { dismiss() }
                 }
             }
+            .sheet(isPresented: $showSkills) { SkillManagerView() }
+        }
+    }
+
+    /// Entry-point row → opens the SkillManagerView sheet. Mirrors
+    /// Android's "Manage Skills" button on the agent settings panel.
+    @ViewBuilder
+    private var skillsSection: some View {
+        Section {
+            Button { showSkills = true } label: {
+                HStack {
+                    Image(systemName: "puzzlepiece.extension")
+                    Text("Manage Skills")
+                    Spacer()
+                    Image(systemName: "chevron.right")
+                        .font(.footnote)
+                        .foregroundStyle(.tertiary)
+                }
+            }
+            .buttonStyle(.plain)
+        } header: {
+            Text("Skills")
+        } footer: {
+            Text("Enable / disable skills the planner can call, and store per-skill API tokens for ones that need them.")
+                .font(.caption)
         }
     }
 

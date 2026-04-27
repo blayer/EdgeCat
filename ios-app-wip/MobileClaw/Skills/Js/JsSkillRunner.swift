@@ -48,14 +48,14 @@ public final class JsSkillRunner: NSObject, WKNavigationDelegate {
         return "\(result ?? "")"
     }
 
-    nonisolated public func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
+    nonisolated public func webView(_ webView: WKWebView, didFinish navigation: WKNavigation?) {
         Task { @MainActor in
             self.loadContinuation?.resume()
             self.loadContinuation = nil
         }
     }
 
-    nonisolated public func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error) {
+    nonisolated public func webView(_ webView: WKWebView, didFail navigation: WKNavigation?, withError error: Error) {
         Task { @MainActor in
             self.loadContinuation?.resume(throwing: error)
             self.loadContinuation = nil
@@ -63,42 +63,117 @@ public final class JsSkillRunner: NSObject, WKNavigationDelegate {
     }
 }
 
-/// A Skill that delegates execution to a JS function defined in
-/// Resources/skills/<name>/scripts/index.html. The skill name + the JS
-/// function name + the args→JSON mapping are configured at construction.
+/// A Skill that delegates execution to the JS function defined in
+/// `Resources/skills/<slug>/scripts/index.html`. Every JS skill in the
+/// catalog (Android + iOS) follows the same entry-point contract:
+///
+///     window["ai_edge_gallery_get_result"] = async (data) => {
+///         const json = JSON.parse(data);   // data is a JSON string
+///         ...
+///         return JSON.stringify(result);   // string or stringified object
+///     };
+///
+/// We pass the agent's `args` dict serialized as a JSON string so the JS
+/// side's `JSON.parse(data)` works without any per-skill argument shaping.
 @MainActor public final class JsSkill: Skill {
     nonisolated public let name: String
     nonisolated public let description: String
-    /// JS function to call (e.g. `searchWeb`).
-    public let jsFunction: String
+    /// Effective instructions surfaced to the planner — user override wins
+    /// over the SKILL.md default.
+    nonisolated public var instructions: String {
+        SkillInstructions.effective(slug: name, default: defaultInstructions)
+    }
     /// Bundle subdirectory under Resources/skills/.
     public let bundleDir: String
+    /// Where the manifest came from. Custom skills load their JS from
+    /// Documents/skills/, built-ins from the app bundle.
+    public let source: SkillManifest.Source
+    /// True iff the skill's SKILL.md declares `require-secret: true`. The
+    /// runner refuses to call the JS until the user has stored a secret in
+    /// `SkillSecrets`.
+    public let requireSecret: Bool
+    public let requireSecretDescription: String
+    private let defaultInstructions: String
 
-    public init(name: String, description: String, jsFunction: String, bundleDir: String) {
+    public init(name: String, description: String, bundleDir: String,
+                instructions: String = "",
+                requireSecret: Bool = false,
+                requireSecretDescription: String = "",
+                source: SkillManifest.Source = .builtIn) {
         self.name = name; self.description = description
-        self.jsFunction = jsFunction; self.bundleDir = bundleDir
+        self.bundleDir = bundleDir
+        self.defaultInstructions = instructions
+        self.requireSecret = requireSecret
+        self.requireSecretDescription = requireSecretDescription
+        self.source = source
+    }
+
+    /// Convenience initializer for skills built from a parsed SKILL.md
+    /// manifest. Used by `SkillRegistry.defaultSet()`.
+    public convenience init(manifest: SkillManifest) {
+        self.init(name: manifest.slug,
+                  description: manifest.description,
+                  bundleDir: manifest.slug,
+                  instructions: manifest.instructions,
+                  requireSecret: manifest.requireSecret,
+                  requireSecretDescription: manifest.requireSecretDescription,
+                  source: manifest.source)
     }
 
     public func run(args: [String: String]) async -> ToolExecutionResult {
-        guard let url = Bundle.main.url(forResource: "index", withExtension: "html",
-                                        subdirectory: "skills/\(bundleDir)/scripts") else {
+        if requireSecret, SkillSecrets.token(for: name) == nil {
+            return ToolExecutionResult(success: false,
+                                       error: "secret_required: \(requireSecretDescription.isEmpty ? name : requireSecretDescription)")
+        }
+        // Custom skills are read from Documents/skills/, built-ins from
+        // the app bundle. The JsSkillRunner needs a real on-disk file URL
+        // either way; WKWebView grants the loader read access to the
+        // containing directory.
+        let url: URL? = {
+            switch source {
+            case .custom:
+                return CustomSkillStore.skillsRootURL?
+                    .appendingPathComponent(bundleDir)
+                    .appendingPathComponent("scripts/index.html")
+            case .builtIn:
+                return Bundle.main.url(forResource: "index", withExtension: "html",
+                                        subdirectory: "skills/\(bundleDir)/scripts")
+            }
+        }()
+        guard let url, FileManager.default.fileExists(atPath: url.path) else {
             return ToolExecutionResult(success: false, error: "index.html missing for \(name)")
         }
         let runner = JsSkillRunner()
         do {
             try await runner.load(htmlURL: url)
-            // Pass the args dict as the JS function's single argument.
-            // Most skills accept either a string (e.g., query) or an object.
-            let jsonArg: String
-            if let single = args["query"] ?? args["q"], args.count == 1 {
-                jsonArg = "\"\(single.replacingOccurrences(of: "\"", with: "\\\""))\""
-            } else if let data = try? JSONSerialization.data(withJSONObject: args),
-                      let s = String(data: data, encoding: .utf8) {
-                jsonArg = s
-            } else {
-                jsonArg = "{}"
+            // Build the JS-side `data` argument as a JSON string. The JS
+            // entry function calls `JSON.parse(data)`, so we must hand it an
+            // actual string (not a JS object literal). If the user passed a
+            // bare `query` (single-arg shape), wrap it to match the
+            // `{query: "..."}` convention skills expect.
+            var payload = args
+            if payload.isEmpty,
+               let firstValue = args.values.first {
+                payload = ["query": firstValue]
             }
-            let result = try await runner.invoke(function: jsFunction, jsonArg: jsonArg)
+            // Inject the per-skill secret so the JS can attach it to its
+            // outbound request. Field name mirrors Android's convention.
+            if requireSecret, let token = SkillSecrets.token(for: name) {
+                payload["secret"] = token
+            }
+            let dataString: String = {
+                guard let data = try? JSONSerialization.data(withJSONObject: payload, options: [.sortedKeys]),
+                      let s = String(data: data, encoding: .utf8) else { return "{}" }
+                return s
+            }()
+            // Escape the JSON-string-of-args into a JS string literal.
+            let escaped = dataString
+                .replacingOccurrences(of: "\\", with: "\\\\")
+                .replacingOccurrences(of: "\"", with: "\\\"")
+                .replacingOccurrences(of: "\n", with: "\\n")
+            let jsonArg = "\"\(escaped)\""
+            let result = try await runner.invoke(function: "window[\"ai_edge_gallery_get_result\"]",
+                                                  jsonArg: jsonArg)
             return ToolExecutionResult(success: !result.hasPrefix("Error: "),
                                        output: result,
                                        error: result.hasPrefix("Error: ") ? result : nil)

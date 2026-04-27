@@ -37,7 +37,9 @@ public enum HuggingFaceOAuthSession {
     public static func signIn() async throws {
         guard !clientId.isEmpty else { throw AuthError.notConfigured }
         let state = UUID().uuidString
-        var comps = URLComponents(string: "https://huggingface.co/oauth/authorize")!
+        guard var comps = URLComponents(string: "https://huggingface.co/oauth/authorize") else {
+            throw AuthError.exchangeFailed("invalid authorize URL")
+        }
         comps.queryItems = [
             URLQueryItem(name: "client_id", value: clientId),
             URLQueryItem(name: "redirect_uri", value: redirectURL),
@@ -73,7 +75,10 @@ public enum HuggingFaceOAuthSession {
         }
 
         // Exchange the code for an access token.
-        var tokenReq = URLRequest(url: URL(string: "https://huggingface.co/oauth/token")!)
+        guard let tokenURL = URL(string: "https://huggingface.co/oauth/token") else {
+            throw AuthError.exchangeFailed("invalid token URL")
+        }
+        var tokenReq = URLRequest(url: tokenURL)
         tokenReq.httpMethod = "POST"
         tokenReq.setValue("application/x-www-form-urlencoded", forHTTPHeaderField: "Content-Type")
         let body = [

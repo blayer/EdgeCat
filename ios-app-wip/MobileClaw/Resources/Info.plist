@@ -22,7 +22,7 @@
 	<array>
 		<dict>
 			<key>CFBundleURLName</key>
-			<string>com.mobileclaw.app.url</string>
+			<string>com.mobileclawapp.app.url</string>
 			<key>CFBundleURLSchemes</key>
 			<array>
 				<string>mobileclaw</string>

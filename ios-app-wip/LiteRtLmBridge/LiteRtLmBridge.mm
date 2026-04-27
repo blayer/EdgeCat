@@ -10,7 +10,7 @@
 #import <Foundation/Foundation.h>
 #include "c/engine.h"
 
-NSString * const LRTLMErrorDomain = @"com.mobileclaw.litertlmbridge";
+NSString * const LRTLMErrorDomain = @"com.mobileclawapp.litertlmbridge";
 
 static NSError *MakeError(LRTLMErrorCode code, NSString *msg) {
     return [NSError errorWithDomain:LRTLMErrorDomain

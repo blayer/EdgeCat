@@ -80,6 +80,54 @@ final class SkillRegistryTests: XCTestCase {
         }
     }
 
+    /// JS skills are no longer hand-listed; they're auto-loaded from
+    /// `Resources/skills/<slug>/SKILL.md`. Verify the scanner picks them up
+    /// and they reach the registry. `query-wikipedia` is the canonical
+    /// JS-only skill that ships in the iOS bundle.
+    func testDefaultSetAutoLoadsJsSkills() async throws {
+        SkillToggles.resetAll()
+        let reg = SkillRegistry.defaultSet()
+        try await Task.sleep(nanoseconds: 50_000_000)
+        let names = Set(reg.allSkills().map(\.name))
+        XCTAssertTrue(names.contains("query-wikipedia"))
+    }
+
+    /// `getAvailableSkills()` must filter by user toggles; `allSkills()`
+    /// must not. The planner uses the filtered view; the manager UI uses
+    /// the full one.
+    func testTogglesFilterAvailableButNotAll() async throws {
+        SkillToggles.resetAll()
+        let reg = SkillRegistry.defaultSet()
+        try await Task.sleep(nanoseconds: 50_000_000)
+
+        SkillToggles.setEnabled(false, for: "calculator")
+        defer { SkillToggles.resetAll() }
+
+        let visible = Set(reg.getAvailableSkills().map(\.name))
+        let everything = Set(reg.allSkills().map(\.name))
+        XCTAssertFalse(visible.contains("calculator"),
+                       "Disabled skill should be hidden from the planner")
+        XCTAssertTrue(everything.contains("calculator"),
+                      "Manager UI must still see disabled skill")
+    }
+
+    /// `executeTool` should still run a disabled skill if invoked by name —
+    /// the toggle gates planner exposure, not direct invocation. This
+    /// matches Android's behavior where disabled skills can still be
+    /// triggered via direct API once the planner has decided to.
+    func testDisabledSkillIsStillExecutable() async throws {
+        SkillToggles.resetAll()
+        let reg = SkillRegistry.defaultSet()
+        try await Task.sleep(nanoseconds: 50_000_000)
+        SkillToggles.setEnabled(false, for: "calculator")
+        defer { SkillToggles.resetAll() }
+
+        let r = await reg.executeTool(toolName: "calculator",
+                                       args: ["expression": "2+2"])
+        XCTAssertTrue(r.success)
+        XCTAssertEqual(r.output, "4")
+    }
+
     func testUpdateSkillInstructionsIsNoOpForBuiltIns() async {
         let reg = SkillRegistry.defaultSet()
         let updated = await reg.updateSkillInstructions(skillName: "calculator",

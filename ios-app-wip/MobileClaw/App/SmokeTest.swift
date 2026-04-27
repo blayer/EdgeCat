@@ -5,7 +5,7 @@ import Foundation
 // sends the prompt, and logs streamed tokens to stdout — no UI tap required.
 //
 // Usage:
-//   xcrun simctl launch --console <udid> com.mobileclaw.app \
+//   xcrun simctl launch --console <udid> com.mobileclawapp.app \
 //     MOBILECLAW_TEST_PROMPT="What is the capital of France?"
 
 enum SmokeTest {

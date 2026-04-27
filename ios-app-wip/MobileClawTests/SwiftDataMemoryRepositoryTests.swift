@@ -4,9 +4,9 @@ import SwiftData
 
 @MainActor
 final class SwiftDataMemoryRepositoryTests: XCTestCase {
-    private var container: ModelContainer!
-    private var context: ModelContext!
-    private var repo: SwiftDataMemoryRepository!
+    private var container: ModelContainer?
+    private var context: ModelContext?
+    private var repo: SwiftDataMemoryRepository?
 
     override func setUp() async throws {
         try await super.setUp()
@@ -14,8 +14,9 @@ final class SwiftDataMemoryRepositoryTests: XCTestCase {
         container = try ModelContainer(for: EpisodeEntity.self, RepairRecordEntity.self,
                                        DeviceFactEntity.self,
                                        configurations: config)
+        let container = try XCTUnwrap(container)
         context = ModelContext(container)
-        repo = SwiftDataMemoryRepository(context: context)
+        repo = SwiftDataMemoryRepository(context: try XCTUnwrap(context))
         FtsIndex.shared.clear()
         try await Task.sleep(nanoseconds: 50_000_000)
     }
@@ -28,6 +29,7 @@ final class SwiftDataMemoryRepositoryTests: XCTestCase {
     }
 
     func testSaveAndRecallEpisode() async throws {
+        let repo = try XCTUnwrap(repo)
         await repo.save(episode: Episode(userMessage: "what's the time in tokyo",
                                          goal: "tokyo time",
                                          skillsUsed: ["search-web"],
@@ -41,6 +43,7 @@ final class SwiftDataMemoryRepositoryTests: XCTestCase {
     }
 
     func testSubstringFallbackWorksWithoutFts() async throws {
+        let repo = try XCTUnwrap(repo)
         // Even if FTS misses, substring fallback in the repo should hit.
         await repo.save(episode: Episode(userMessage: "find pizza nearby",
                                          goal: "pizza", skillsUsed: [],
@@ -52,6 +55,10 @@ final class SwiftDataMemoryRepositoryTests: XCTestCase {
     }
 
     func testRepairsRoundTrip() async {
+        guard let repo else {
+            XCTFail("Repository not initialized")
+            return
+        }
         await repo.save(repair: RepairRecord(skillName: "calendar",
                                              errorSummary: "permission denied",
                                              fixType: "alt",
@@ -67,6 +74,10 @@ final class SwiftDataMemoryRepositoryTests: XCTestCase {
     }
 
     func testDeviceFactsUpsertOnDuplicateKey() async {
+        guard let repo else {
+            XCTFail("Repository not initialized")
+            return
+        }
         await repo.saveDeviceFact(key: "user_name", value: "Lin", sourceEpisodeId: nil)
         await repo.saveDeviceFact(key: "user_name", value: "Lin Z.", sourceEpisodeId: "ep1")
         let facts = await repo.getDeviceFacts()
@@ -76,6 +87,8 @@ final class SwiftDataMemoryRepositoryTests: XCTestCase {
     }
 
     func testEvictionRemovesOldestBeyondCap() async throws {
+        let repo = try XCTUnwrap(repo)
+        let context = try XCTUnwrap(context)
         // The cap inside repo is 1000; insert 1010 to verify eviction trims.
         // We can't easily verify exact 1000 inside an in-memory store without
         // probing the entity count, so just verify it shrinks to cap.
@@ -90,6 +103,10 @@ final class SwiftDataMemoryRepositoryTests: XCTestCase {
     }
 
     func testClearAllRemovesEverything() async {
+        guard let repo, let context else {
+            XCTFail("Repository or context not initialized")
+            return
+        }
         await repo.save(episode: Episode(userMessage: "x", goal: "y",
                                          skillsUsed: [], outcome: "success",
                                          stepCount: 0, finalOutput: ""))

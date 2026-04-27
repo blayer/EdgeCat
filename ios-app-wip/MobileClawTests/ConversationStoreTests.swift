@@ -4,17 +4,18 @@ import SwiftData
 
 @MainActor
 final class ConversationStoreTests: XCTestCase {
-    private var container: ModelContainer!
-    private var context: ModelContext!
-    private var store: ConversationStore!
+    private var container: ModelContainer?
+    private var context: ModelContext?
+    private var store: ConversationStore?
 
     override func setUp() async throws {
         try await super.setUp()
         let config = ModelConfiguration(isStoredInMemoryOnly: true)
         container = try ModelContainer(for: Conversation.self, StoredMessage.self,
                                        configurations: config)
+        let container = try XCTUnwrap(container)
         context = ModelContext(container)
-        store = ConversationStore(context: context)
+        store = ConversationStore(context: try XCTUnwrap(context))
     }
 
     override func tearDown() async throws {
@@ -25,6 +26,8 @@ final class ConversationStoreTests: XCTestCase {
     }
 
     func testCreateConversationInsertsAndPersists() throws {
+        let store = try XCTUnwrap(store)
+        let context = try XCTUnwrap(context)
         let conv = try store.createConversation()
         XCTAssertEqual(conv.title, "")
         XCTAssertEqual(conv.messageCount, 0)
@@ -36,6 +39,8 @@ final class ConversationStoreTests: XCTestCase {
     }
 
     func testDeleteConversationCascades() throws {
+        let store = try XCTUnwrap(store)
+        let context = try XCTUnwrap(context)
         let conv = try store.createConversation()
         try store.appendMessage(to: conv, role: "user", content: "hello")
         try store.appendMessage(to: conv, role: "assistant", content: "hi back")
@@ -52,6 +57,7 @@ final class ConversationStoreTests: XCTestCase {
     }
 
     func testSetPinnedTimestamp() throws {
+        let store = try XCTUnwrap(store)
         let conv = try store.createConversation()
         try store.setPinned(conv, true)
         XCTAssertTrue(conv.pinned)
@@ -63,6 +69,7 @@ final class ConversationStoreTests: XCTestCase {
     }
 
     func testAppendMessageUpdatesConversationMetadata() throws {
+        let store = try XCTUnwrap(store)
         let conv = try store.createConversation()
         let originalUpdated = conv.updatedAt
         Thread.sleep(forTimeInterval: 0.01)
@@ -76,6 +83,7 @@ final class ConversationStoreTests: XCTestCase {
     }
 
     func testAppendMessageWithImagesAndAudioPersistsBlobs() throws {
+        let store = try XCTUnwrap(store)
         let conv = try store.createConversation()
         let img = Data(repeating: 0x42, count: 32)
         let aud = Data(repeating: 0x77, count: 64)
@@ -88,6 +96,7 @@ final class ConversationStoreTests: XCTestCase {
     }
 
     func testTitleAssignedOnFirstUserMessageOnly() throws {
+        let store = try XCTUnwrap(store)
         let conv = try store.createConversation()
         try store.appendMessage(to: conv, role: "user", content: "first")
         try store.appendMessage(to: conv, role: "user", content: "second")
@@ -95,6 +104,7 @@ final class ConversationStoreTests: XCTestCase {
     }
 
     func testMessagesSortedByCreatedAt() throws {
+        let store = try XCTUnwrap(store)
         let conv = try store.createConversation()
         try store.appendMessage(to: conv, role: "user", content: "msg1")
         Thread.sleep(forTimeInterval: 0.01)
@@ -106,6 +116,8 @@ final class ConversationStoreTests: XCTestCase {
     }
 
     func testSystemPromptOverrideRoundTrip() throws {
+        let store = try XCTUnwrap(store)
+        let context = try XCTUnwrap(context)
         let conv = try store.createConversation()
         XCTAssertNil(conv.systemPromptOverride)
         conv.systemPromptOverride = "Be concise"

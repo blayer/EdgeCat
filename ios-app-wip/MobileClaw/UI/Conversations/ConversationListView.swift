@@ -37,9 +37,9 @@ struct ConversationListView: View {
             } else {
                 List {
                     ForEach(conversations) { conv in
-                        Button(action: { onConversationOpened(conv) }) {
+                        Button(action: { onConversationOpened(conv) }, label: {
                             ConversationRow(conv: conv)
-                        }
+                        })
                         .buttonStyle(.plain)
                         .listRowInsets(EdgeInsets(top: 0, leading: 0, bottom: 0, trailing: 0))
                         .swipeActions(edge: .trailing) {
