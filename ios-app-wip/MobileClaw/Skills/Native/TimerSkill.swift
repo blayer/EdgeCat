@@ -50,8 +50,13 @@ public final class TimerSkill: Skill, @unchecked Sendable {
         let id = (args["id"].flatMap { $0.isEmpty ? nil : $0 }) ?? label
 
         let center = UNUserNotificationCenter.current()
+        // Include `.provisional` so headless surfaces (eval harness on
+        // the simulator) get auto-grant without a user-facing dialog.
+        // On real devices `.provisional` is silently approved and the
+        // user can promote to "prominent" later from Settings; for the
+        // eval the timer still schedules correctly. iOS 12+.
         let granted: Bool = await withCheckedContinuation { cont in
-            center.requestAuthorization(options: [.alert, .sound]) { ok, _ in
+            center.requestAuthorization(options: [.alert, .sound, .provisional]) { ok, _ in
                 cont.resume(returning: ok)
             }
         }
