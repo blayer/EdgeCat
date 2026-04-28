@@ -292,6 +292,16 @@ public struct Planner {
           "successCriteria": ["Step count is on the clipboard."]
         }
 
+        "Nearest X" example — call directions DIRECTLY with a search-style `to` value, do NOT chain a search-web JSON output:
+        {
+          "goal": "Walk to nearest park and copy distance",
+          "steps": [
+            {"id": "s1", "description": "Get walking directions to the nearest park.", "skillName": "directions", "toolArgs": {"to": "nearest park", "mode": "walking"}, "dependsOn": []},
+            {"id": "s2", "description": "Copy the distance to clipboard.", "skillName": "clipboard", "toolArgs": {"action": "write", "text": "Output from s1"}, "dependsOn": ["s1"]}
+          ],
+          "successCriteria": ["Distance is on the clipboard."]
+        }
+
         User request: \(userMessage)
         """
     }
