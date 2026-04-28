@@ -31,13 +31,13 @@ enum AppFont {
 /// (`titleLarge`, `bodyMedium`, etc.) but maps onto Nunito sizes that look
 /// natural on iOS dynamic-type defaults.
 extension Font {
-    static var titleLargeNunito: Font   { AppFont.nunito(.bold, size: 22) }
-    static var titleMediumNunito: Font  { AppFont.nunito(.semibold, size: 17) }
-    static var titleSmallNunito: Font   { AppFont.nunito(.semibold, size: 15) }
-    static var bodyLargeNunito: Font    { AppFont.nunito(.regular, size: 16) }
-    static var bodyMediumNunito: Font   { AppFont.nunito(.regular, size: 14) }
-    static var bodySmallNunito: Font    { AppFont.nunito(.regular, size: 12) }
-    static var labelLargeNunito: Font   { AppFont.nunito(.semibold, size: 14) }
-    static var labelMediumNunito: Font  { AppFont.nunito(.medium, size: 12) }
-    static var labelSmallNunito: Font   { AppFont.nunito(.medium, size: 11) }
+    static var titleLargeNunito: Font   { AppFont.nunito(.bold, size: 24) }
+    static var titleMediumNunito: Font  { AppFont.nunito(.semibold, size: 18) }
+    static var titleSmallNunito: Font   { AppFont.nunito(.semibold, size: 16) }
+    static var bodyLargeNunito: Font    { AppFont.nunito(.regular, size: 17) }
+    static var bodyMediumNunito: Font   { AppFont.nunito(.regular, size: 16) }
+    static var bodySmallNunito: Font    { AppFont.nunito(.regular, size: 14) }
+    static var labelLargeNunito: Font   { AppFont.nunito(.semibold, size: 16) }
+    static var labelMediumNunito: Font  { AppFont.nunito(.medium, size: 14) }
+    static var labelSmallNunito: Font   { AppFont.nunito(.medium, size: 13) }
 }
