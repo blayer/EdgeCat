@@ -60,15 +60,27 @@ public final class SkillRegistry: ToolExecutor, @unchecked Sendable {
             CalendarSkill(),
             RemindersSkill(),
             PhotosSkill(),
+            SearchPhotosSkill(),
             LocationSkill(),
             PhoneCallSkill(),
             SmsSkill(),
+            SendEmailSkill(),
             FlashlightSkill(),
             ShareContentSkill(),
             BarcodeSkill(),
+            OpenUrlSkill(),
+            OpenSettingsSkill(),
+            LaunchAppSkill(),
+            TimerSkill(),
+            ListDownloadsSkill(),
+            // Stubs (iOS sandbox / API restrictions) — kept registered so
+            // the planner sees the same skill names as Android and can
+            // route around the `not_supported_on_ios` error via repair.
             DoNotDisturbSkill(),
             SetAlarmSkill(),
             ListAppsSkill(),
+            TakePhotoSkill(),
+            VolumeControlSkill(),
         ]
         let nativeNames = Set(nativeSkills.map { $0.name })
 

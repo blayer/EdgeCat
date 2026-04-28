@@ -70,9 +70,12 @@ public final class ChatViewModel {
             guard let self else { return }
             do {
                 let s = SamplerSettings.current()
-                // Per-conversation override wins over the global setting.
+                // Per-conversation override wins over the global Settings
+                // value, which in turn wins over the bundled default.
+                // Mirrors Android's
+                // `AgentChatTask.defaultSystemPrompt` fallback chain.
                 let prompt = conversation.systemPromptOverride
-                    ?? (s.systemPrompt.isEmpty ? nil : s.systemPrompt)
+                    ?? (s.systemPrompt.isEmpty ? SamplerSettings.defaultSystemPrompt : s.systemPrompt)
                 let configHash = Self.engineConfigHash(settings: s, systemPrompt: prompt)
 
                 // First-load OR settings changed → tear down + re-init.

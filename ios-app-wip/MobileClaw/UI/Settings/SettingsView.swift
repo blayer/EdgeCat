@@ -201,12 +201,31 @@ struct SettingsView: View {
             TextEditor(text: $systemPrompt)
                 .frame(minHeight: 120)
                 .font(.callout)
-            Button("Restore default") { systemPrompt = "" }
-                .foregroundStyle(.red)
+            HStack(spacing: 12) {
+                Button("Use default") {
+                    systemPrompt = SamplerSettings.defaultSystemPrompt
+                }
+                Spacer()
+                Button("Clear") { systemPrompt = "" }
+                    .foregroundStyle(.red)
+            }
+            // Show the default text below so the user can see what
+            // "blank" actually applies at runtime. Mirrors Android's
+            // ConfigDialog where the default prompt is visible.
+            Text("Default (used when this field is blank):")
+                .font(.caption2.weight(.semibold))
+                .foregroundStyle(AppColors.onSurfaceVariant)
+                .padding(.top, 8)
+            Text(SamplerSettings.defaultSystemPrompt)
+                .font(.caption.monospaced())
+                .foregroundStyle(AppColors.onSurfaceVariant)
+                .padding(8)
+                .background(AppColors.surfaceVariant)
+                .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
         } header: {
             Text("System prompt")
         } footer: {
-            Text("Prepended to every conversation. Leave blank for default.")
+            Text("Prepended to every conversation. Leave blank to use the default; tap “Use default” to start editing from it.")
                 .font(.caption)
         }
     }

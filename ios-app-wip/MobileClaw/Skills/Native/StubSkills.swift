@@ -30,3 +30,33 @@ public final class ListAppsSkill: Skill, @unchecked Sendable {
         ToolExecutionResult(success: false, error: "not_supported_on_ios")
     }
 }
+
+public final class TakePhotoSkill: Skill, @unchecked Sendable {
+    public var name: String { "take-photo" }
+    public var description: String {
+        "(iOS) Not supported headlessly — UIImagePickerController / AVCapturePhotoOutput " +
+        "require UI presentation context the orchestration layer doesn't have. " +
+        "Tell the user to use the camera button in chat input instead."
+    }
+    public init() {}
+    public func run(args: [String: String]) async -> ToolExecutionResult {
+        ToolExecutionResult(
+            success: false,
+            error: "not_supported_on_ios — capture requires user-driven UI, " +
+                   "use the camera button in the chat composer")
+    }
+}
+
+public final class VolumeControlSkill: Skill, @unchecked Sendable {
+    public var name: String { "volume-control" }
+    public var description: String {
+        "(iOS) Not supported — Apple revoked the MPVolumeView slider API; " +
+        "third-party apps can no longer change system audio volume."
+    }
+    public init() {}
+    public func run(args: [String: String]) async -> ToolExecutionResult {
+        ToolExecutionResult(
+            success: false,
+            error: "not_supported_on_ios — programmatic volume control was removed in iOS 11+")
+    }
+}

@@ -14,6 +14,22 @@ import Foundation
 public enum SamplerSettings {
     public static let agenticKey       = "MOBILECLAW_AGENTIC_MODE"
 
+    /// Default system prompt applied to the LiteRT-LM conversation when the
+    /// user hasn't set one in Settings. Mirrors android-app's
+    /// `AgentChatTask.defaultSystemPrompt` in shape — drops the `___SKILLS___`
+    /// placeholder because iOS's planner builds the skill catalog itself
+    /// for the agentic path, and chat-mode doesn't have tool-calling
+    /// hooked up. Keeps the "output only the final result" guidance which
+    /// is the part that actually changes Gemma's behavior on plain chat.
+    public static let defaultSystemPrompt: String = """
+    You are a helpful AI assistant running on the user's iPhone.
+    Answer concisely and accurately. If you don't know something, say so \
+    rather than guessing. When asked to perform a task that requires the \
+    device or external information, the host app may route the request \
+    through a skill — answer directly only when no skill is needed.
+    Output ONLY the final result — no intermediate thoughts or reasoning.
+    """
+
     // MARK: - Sampler / model
     public static let topKKey          = "MOBILECLAW_SAMPLER_TOPK"
     public static let topPKey          = "MOBILECLAW_SAMPLER_TOPP"
