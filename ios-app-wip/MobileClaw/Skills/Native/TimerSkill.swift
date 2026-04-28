@@ -16,8 +16,10 @@ import UserNotifications
 public final class TimerSkill: Skill, @unchecked Sendable {
     public var name: String { "timer" }
     public var description: String {
-        "Start, cancel, or list a timer (delivered as a local notification on iOS). " +
-        "args: action=start|cancel|list, seconds=N (or minutes=N), label=<name>"
+        "Schedule a timer (delivered as a local notification on iOS). " +
+        "ALWAYS schedules immediately — there is no pause / preview mode. " +
+        "If the user says 'set a 5 minute timer but don't start it', schedule it anyway and explain to them that iOS timers always start; offer to cancel via action=cancel if needed. " +
+        "args: action=start|cancel|list (default start), seconds=N (or minutes=N), label=<name>"
     }
     public init() {}
 
