@@ -80,6 +80,8 @@ public final class SkillRegistry: ToolExecutor, @unchecked Sendable {
             ReadHealthSkill(),
             DirectionsSkill(),
             RecognizeTextSkill(),
+            ReadPdfSkill(),
+            PreviewUrlSkill(),
             // Stubs (iOS sandbox / API restrictions) — kept registered so
             // the planner sees the same skill names as Android and can
             // route around the `not_supported_on_ios` error via repair.
