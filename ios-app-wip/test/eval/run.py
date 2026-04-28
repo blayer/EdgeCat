@@ -177,6 +177,52 @@ def open_eval_url(udid: str, prompt: str, run_id: str, model_filename: str | Non
         raise SystemExit(f"simctl openurl failed: {out}")
 
 
+def open_verify_url(udid: str, run_id: str, kind: str, params: dict[str, Any]) -> None:
+    """Send `mobileclaw://verify?...` so the in-app `StateVerifiers` can
+    query an iOS framework (EventKit, EKReminder, UNUserNotificationCenter,
+    Contacts, Photos, HealthKit, …) and emit a `kind=verify` span the
+    scorer reads. Mirrors `open_eval_url` shape."""
+    from urllib.parse import quote
+    qs = [f"runId={quote(run_id, safe='')}", f"kind={quote(kind, safe='')}"]
+    for k, v in params.items():
+        qs.append(f"{quote(str(k), safe='')}={quote(str(v), safe='')}")
+    url = "mobileclaw://verify?" + "&".join(qs)
+    code, out = sh(["xcrun", "simctl", "openurl", udid, url], timeout=15)
+    if code != 0:
+        raise SystemExit(f"simctl openurl (verify) failed: {out}")
+
+
+def wait_for_verify(udid: str, bundle_id: str, run_id: str,
+                    kind: str, timeout_s: int = 30) -> bool:
+    """Wait for `kind=verify, name=complete` sentinel appended to the
+    same `<run_id>.jsonl` trace by `StateVerifiers.runAndEmit`. The
+    matching `kind=verify, name=<kind>` span is what the scorer reads."""
+    path = trace_path(udid, bundle_id, run_id)
+    deadline = time.time() + timeout_s
+    while time.time() < deadline:
+        if path.exists():
+            try:
+                content = path.read_text()
+            except OSError:
+                content = ""
+            for line in content.splitlines():
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    obj = json.loads(line)
+                except json.JSONDecodeError:
+                    continue
+                span = obj.get("span") or {}
+                if obj.get("type") == "span" \
+                   and span.get("kind") == "verify" \
+                   and span.get("name") == "complete":
+                    time.sleep(0.3)  # let the trailing write flush
+                    return True
+        time.sleep(1)
+    return False
+
+
 def wait_for_trace(udid: str, bundle_id: str, run_id: str, timeout_s: int) -> bool:
     """Wait for the eval-complete sentinel line written by
     `EvalEntryPoint.run` after the run summary. Pure file-size-stability
@@ -489,6 +535,23 @@ def run_one(args: argparse.Namespace, task: dict[str, Any], traces_dir: Path) ->
         local = pull_trace(udid, bundle, run_id, traces_dir)
         return {"task": task, "trace_path": str(local) if local else None,
                 "timeout": True}
+
+    # Run the in-app state verifier (if applicable) before pulling the
+    # trace, so the verify span ends up in the same file the scorer
+    # reads. Only fires for `state` verifier tasks; `output_regex` and
+    # `llm_judge` are trace-only and don't need an iOS-side query.
+    verifier = task.get("verifier") or {}
+    if verifier.get("type") == "state":
+        kind = verifier.get("check") or ""
+        params = verifier.get("params") or {}
+        try:
+            open_verify_url(udid, run_id, kind, params)
+            wait_for_verify(udid, bundle, run_id, kind)
+        except SystemExit as e:
+            # Don't kill the whole batch on a single verify failure —
+            # the scorer will surface "no verify span" if we missed it.
+            print(f"[runner]   verify error: {e}")
+
     local = pull_trace(udid, bundle, run_id, traces_dir)
     return {"task": task, "trace_path": str(local) if local else None}
 

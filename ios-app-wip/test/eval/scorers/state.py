@@ -204,6 +204,35 @@ VERIFIERS: dict[str, Callable] = {
 }
 
 
+def verify_span_result(
+    trace: dict[str, Any],
+    kind: str,
+) -> tuple[bool | None, str]:
+    """Read an in-trace `kind=verify, name=<kind>` span emitted by the
+    iOS app's `StateVerifiers.runAndEmit`. Returns (passed, detail) or
+    (None, "no span") if the verify URL never reached the app.
+
+    The app emits two spans for one verify call:
+      - `kind=verify, name=<kind>` carrying `attrs.passed` ("true"/"false")
+        and `attrs.detail`.
+      - `kind=verify, name=complete` as the trailing sentinel for the
+        runner's file-stability poll.
+    We read the first one.
+    """
+    for span in reversed(trace.get("spans") or []):
+        s = span.get("span") or span
+        if s.get("kind") == "verify" and s.get("name") == kind:
+            attrs = s.get("attrs") or {}
+            passed_str = (attrs.get("passed") or "").lower()
+            detail = attrs.get("detail") or ""
+            if passed_str == "true":
+                return True, detail
+            if passed_str == "false":
+                return False, detail
+            return None, f"verify span missing passed attr: {attrs}"
+    return None, "no verify span (iOS verifier never ran)"
+
+
 def run_verifier(
     adb: list[str],
     trace: dict[str, Any],
@@ -220,16 +249,13 @@ def run_verifier(
     if vtype == "output_regex":
         return output_regex(trace, verifier_spec.get("check") or ".*")
     if vtype == "state":
-        # iOS short-circuit: the state verifiers shell out to `adb` to
-        # check device state (CalendarContract, ContactsContract, …),
-        # which doesn't exist on iOS. The runner passes adb=[] in that
-        # case; we return None so the run is treated as "verifier
-        # skipped" rather than a hard failure. Re-enabling state checks
-        # on iOS is tracked as a follow-up: in-app `mobileclaw://verify`
-        # URLs that emit a verify-result span the runner reads.
-        if not adb:
-            return None, "skipped: state verifier not implemented on iOS"
         name = verifier_spec.get("check")
+        # iOS path: the runner emits a `mobileclaw://verify?kind=<name>&…`
+        # URL after the eval run, and the in-app `StateVerifiers` writes
+        # a verify span into the trace. We just read it here.
+        if not adb:
+            return verify_span_result(trace, name or "")
+        # Android path: shell out to adb.
         fn = VERIFIERS.get(name)
         if fn is None:
             return False, f"unknown state verifier: {name}"
