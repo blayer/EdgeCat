@@ -243,16 +243,19 @@ public struct Planner {
         //    model can copy values directly without parsing prose.
         // 2) Spell out the anti-patterns (placeholder dates, words
         //    like "tomorrow") so the post-tuning preference is loud.
+        // Earlier iteration tried adding DAY_AFTER_TOMORROW too — small
+        // models grabbed it for "tomorrow" tasks, off-by-one. Trimmed
+        // back to the four values the planner actually needs.
+        _ = inTwoDays
         return """
         DATE CONTEXT (substitute these EXACT values into toolArgs):
-        TODAY            = \(today)
-        TOMORROW         = \(tomorrow)
-        DAY_AFTER_TOMORROW = \(inTwoDays)
+        TODAY = \(today)
+        TOMORROW = \(tomorrow)
         ONE_WEEK_FROM_NOW = \(inOneWeek)
         TWO_WEEKS_FROM_NOW = \(inTwoWeeks)
 
         toolArgs date-time format: yyyy-MM-ddTHH:mm (24-hour, no seconds, no timezone).
-        Examples: "\(today)T23:00", "\(tomorrow)T09:00", "\(inOneWeek)T15:30"
+        Examples: "\(today)T23:00" for "today at 11pm"; "\(tomorrow)T09:00" for "tomorrow morning"; "\(tomorrow)T14:00" for "tomorrow at 2pm"; "\(inOneWeek)T15:30" for "next week at 3:30pm".
 
         DO NOT write the literal words "today", "tomorrow", "next week".
         DO NOT use placeholder years like 2024 or 2025 — only the values above.
@@ -270,6 +273,23 @@ public struct Planner {
             {"id": "s1", "description": "...", "skillName": "<one of above or null>", "toolArgs": {"key": "value"}, "dependsOn": []}
           ],
           "successCriteria": ["..."]
+        }
+
+        STEP-OUTPUT CHAINING: when a later step needs the output of an
+        earlier step, set the toolArgs value to the literal text
+        "Output from <stepId>" (e.g. "Output from s1"). The runner
+        substitutes the prior step's actual output before calling the
+        skill. Use this — DO NOT paraphrase what s1 returned ("the
+        number of steps"); that paraphrase becomes the literal arg.
+
+        Multi-step example with chaining:
+        {
+          "goal": "Read step count and copy to clipboard",
+          "steps": [
+            {"id": "s1", "description": "Read today's step count.", "skillName": "read-health", "toolArgs": {"metric": "steps", "window_days": "1"}, "dependsOn": []},
+            {"id": "s2", "description": "Copy s1's result to clipboard.", "skillName": "clipboard", "toolArgs": {"action": "write", "text": "Output from s1"}, "dependsOn": ["s1"]}
+          ],
+          "successCriteria": ["Step count is on the clipboard."]
         }
 
         User request: \(userMessage)
