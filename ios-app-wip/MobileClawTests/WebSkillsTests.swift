@@ -9,36 +9,48 @@ final class WebSkillsTests: XCTestCase {
 
     // MARK: - SearchWebSkill: result parsing
 
-    func testSearchWebParsesGoogleHtmlResults() {
-        // A snippet of Google's mobile results layout — single <a><h3>
-        // per result; that's the primary parser path.
+    func testSearchWebParsesDuckDuckGoHtmlResults() {
+        // DDG's `/html/` endpoint wraps each result link in
+        // `<a class="result__a">`. URLs are routed through
+        // `/l/?uddg=<encoded>` redirects which we unwrap.
         let html = """
         <html><body>
-        <a href="https://en.wikipedia.org/wiki/Tokyo"><h3>Tokyo - Wikipedia</h3></a>
-        <div class="VwiC3b">Tokyo, officially the Tokyo Metropolis, is the capital and most populous city of Japan.</div>
-        <a href="https://www.lonelyplanet.com/japan/tokyo"><h3>Tokyo travel - Lonely Planet</h3></a>
-        <a href="https://www.google.com/search?q=more"><h3>More results</h3></a>
+        <h2 class="result__title">
+          <a class="result__a" href="//duckduckgo.com/l/?uddg=https%3A%2F%2Fen.wikipedia.org%2Fwiki%2FTokyo&rut=abc">
+            Tokyo - Wikipedia
+          </a>
+        </h2>
+        <a class="result__snippet" href="//duckduckgo.com/l/?uddg=https%3A%2F%2Fen.wikipedia.org%2Fwiki%2FTokyo">
+          Tokyo, officially the Tokyo Metropolis, is the capital and most populous city of Japan.
+        </a>
+        <h2 class="result__title">
+          <a class="result__a" href="//duckduckgo.com/l/?uddg=https%3A%2F%2Fwww.lonelyplanet.com%2Fjapan%2Ftokyo">
+            Tokyo travel - Lonely Planet
+          </a>
+        </h2>
+        <a class="result__snippet" href="x">Tokyo travel guide.</a>
         </body></html>
         """
-        let results = SearchWebSkill.parseGoogleResults(html)
-        XCTAssertEqual(results.count, 2,
-                       "Two real results; the google.com link must be filtered out")
+        let results = SearchWebSkill.parseDuckDuckGoResults(html)
+        XCTAssertEqual(results.count, 2)
         XCTAssertEqual(results[0].title, "Tokyo - Wikipedia")
         XCTAssertEqual(results[0].url, "https://en.wikipedia.org/wiki/Tokyo")
         XCTAssertTrue(results[0].snippet.contains("capital"),
-                      "Snippet should be picked up from the VwiC3b div")
+                      "Snippet should be picked up from result__snippet")
         XCTAssertEqual(results[1].title, "Tokyo travel - Lonely Planet")
+        XCTAssertEqual(results[1].url, "https://www.lonelyplanet.com/japan/tokyo")
     }
 
-    func testSearchWebFiltersOutGoogleInternalLinks() {
-        let html = """
-        <a href="https://www.google.com/search?q=foo"><h3>Search foo</h3></a>
-        <a href="https://accounts.google.com/login"><h3>Sign in</h3></a>
-        <a href="https://example.com"><h3>Real result</h3></a>
-        """
-        let results = SearchWebSkill.parseGoogleResults(html)
-        XCTAssertEqual(results.count, 1)
-        XCTAssertEqual(results[0].url, "https://example.com")
+    func testSearchWebUnwrapsDuckDuckGoRedirect() {
+        let raw = "//duckduckgo.com/l/?uddg=https%3A%2F%2Fexample.com%2Fpath%3Fa%3D1&rut=xyz"
+        let unwrapped = SearchWebSkill.unwrapDuckDuckGoRedirect(raw)
+        XCTAssertEqual(unwrapped, "https://example.com/path?a=1")
+    }
+
+    func testSearchWebRedirectFallsBackToRawWhenNoUddg() {
+        let raw = "https://example.com/direct"
+        let unwrapped = SearchWebSkill.unwrapDuckDuckGoRedirect(raw)
+        XCTAssertEqual(unwrapped, raw)
     }
 
     func testSearchWebFormatTrucatesAt3000Chars() {
