@@ -61,6 +61,14 @@ struct ChatView: View {
                 .background(AppColors.surface)
                 .onChange(of: viewModel.messages.last?.text) { _, _ in scroll(proxy) }
                 .onChange(of: viewModel.messages.count) { _, _ in scroll(proxy) }
+                // Opening a conversation with prior turns should land
+                // the user at the latest message, not the very top.
+                // No animation — the view hasn't appeared yet.
+                .onAppear {
+                    if let last = viewModel.messages.last {
+                        proxy.scrollTo(last.id, anchor: .bottom)
+                    }
+                }
             }
 
             if let status = viewModel.loadStatus, status != "Ready" {

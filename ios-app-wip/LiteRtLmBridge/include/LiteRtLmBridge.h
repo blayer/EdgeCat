@@ -171,6 +171,20 @@ typedef NS_ENUM(NSInteger, LRTLMLogLevel) {
                                                      maxOutputTokens:(int)maxOutputTokens
                                                                error:(NSError **)outError;
 
+/// Full form — same as the overload above but also seeds the new conversation
+/// with prior chat turns via `litert_lm_conversation_config_set_messages`.
+/// `initialMessagesJson` must be a JSON array of `{"role":"user|assistant",
+/// "content":"..."}` objects, or nil to skip seeding. Used by the chat layer
+/// to warm a fresh KV cache after an agentic turn so post-task chat can still
+/// reason against earlier visible bubbles.
+- (nullable LRTLMConversation *)createConversationWithSystemPrompt:(nullable NSString *)systemPrompt
+                                                  initialMessages:(nullable NSString *)initialMessagesJson
+                                                             sampler:(LRTLMSamplerParams *)sampler
+                                                 applyPromptTemplate:(BOOL)applyPromptTemplate
+                                          enableConstrainedDecoding:(BOOL)enableConstrainedDecoding
+                                                     maxOutputTokens:(int)maxOutputTokens
+                                                               error:(NSError **)outError;
+
 /// Convenience overload — kept for callers that want today's defaults
 /// (apply_prompt_template=YES, no constrained decoding, no per-turn cap).
 - (nullable LRTLMConversation *)createConversationWithSystemPrompt:(nullable NSString *)systemPrompt
