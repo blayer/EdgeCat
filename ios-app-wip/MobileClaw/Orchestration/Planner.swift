@@ -229,10 +229,35 @@ public struct Planner {
         let cal = Calendar(identifier: .gregorian)
         let fmt = DateFormatter()
         fmt.dateFormat = "yyyy-MM-dd"
+        fmt.timeZone = .current
+        fmt.locale = Locale(identifier: "en_US_POSIX")
         let today = fmt.string(from: now)
         let tomorrow = fmt.string(from: cal.date(byAdding: .day, value: 1, to: now) ?? now)
-        return "IMPORTANT: date-time values in toolArgs MUST be yyyy-MM-ddTHH:mm " +
-               "(e.g. \"\(today)T23:00\", \"\(tomorrow)T09:00\"). Never use \"today\"/\"tomorrow\"/\"11pm\"."
+        let inTwoDays = fmt.string(from: cal.date(byAdding: .day, value: 2, to: now) ?? now)
+        let inOneWeek = fmt.string(from: cal.date(byAdding: .day, value: 7, to: now) ?? now)
+        let inTwoWeeks = fmt.string(from: cal.date(byAdding: .day, value: 14, to: now) ?? now)
+        // Small models (Gemma 4 E2B) have been observed picking
+        // placeholder dates like "2025-01-01" even when the date note
+        // gave them today/tomorrow inline. Two changes here:
+        // 1) Promote the dates to a key=value block at the top so the
+        //    model can copy values directly without parsing prose.
+        // 2) Spell out the anti-patterns (placeholder dates, words
+        //    like "tomorrow") so the post-tuning preference is loud.
+        return """
+        DATE CONTEXT (substitute these EXACT values into toolArgs):
+        TODAY            = \(today)
+        TOMORROW         = \(tomorrow)
+        DAY_AFTER_TOMORROW = \(inTwoDays)
+        ONE_WEEK_FROM_NOW = \(inOneWeek)
+        TWO_WEEKS_FROM_NOW = \(inTwoWeeks)
+
+        toolArgs date-time format: yyyy-MM-ddTHH:mm (24-hour, no seconds, no timezone).
+        Examples: "\(today)T23:00", "\(tomorrow)T09:00", "\(inOneWeek)T15:30"
+
+        DO NOT write the literal words "today", "tomorrow", "next week".
+        DO NOT use placeholder years like 2024 or 2025 — only the values above.
+        DO NOT use 12-hour times like "2pm" — convert to 24-hour ("14:00").
+        """
     }
 
     private static func jsonFormatTrailer(userMessage: String) -> String {
