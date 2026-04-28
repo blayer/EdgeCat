@@ -4,7 +4,16 @@ import XCTest
 /// `agentTracesKey` must gate trace persistence — when the user disables
 /// traces in Settings the orchestrator should produce zero events. Mirrors
 /// android-app's `claw-trace-enabled` flag-file behavior.
+///
+/// Schema details (envelope, field names) are exercised by
+/// `TraceSchemaTests`; this file's focus is the enabled/disabled toggle
+/// + the basic shape of recorded entries.
 final class TraceRecorderEnabledTests: XCTestCase {
+
+    /// Pull the `span` dict out of an envelope `{type:"span", run_id, span:{…}}`.
+    private func span(_ entry: [String: Any]) -> [String: Any]? {
+        entry["span"] as? [String: Any]
+    }
 
     func testEnabledRecorderCapturesEvents() async {
         let rec = TraceRecorder(runId: "test-enabled-\(UUID().uuidString)", enabled: true)
@@ -13,9 +22,12 @@ final class TraceRecorderEnabledTests: XCTestCase {
 
         let events = await rec.recordedEvents()
         XCTAssertEqual(events.count, 2)
-        XCTAssertEqual(events.first?["kind"] as? String, "step.start")
-        XCTAssertEqual(events.first?["name"] as? String, "s1")
-        XCTAssertEqual(events.first?["skill"] as? String, "calculator")
+        XCTAssertEqual(events.first?["type"] as? String, "span")
+        let firstSpan = span(events[0])
+        XCTAssertEqual(firstSpan?["kind"] as? String, "step.start")
+        XCTAssertEqual(firstSpan?["name"] as? String, "s1")
+        let attrs = firstSpan?["attrs"] as? [String: Any]
+        XCTAssertEqual(attrs?["skill"] as? String, "calculator")
     }
 
     func testDisabledRecorderDropsEvents() async {
@@ -48,10 +60,12 @@ final class TraceRecorderEnabledTests: XCTestCase {
         }
         let events = await rec.recordedEvents()
         XCTAssertEqual(events.count, 1)
-        XCTAssertEqual(events.first?["kind"] as? String, "phase")
-        XCTAssertEqual(events.first?["name"] as? String, "plan")
-        XCTAssertEqual(events.first?["ok"] as? Bool, true)
-        XCTAssertNotNil(events.first?["duration_ms"])
+        let s = span(events[0])
+        XCTAssertEqual(s?["kind"] as? String, "phase")
+        XCTAssertEqual(s?["name"] as? String, "plan")
+        // Status is now a string ("ok"/"error"), not a Bool, for Android parity.
+        XCTAssertEqual(s?["status"] as? String, "ok")
+        XCTAssertNotNil(s?["duration_ms"])
     }
 
     func testEventsIncludeThermalAndMemoryAttrs() async {
@@ -59,12 +73,14 @@ final class TraceRecorderEnabledTests: XCTestCase {
         await rec.event(kind: "step.start", name: "s1")
         let events = await rec.recordedEvents()
         XCTAssertEqual(events.count, 1)
-        let thermal = events[0]["thermal_state"] as? String
+        let s = span(events[0])
+        // Android-compat: int thermal code + int mem_pss_mb.
+        let thermal = s?["thermal"] as? Int
         XCTAssertNotNil(thermal)
-        XCTAssertTrue(["nominal", "fair", "serious", "critical", "unknown"].contains(thermal ?? ""),
-                      "Unexpected thermal label: \(thermal ?? "nil")")
-        XCTAssertNotNil(events[0]["memory_mb"] as? Double,
-                        "Resident memory should be present (may be 0.0)")
+        XCTAssertTrue([-1, 0, 1, 2, 3].contains(thermal ?? -2),
+                      "Unexpected thermal code: \(String(describing: thermal))")
+        XCTAssertNotNil(s?["mem_pss_mb"] as? Int,
+                        "Resident memory should be present (may be 0)")
     }
 
     func testPhaseAttrsRideAlongInRecord() async throws {
@@ -75,8 +91,9 @@ final class TraceRecorderEnabledTests: XCTestCase {
         }
         let events = await rec.recordedEvents()
         XCTAssertEqual(events.count, 1)
-        XCTAssertEqual(events[0]["iteration"] as? Int, 0)
-        XCTAssertEqual(events[0]["thinking"] as? Bool, true)
+        let attrs = span(events[0])?["attrs"] as? [String: Any]
+        XCTAssertEqual(attrs?["iteration"] as? Int, 0)
+        XCTAssertEqual(attrs?["thinking"] as? Bool, true)
     }
 
     func testDisabledRecorderWritesNoFile() async {
