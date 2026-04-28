@@ -47,10 +47,41 @@ struct EvalRunnerView: View {
                     .font(.caption2.monospaced())
                     .foregroundStyle(.white.opacity(0.4))
             }
+
+            exitButton
         }
         .padding(24)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
         .background(Color.black)
+    }
+
+    // Lets the developer drop out of the headless surface after a run
+    // (or before one starts) and into the normal `AppRouter` to inspect
+    // chat / settings / model state. Hidden mid-run so a stray tap can't
+    // tear down an in-flight eval — the off-device runner relies on the
+    // trace file completing.
+    @ViewBuilder
+    private var exitButton: some View {
+        if canExit {
+            Button("Exit eval mode") {
+                EvalRunStatus.shared.requestExit()
+            }
+            .font(.caption.weight(.semibold))
+            .foregroundStyle(.white)
+            .padding(.vertical, 8)
+            .padding(.horizontal, 14)
+            .background(
+                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                    .stroke(.white.opacity(0.3), lineWidth: 1)
+            )
+        }
+    }
+
+    private var canExit: Bool {
+        switch status.phase {
+        case .idle, .completed, .failed: return true
+        case .loadingModel, .running:    return false
+        }
     }
 
     private var statusPill: some View {

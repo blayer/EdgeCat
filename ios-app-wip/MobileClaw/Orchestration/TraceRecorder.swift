@@ -87,6 +87,7 @@ public actor TraceRecorder {
 
     // MARK: - Span emission
 
+    // swiftlint:disable:next function_parameter_count
     private func emitSpan(kind: String,
                           name: String,
                           startMs: Int64,
@@ -100,6 +101,7 @@ public actor TraceRecorder {
         write(envelope(span: span))
     }
 
+    // swiftlint:disable:next function_parameter_count
     private func buildSpan(kind: String,
                            name: String,
                            startMs: Int64,

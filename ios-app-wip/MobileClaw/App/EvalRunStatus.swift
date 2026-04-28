@@ -25,6 +25,12 @@ public final class EvalRunStatus {
     public private(set) var runId: String = ""
     public private(set) var modelName: String = ""
     public private(set) var detail: String = ""
+    /// User has tapped "Exit eval mode" on the EvalRunnerView. The
+    /// outer scene observes this and switches back to `AppRouter` so
+    /// the developer can inspect the post-eval state in the normal UI
+    /// (the env-var-only check would hold us hostage on the headless
+    /// surface for the rest of the process lifetime).
+    public private(set) var exited: Bool = false
 
     public init() {}
 
@@ -47,5 +53,14 @@ public final class EvalRunStatus {
         runId = ""
         modelName = ""
         detail = ""
+    }
+
+    /// Flip out of the headless eval surface. The outer scene watches
+    /// this and re-renders `AppRouter` so the developer can poke around
+    /// in the normal UI after a run completes (e.g. inspect chat state,
+    /// settings, model picker). One-way for the process lifetime — a
+    /// fresh launch with `MOBILECLAW_EVAL_MODE=1` resets it.
+    public func requestExit() {
+        exited = true
     }
 }

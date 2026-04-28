@@ -15,10 +15,12 @@ struct MobileClawApp: App {
         ProcessInfo.processInfo.environment["MOBILECLAW_EVAL_MODE"] == "1"
     }
 
+    @State private var evalStatus = EvalRunStatus.shared
+
     var body: some Scene {
         WindowGroup {
             Group {
-                if Self.isEvalMode {
+                if Self.isEvalMode && !evalStatus.exited {
                     EvalRunnerView()
                 } else {
                     AppRouter()

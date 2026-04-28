@@ -196,6 +196,7 @@ public enum EvalEntryPoint {
 
     // MARK: - Helpers
 
+    // swiftlint:disable:next function_parameter_count
     private static func emitFailure(_ recorder: TraceRecorder,
                                     prompt: String,
                                     runId: String,
@@ -284,4 +285,3 @@ public enum EvalEntryPoint {
         let seconds: UInt64
     }
 }
-

@@ -41,7 +41,7 @@ final class TraceSchemaTests: XCTestCase {
     func testSpanHasAndroidCompatibleFieldNames() async throws {
         let recorder = TraceRecorder(runId: "schema-fields-\(UUID().uuidString)")
         _ = try await recorder.phase(kind: "step", name: "calc") {
-            return "ok"
+            "ok"
         }
         let span = await recorder.recordedEvents()[0]["span"] as? [String: Any]
         XCTAssertNotNil(span?["start_ms"] as? Int64,
@@ -126,7 +126,7 @@ final class TraceSchemaTests: XCTestCase {
         let recorder = TraceRecorder(runId: "schema-json-\(UUID().uuidString)")
         await recorder.event(kind: "step", name: "x", payload: ["k": "v"])
         _ = try await recorder.phase(kind: "phase", name: "plan",
-                                      attrs: ["prompt_chars": 100, "response_chars": 50]) { return () }
+                                      attrs: ["prompt_chars": 100, "response_chars": 50]) { () }
         for entry in await recorder.recordedEvents() {
             XCTAssertNoThrow(try JSONSerialization.data(withJSONObject: entry))
         }
