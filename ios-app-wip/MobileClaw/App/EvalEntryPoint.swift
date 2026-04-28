@@ -43,19 +43,37 @@ public enum EvalEntryPoint {
 
     @MainActor
     public static func handle(_ url: URL) {
-        guard url.scheme == "mobileclaw", url.host == "eval" else { return }
+        guard url.scheme == "mobileclaw" else { return }
         let comps = URLComponents(url: url, resolvingAgainstBaseURL: false)
         let items = comps?.queryItems ?? []
-        let prompt = items.first(where: { $0.name == "prompt" })?.value ?? ""
-        let modelFile = items.first(where: { $0.name == "model" })?.value
-        let runId = items.first(where: { $0.name == "runId" })?.value ?? UUID().uuidString
-        let agentic = items.first(where: { $0.name == "agentic" })?.value == "1"
-
-        Task.detached {
-            await run(prompt: prompt,
-                      modelFile: modelFile,
-                      runId: runId,
-                      agentic: agentic)
+        switch url.host {
+        case "eval":
+            let prompt = items.first(where: { $0.name == "prompt" })?.value ?? ""
+            let modelFile = items.first(where: { $0.name == "model" })?.value
+            let runId = items.first(where: { $0.name == "runId" })?.value ?? UUID().uuidString
+            let agentic = items.first(where: { $0.name == "agentic" })?.value == "1"
+            Task.detached {
+                await run(prompt: prompt,
+                          modelFile: modelFile,
+                          runId: runId,
+                          agentic: agentic)
+            }
+        case "verify":
+            // Off-device runner emits this URL after an eval completes
+            // (or directly during a state-only test) to ask the app to
+            // query an iOS API and emit a `kind=verify` span the
+            // scorer reads. See `MobileClaw/Eval/StateVerifiers.swift`.
+            let runId = items.first(where: { $0.name == "runId" })?.value ?? UUID().uuidString
+            let kind = items.first(where: { $0.name == "kind" })?.value ?? ""
+            var params: [String: String] = [:]
+            for item in items where item.name != "runId" && item.name != "kind" {
+                if let v = item.value { params[item.name] = v }
+            }
+            Task.detached {
+                await StateVerifiers.runAndEmit(runId: runId, kind: kind, params: params)
+            }
+        default:
+            return
         }
     }
 

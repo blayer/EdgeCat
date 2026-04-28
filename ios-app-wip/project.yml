@@ -101,6 +101,9 @@ targets:
         NSCameraUsageDescription: "Mobile-Claw uses the camera for barcode scanning and photo input to the assistant."
         NSMicrophoneUsageDescription: "Mobile-Claw uses the microphone for voice input to the assistant."
         NSFaceIDUsageDescription: "Mobile-Claw can use Face ID to protect saved conversations."
+        NSHealthShareUsageDescription: "Mobile-Claw reads health metrics (steps, heart rate, distance, sleep, workouts) when you ask the assistant about your activity."
+        # iOS rejects the read entitlement without an update string, even when we never write.
+        NSHealthUpdateUsageDescription: "Mobile-Claw does not write to HealthKit; this entry is required by iOS only when the read entitlement is present."
         # Eval harness URL scheme — mirrors android-app/.../EvalActivity's
         # ADB intent entry point. Trigger via:
         #   xcrun simctl openurl <udid> "mobileclaw://eval?prompt=hi&model=gemma-4-E2B-it.litertlm"
@@ -108,6 +111,14 @@ targets:
           - CFBundleURLName: com.mobileclawapp.app.url
             CFBundleURLSchemes:
               - mobileclaw   # handles both eval ("mobileclaw://eval...") + HF OAuth callback ("mobileclaw://hf-callback")
+    entitlements:
+      path: MobileClaw/Resources/MobileClaw.entitlements
+      properties:
+        # HealthKit read access — without this, every HK query returns
+        # "Missing com.apple.developer.healthkit entitlement". Verifying
+        # via simulator: HK is available, samples will be empty (sim has
+        # no source data) but the query succeeds.
+        com.apple.developer.healthkit: true
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.mobileclawapp.app

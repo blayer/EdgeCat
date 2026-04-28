@@ -7,7 +7,11 @@ import EventKit
 
 public final class CalendarSkill: Skill, @unchecked Sendable {
     public var name: String { "calendar" }
-    public var description: String { "List upcoming calendar events for the next N days. args: days=7 (optional)" }
+    public var description: String {
+        "Read upcoming calendar events from the user's calendar. " +
+        "Read-only — to create a new event, use add-calendar-event. " +
+        "args: days=7 (optional, how many days ahead to look)"
+    }
     public init() {}
 
     public func run(args: [String: String]) async -> ToolExecutionResult {

@@ -41,6 +41,10 @@
 	<string>Mobile-Claw uses your contacts when you ask the assistant to call or message someone.</string>
 	<key>NSFaceIDUsageDescription</key>
 	<string>Mobile-Claw can use Face ID to protect saved conversations.</string>
+	<key>NSHealthShareUsageDescription</key>
+	<string>Mobile-Claw reads health metrics (steps, heart rate, distance, sleep, workouts) when you ask the assistant about your activity.</string>
+	<key>NSHealthUpdateUsageDescription</key>
+	<string>Mobile-Claw does not write to HealthKit; this entry is required by iOS only when the read entitlement is present.</string>
 	<key>NSLocationWhenInUseUsageDescription</key>
 	<string>Mobile-Claw reads your location when the assistant needs nearby context.</string>
 	<key>NSMicrophoneUsageDescription</key>

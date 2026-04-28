@@ -58,6 +58,7 @@ public final class SkillRegistry: ToolExecutor, @unchecked Sendable {
             SearchWebSkill(),
             ContactsSkill(),
             CalendarSkill(),
+            AddCalendarEventSkill(),
             RemindersSkill(),
             PhotosSkill(),
             SearchPhotosSkill(),
@@ -73,6 +74,14 @@ public final class SkillRegistry: ToolExecutor, @unchecked Sendable {
             LaunchAppSkill(),
             TimerSkill(),
             ListDownloadsSkill(),
+            // iOS-platform-unique skills (no Android counterpart — Apple
+            // gives us these for free where Android would require an SDK
+            // / API key / GMS dependency).
+            ReadHealthSkill(),
+            DirectionsSkill(),
+            RecognizeTextSkill(),
+            ReadPdfSkill(),
+            PreviewUrlSkill(),
             // Stubs (iOS sandbox / API restrictions) — kept registered so
             // the planner sees the same skill names as Android and can
             // route around the `not_supported_on_ios` error via repair.
