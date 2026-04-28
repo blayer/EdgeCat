@@ -119,16 +119,18 @@ public final class LiteRtLmEngine: LlmModelHelper {
 
     /// Stateless one-shot inference for the orchestration layer.
     ///
-    /// Runs against a *separate* tool-free scratch conversation so the
-    /// chat conversation's KV cache (`self.conversation`) is never
-    /// touched. Each orchestration phase (planner, executor, evaluator,
-    /// formatter) gets its own fresh scratch — phases must not see one
-    /// another's history (the formatter's `<msg>` few-shot prompt would
-    /// otherwise leak into the next planner call). Crucially, the chat
-    /// conversation survives an agentic turn untouched, so post-task
-    /// follow-ups still have the user's prior chat history in cache.
+    /// The chat layer's `runInference` appends each prompt as a new turn in
+    /// the live conversation, so the model sees: [chat history] + [planner
+    /// system prompt as user turn] — which produces garbage. Mirrors
+    /// android-app/.../LlmChatViewModel.generatePlanningResponse: close the
+    /// chat conversation, create a fresh tool-free one, run inference, and
+    /// store the fresh conversation back so subsequent chat turns start
+    /// from a clean KV-cache. The user's prior chat bubbles are still
+    /// visible in the UI; only the model's KV-cache resets.
     public func generateOnce(prompt: String) async throws -> String {
         guard let engine else { throw LiteRtLmError.notInitialized }
+        conversation?.close()
+        conversation = nil
 
         let sampler = LRTLMSamplerParams()
         sampler.type = .topP
@@ -137,13 +139,13 @@ public final class LiteRtLmEngine: LlmModelHelper {
         sampler.temperature = 1.0
         sampler.seed = 0
 
-        let scratch = try engine.createConversation(
+        let fresh = try engine.createConversation(
             withSystemPrompt: nil,
             sampler: sampler,
             applyPromptTemplate: true,
             enableConstrainedDecoding: false,
             maxOutputTokens: 0)
-        defer { scratch.close() }
+        self.conversation = fresh
 
         return try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<String, Error>) in
             // Serialize to a single resume — onToken can race with onDone if
@@ -151,10 +153,10 @@ public final class LiteRtLmEngine: LlmModelHelper {
             let didResume = NSLock()
             var resumed = false
             var buffer = ""
-            scratch.sendMessage(prompt,
-                                imagePaths: nil,
-                                audioPaths: nil,
-                                onToken: { chunk, _ in
+            fresh.sendMessage(prompt,
+                              imagePaths: nil,
+                              audioPaths: nil,
+                              onToken: { chunk, _ in
                 buffer += chunk
             }, onDone: { error in
                 didResume.lock()
