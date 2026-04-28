@@ -81,7 +81,7 @@ struct MessageInputText: View {
                             .padding(.vertical, 10)
                             .frame(maxWidth: .infinity, alignment: .leading)
                     } else {
-                        TextField("Message", text: $text, axis: .vertical)
+                        TextField("Type prompt…", text: $text, axis: .vertical)
                             .focused($focused)
                             .lineLimit(1...5)
                             .submitLabel(.send)

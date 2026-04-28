@@ -5,7 +5,12 @@ import Foundation
 
 public final class CalculatorSkill: Skill, @unchecked Sendable {
     public var name: String { "calculator" }
-    public var description: String { "Evaluate an arithmetic expression like \"3 * (4 + 5)\"." }
+    public var description: String {
+        "Evaluate a NUMERIC arithmetic expression like \"3 * (4 + 5)\". " +
+        "Supports +, -, *, /, %, parentheses, and standard math functions. " +
+        "DO NOT use this for date or time arithmetic — there's no `date()` function. " +
+        "For dates, use the DATE CONTEXT block at the top of the prompt (TODAY, TOMORROW, ONE_WEEK_FROM_NOW, TWO_WEEKS_FROM_NOW) — never compute via calculator."
+    }
     public init() {}
 
     public func run(args: [String: String]) async -> ToolExecutionResult {

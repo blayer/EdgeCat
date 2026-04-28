@@ -27,9 +27,20 @@ public final class SearchPhotosSkill: Skill, @unchecked Sendable {
     public func run(args: [String: String]) async -> ToolExecutionResult {
         // PHAccessLevel only has .addOnly / .readWrite — no .readOnly. Use
         // .readWrite (read-only is not a separate level on iOS PhotoKit;
-        // permissions are coarse).
-        let status: PHAuthorizationStatus = await withCheckedContinuation { cont in
-            PHPhotoLibrary.requestAuthorization(for: .readWrite) { cont.resume(returning: $0) }
+        // permissions are coarse). Pre-check `authorizationStatus`
+        // before calling `requestAuthorization`: on the simulator with
+        // simctl-granted privacy, calling request can flip an
+        // already-granted state back to denied on rapid-launch eval
+        // runs. If the status is already authorized/limited, skip the
+        // request entirely.
+        let pre = PHPhotoLibrary.authorizationStatus(for: .readWrite)
+        let status: PHAuthorizationStatus
+        if pre == .authorized || pre == .limited {
+            status = pre
+        } else {
+            status = await withCheckedContinuation { cont in
+                PHPhotoLibrary.requestAuthorization(for: .readWrite) { cont.resume(returning: $0) }
+            }
         }
         guard status == .authorized || status == .limited else {
             return ToolExecutionResult(success: false, error: "photos access denied")

@@ -40,7 +40,7 @@ struct ChatView: View {
                 ScrollView {
                     LazyVStack(alignment: .leading, spacing: 0) {
                         if viewModel.messages.isEmpty {
-                            EmptyChatState(onPromptTap: { template in input = template })
+                            EmptyChatState()
                                 .frame(maxWidth: .infinity)
                                 .padding(.top, 64)
                         } else {
@@ -351,63 +351,39 @@ private struct TypingIndicator: View {
 }
 
 private struct EmptyChatState: View {
-    let onPromptTap: (String) -> Void
-
     var body: some View {
-        VStack(spacing: 16) {
-            // Gradient-styled invitation. Android paints the headline with
-            // a `Brush.linearGradient(task color → onSurface)`; SwiftUI
-            // gets the same effect via `LinearGradient` masked by a Text.
-            Text("Try an example prompt")
-                .font(.title2.weight(.bold))
+        // Mirrors AgentChatScreen.kt's emptyStateComposable: small "Your"
+        // headline, large gradient "Mobile Agent" wordmark, and the
+        // agent_skills_description body. Android paints the wordmark with
+        // a `Brush.linearGradient(0xFF85B1F8 → 0xFF3174F1)`; SwiftUI gets
+        // the same effect via `LinearGradient` filling the Text.
+        VStack(spacing: 0) {
+            Text("Your")
+                .font(.title3)
+                .foregroundStyle(AppColors.onSurface)
+            Text("Mobile Agent")
+                .font(.system(size: 32, weight: .medium))
                 .foregroundStyle(
                     LinearGradient(
-                        colors: [AppColors.primary, AppColors.onSurface],
+                        colors: [
+                            Color(red: 0x85/255.0, green: 0xB1/255.0, blue: 0xF8/255.0),
+                            Color(red: 0x31/255.0, green: 0x74/255.0, blue: 0xF1/255.0),
+                        ],
                         startPoint: .leading,
                         endPoint: .trailing
                     )
                 )
-                .multilineTextAlignment(.center)
-                .padding(.horizontal, 32)
-                .padding(.top, 8)
-            Text("Or make your own")
-                .font(.callout)
+                .padding(.top, 12)
+                .padding(.bottom, 16)
+            Text("Your on-device AI assistant that can manage your calendar, search the web, control device settings, and more.\n\nTry a prompt below to get started!")
+                .font(.system(size: 16))
+                .lineSpacing(4)
                 .foregroundStyle(AppColors.onSurfaceVariant)
-            VStack(spacing: 12) {
-                ForEach(PromptTemplates.load(), id: \.self) { prompt in
-                    Button {
-                        onPromptTap(prompt)
-                    } label: {
-                        // Card tile mirroring Android's `Card` with a 1dp
-                        // primary-30%-alpha border, 24dp corner, and a soft
-                        // shadow tinted with the same primary color.
-                        VStack(alignment: .leading, spacing: 6) {
-                            Text(prompt)
-                                .font(.body.weight(.semibold))
-                                .foregroundStyle(AppColors.onSurface)
-                                .multilineTextAlignment(.leading)
-                                .lineLimit(3)
-                                .frame(maxWidth: .infinity, alignment: .leading)
-                        }
-                        .padding(.horizontal, 16)
-                        .padding(.vertical, 18)
-                        .background(
-                            RoundedRectangle(cornerRadius: 24, style: .continuous)
-                                .fill(AppColors.surface)
-                        )
-                        .overlay(
-                            RoundedRectangle(cornerRadius: 24, style: .continuous)
-                                .stroke(AppColors.primary.opacity(0.3), lineWidth: 1)
-                        )
-                        .shadow(color: AppColors.primary.opacity(0.15),
-                                radius: 6, x: 0, y: 2)
-                    }
-                    .buttonStyle(.plain)
-                }
-            }
-            .padding(.horizontal, 24)
-            .padding(.top, 4)
+                .multilineTextAlignment(.center)
         }
+        .padding(.horizontal, 48)
+        .padding(.bottom, 48)
+        .frame(maxWidth: .infinity)
     }
 }
 

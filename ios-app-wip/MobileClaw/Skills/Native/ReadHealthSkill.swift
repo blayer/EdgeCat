@@ -28,6 +28,15 @@ public final class ReadHealthSkill: Skill, @unchecked Sendable {
     }
     public init() {}
 
+    #if canImport(HealthKit)
+    /// Shared `HKHealthStore`. iOS docs: the store is "thread-safe and
+    /// reusable; create one and reuse it for the lifetime of your app."
+    /// Per-call construction caused parallel `read-health` steps in
+    /// the orchestrator's batch path to race the auth dialog and stall
+    /// — health-summarize-001 hung on the second store's auth request.
+    private static let sharedStore = HKHealthStore()
+    #endif
+
     public func run(args: [String: String]) async -> ToolExecutionResult {
         #if canImport(HealthKit)
         guard HKHealthStore.isHealthDataAvailable() else {
@@ -38,7 +47,7 @@ public final class ReadHealthSkill: Skill, @unchecked Sendable {
         let windowDays = max(1, min(args["window_days"].flatMap(Int.init) ?? 1, 30))
         let maxSamples = max(1, min(args["max_samples"].flatMap(Int.init) ?? 50, 500))
 
-        let store = HKHealthStore()
+        let store = Self.sharedStore
         let end = Date()
         let start = Calendar.current.date(byAdding: .day, value: -windowDays, to: end) ?? end
 

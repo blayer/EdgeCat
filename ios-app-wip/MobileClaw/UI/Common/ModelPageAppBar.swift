@@ -20,9 +20,9 @@ struct ModelPageAppBarContent: View {
             // in the primary tint.
             VStack(spacing: 4) {
                 HStack(spacing: 6) {
-                    MIcon(name: MIconName.autoAwesome, size: 20, weight: .semibold)
+                    MIcon(name: MIconName.rocketLaunch, size: 20, weight: .semibold)
                         .foregroundStyle(AppColors.primary)
-                    Text("LLM Chat")
+                    Text("Mobile Agent")
                         .font(.titleMediumNunito.weight(.semibold))
                         .foregroundStyle(AppColors.primary)
                 }

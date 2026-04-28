@@ -229,10 +229,38 @@ public struct Planner {
         let cal = Calendar(identifier: .gregorian)
         let fmt = DateFormatter()
         fmt.dateFormat = "yyyy-MM-dd"
+        fmt.timeZone = .current
+        fmt.locale = Locale(identifier: "en_US_POSIX")
         let today = fmt.string(from: now)
         let tomorrow = fmt.string(from: cal.date(byAdding: .day, value: 1, to: now) ?? now)
-        return "IMPORTANT: date-time values in toolArgs MUST be yyyy-MM-ddTHH:mm " +
-               "(e.g. \"\(today)T23:00\", \"\(tomorrow)T09:00\"). Never use \"today\"/\"tomorrow\"/\"11pm\"."
+        let inTwoDays = fmt.string(from: cal.date(byAdding: .day, value: 2, to: now) ?? now)
+        let inOneWeek = fmt.string(from: cal.date(byAdding: .day, value: 7, to: now) ?? now)
+        let inTwoWeeks = fmt.string(from: cal.date(byAdding: .day, value: 14, to: now) ?? now)
+        // Small models (Gemma 4 E2B) have been observed picking
+        // placeholder dates like "2025-01-01" even when the date note
+        // gave them today/tomorrow inline. Two changes here:
+        // 1) Promote the dates to a key=value block at the top so the
+        //    model can copy values directly without parsing prose.
+        // 2) Spell out the anti-patterns (placeholder dates, words
+        //    like "tomorrow") so the post-tuning preference is loud.
+        // Earlier iteration tried adding DAY_AFTER_TOMORROW too — small
+        // models grabbed it for "tomorrow" tasks, off-by-one. Trimmed
+        // back to the four values the planner actually needs.
+        _ = inTwoDays
+        return """
+        DATE CONTEXT (substitute these EXACT values into toolArgs):
+        TODAY = \(today)
+        TOMORROW = \(tomorrow)
+        ONE_WEEK_FROM_NOW = \(inOneWeek)
+        TWO_WEEKS_FROM_NOW = \(inTwoWeeks)
+
+        toolArgs date-time format: yyyy-MM-ddTHH:mm (24-hour, no seconds, no timezone).
+        Examples: "\(today)T23:00" for "today at 11pm"; "\(tomorrow)T09:00" for "tomorrow morning"; "\(tomorrow)T14:00" for "tomorrow at 2pm"; "\(inOneWeek)T15:30" for "next week at 3:30pm".
+
+        DO NOT write the literal words "today", "tomorrow", "next week".
+        DO NOT use placeholder years like 2024 or 2025 — only the values above.
+        DO NOT use 12-hour times like "2pm" — convert to 24-hour ("14:00").
+        """
     }
 
     private static func jsonFormatTrailer(userMessage: String) -> String {
@@ -245,6 +273,33 @@ public struct Planner {
             {"id": "s1", "description": "...", "skillName": "<one of above or null>", "toolArgs": {"key": "value"}, "dependsOn": []}
           ],
           "successCriteria": ["..."]
+        }
+
+        STEP-OUTPUT CHAINING: when a later step needs the output of an
+        earlier step, set the toolArgs value to the literal text
+        "Output from <stepId>" (e.g. "Output from s1"). The runner
+        substitutes the prior step's actual output before calling the
+        skill. Use this — DO NOT paraphrase what s1 returned ("the
+        number of steps"); that paraphrase becomes the literal arg.
+
+        Multi-step example with chaining:
+        {
+          "goal": "Read step count and copy to clipboard",
+          "steps": [
+            {"id": "s1", "description": "Read today's step count.", "skillName": "read-health", "toolArgs": {"metric": "steps", "window_days": "1"}, "dependsOn": []},
+            {"id": "s2", "description": "Copy s1's result to clipboard.", "skillName": "clipboard", "toolArgs": {"action": "write", "text": "Output from s1"}, "dependsOn": ["s1"]}
+          ],
+          "successCriteria": ["Step count is on the clipboard."]
+        }
+
+        "Nearest X" example — call directions DIRECTLY with a search-style `to` value, do NOT chain a search-web JSON output:
+        {
+          "goal": "Walk to nearest park and copy distance",
+          "steps": [
+            {"id": "s1", "description": "Get walking directions to the nearest park.", "skillName": "directions", "toolArgs": {"to": "nearest park", "mode": "walking"}, "dependsOn": []},
+            {"id": "s2", "description": "Copy the distance to clipboard.", "skillName": "clipboard", "toolArgs": {"action": "write", "text": "Output from s1"}, "dependsOn": ["s1"]}
+          ],
+          "successCriteria": ["Distance is on the clipboard."]
         }
 
         User request: \(userMessage)

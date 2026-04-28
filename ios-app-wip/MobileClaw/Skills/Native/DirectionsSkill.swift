@@ -19,10 +19,12 @@ import CoreLocation
 public final class DirectionsSkill: Skill, @unchecked Sendable {
     public var name: String { "directions" }
     public var description: String {
-        "Get turn-by-turn directions between two places using Apple Maps. " +
-        "args: from=<address or place> (optional, defaults to current location), " +
-        "to=<address or place> (required), " +
-        "mode=walking|driving|transit (default: walking)"
+        "Get turn-by-turn directions to a place using Apple Maps. Pass the destination by name — Apple Maps geocodes it for you. " +
+        "For 'directions to the nearest <X>', set `to` to a short search like 'nearest park' or 'coffee shop' — DO NOT call search-web first and chain its JSON output. " +
+        "args: " +
+        "to=<address, place name, or 'nearest <X>'> (required), " +
+        "from=<address> (OPTIONAL — omit entirely to use the user's current location; only set when the user names a non-current starting point), " +
+        "mode=walking|driving|transit (default walking)"
     }
     public init() {}
 
