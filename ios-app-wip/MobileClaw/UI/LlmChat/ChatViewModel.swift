@@ -191,6 +191,17 @@ public final class ChatViewModel {
                         self.messages.append(ChatMessage(id: answerId, role: .assistant,
                                                          text: final, kind: .text))
                         try? store.appendMessage(to: conversation, role: "assistant", content: final)
+                        // Wipe the KV cache the orchestrator left behind.
+                        // Each orchestration phase (planner, executor,
+                        // formatter, …) ran via `generateOnce`, which
+                        // closes the chat conversation and replaces it
+                        // with a fresh tool-free one — and the LAST
+                        // phase (formatter, with its `<msg>…</msg>`
+                        // few-shot prompt) is what `self.conversation`
+                        // now holds. If we don't reset, the next plain
+                        // chat turn ("Hi") inherits that cache and the
+                        // model echoes the `<msg>` wrapper into the UI.
+                        try? engine.resetConversation(systemInstruction: prompt)
                         self.isStreaming = false
                         return
                     }
