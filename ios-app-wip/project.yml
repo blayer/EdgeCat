@@ -111,6 +111,14 @@ targets:
           - CFBundleURLName: com.mobileclawapp.app.url
             CFBundleURLSchemes:
               - mobileclaw   # handles both eval ("mobileclaw://eval...") + HF OAuth callback ("mobileclaw://hf-callback")
+    entitlements:
+      path: MobileClaw/Resources/MobileClaw.entitlements
+      properties:
+        # HealthKit read access — without this, every HK query returns
+        # "Missing com.apple.developer.healthkit entitlement". Verifying
+        # via simulator: HK is available, samples will be empty (sim has
+        # no source data) but the query succeeds.
+        com.apple.developer.healthkit: true
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.mobileclawapp.app

@@ -7,7 +7,12 @@ import EventKit
 
 public final class RemindersSkill: Skill, @unchecked Sendable {
     public var name: String { "set-reminder" }
-    public var description: String { "Create a reminder. args: title, notes (optional), dueIso (optional ISO date)" }
+    public var description: String {
+        "Create a to-do item in the iOS Reminders app (NOT a calendar event). " +
+        "Use this for shopping, follow-ups, and tasks the user wants to be nudged about later. " +
+        "For meetings / appointments / events that go on a calendar, use add-calendar-event. " +
+        "args: title, notes (optional), dueIso (optional ISO date)"
+    }
     public init() {}
 
     public func run(args: [String: String]) async -> ToolExecutionResult {

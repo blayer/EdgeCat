@@ -97,6 +97,12 @@ public final class DirectionsSkill: Skill, @unchecked Sendable {
             "to": placemarkDict(toItem),
             "distance_m": route.distance,
             "duration_s": route.expectedTravelTime,
+            // Pre-formatted summary so the formatter LLM doesn't have to
+            // do unit conversion on a small model. Output looked like
+            // "1767 seconds" before this — verifier regexes that look
+            // for "29 min" then miss.
+            "distance_human": Self.formatDistance(route.distance),
+            "duration_human": Self.formatDuration(route.expectedTravelTime),
             "steps": steps,
         ]
         let json = (try? JSONSerialization.data(withJSONObject: payload, options: []))
@@ -139,6 +145,26 @@ public final class DirectionsSkill: Skill, @unchecked Sendable {
         manager.startUpdatingLocation()
         defer { manager.stopUpdatingLocation() }
         return try await delegate.next(timeoutSeconds: 5)
+    }
+
+    private static func formatDistance(_ meters: CLLocationDistance) -> String {
+        // Locale-respecting unit choice. The default `MeasurementFormatter`
+        // already abbreviates ("0.5 km", "300 m", "1.2 mi") and picks the
+        // unit per the user's region settings.
+        let m = Measurement(value: meters, unit: UnitLength.meters)
+        let f = MeasurementFormatter()
+        f.unitOptions = .naturalScale
+        f.unitStyle = .medium
+        f.numberFormatter.maximumFractionDigits = 1
+        return f.string(from: m)
+    }
+
+    private static func formatDuration(_ seconds: TimeInterval) -> String {
+        let totalMinutes = Int(seconds.rounded()) / 60
+        if totalMinutes < 60 { return "\(max(1, totalMinutes)) min" }
+        let hours = totalMinutes / 60
+        let minutes = totalMinutes % 60
+        return minutes == 0 ? "\(hours) hr" : "\(hours) hr \(minutes) min"
     }
 
     private func placemarkDict(_ item: MKMapItem) -> [String: Any] {
