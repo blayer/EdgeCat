@@ -61,6 +61,14 @@ struct ChatView: View {
                 .background(AppColors.surface)
                 .onChange(of: viewModel.messages.last?.text) { _, _ in scroll(proxy) }
                 .onChange(of: viewModel.messages.count) { _, _ in scroll(proxy) }
+                // Opening a conversation with prior turns should land
+                // the user at the latest message, not the very top.
+                // No animation — the view hasn't appeared yet.
+                .onAppear {
+                    if let last = viewModel.messages.last {
+                        proxy.scrollTo(last.id, anchor: .bottom)
+                    }
+                }
             }
 
             if let status = viewModel.loadStatus, status != "Ready" {
@@ -238,31 +246,7 @@ private struct MessageRow: View {
             // Orchestration progress log — one line per phase / step
             // (Planning, step run, step ✓, evaluation, formatting, …).
             // Mirrors android-app's `ChatMessageOrchestrationLog`.
-            VStack(alignment: .leading, spacing: 4) {
-                Text("Agent activity")
-                    .font(.caption.weight(.semibold))
-                    .foregroundStyle(AppColors.onAgentBubble.opacity(0.7))
-                    .padding(.bottom, 2)
-                ForEach(Array(message.logLines.enumerated()), id: \.offset) { _, line in
-                    Text(line)
-                        .font(.callout)
-                        .foregroundStyle(AppColors.onAgentBubble)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                }
-                if message.logInProgress {
-                    HStack(spacing: 6) {
-                        TypingIndicator()
-                    }
-                    .padding(.top, 2)
-                }
-            }
-            .padding(.horizontal, 14)
-            .padding(.vertical, 10)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .background(
-                MessageBubbleShape(hardCornerAtLeft: true)
-                    .fill(AppColors.agentBubble)
-            )
+            AgentLogBubble(lines: message.logLines, inProgress: message.logInProgress)
         }
     }
 
@@ -277,6 +261,76 @@ private struct MessageRow: View {
         } else {
             Text(text)
         }
+    }
+}
+
+/// Collapsible orchestration progress log. Default state shows the
+/// last two lines so the user always sees current activity without
+/// being buried in trace noise; tap the header to expand the full
+/// trail (planning, step results, evaluation, formatting). While the
+/// orchestrator is still running, the live tail keeps streaming into
+/// view in the collapsed form.
+private struct AgentLogBubble: View {
+    let lines: [String]
+    let inProgress: Bool
+    @State private var expanded: Bool = false
+
+    private static let collapsedCount = 2
+
+    private var visibleLines: ArraySlice<String> {
+        if expanded || lines.count <= Self.collapsedCount {
+            return ArraySlice(lines)
+        }
+        return lines.suffix(Self.collapsedCount)
+    }
+
+    private var hiddenCount: Int {
+        max(0, lines.count - Self.collapsedCount)
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Button {
+                withAnimation(.easeInOut(duration: 0.18)) { expanded.toggle() }
+            } label: {
+                HStack(spacing: 6) {
+                    Text("Agent activity")
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(AppColors.onAgentBubble.opacity(0.7))
+                    if !expanded, hiddenCount > 0 {
+                        Text("(+\(hiddenCount) more)")
+                            .font(.caption2)
+                            .foregroundStyle(AppColors.onAgentBubble.opacity(0.5))
+                    }
+                    Spacer(minLength: 4)
+                    Image(systemName: expanded ? "chevron.up" : "chevron.down")
+                        .font(.caption2.weight(.semibold))
+                        .foregroundStyle(AppColors.onAgentBubble.opacity(0.6))
+                }
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .padding(.bottom, 2)
+            ForEach(Array(visibleLines.enumerated()), id: \.offset) { _, line in
+                Text(line)
+                    .font(.callout)
+                    .foregroundStyle(AppColors.onAgentBubble)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            if inProgress {
+                HStack(spacing: 6) {
+                    TypingIndicator()
+                }
+                .padding(.top, 2)
+            }
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 10)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(
+            MessageBubbleShape(hardCornerAtLeft: true)
+                .fill(AppColors.agentBubble)
+        )
     }
 }
 

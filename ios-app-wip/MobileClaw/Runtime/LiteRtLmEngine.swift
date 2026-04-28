@@ -173,6 +173,20 @@ public final class LiteRtLmEngine: LlmModelHelper {
     }
 
     public func resetConversation(systemInstruction: String?) throws {
+        try resetConversation(systemInstruction: systemInstruction, history: [])
+    }
+
+    /// Variant that re-seeds the fresh conversation with prior chat
+    /// turns so the model has working memory of the visible bubbles.
+    /// Used after an agentic turn — the orchestrator wipes the
+    /// conversation slot, and without this the next chat turn would
+    /// start with zero context.
+    ///
+    /// Each history entry is `(role, content)`; role must be "user" or
+    /// "assistant". System turns are passed via `systemInstruction`,
+    /// not the history array.
+    public func resetConversation(systemInstruction: String?,
+                                  history: [(role: String, content: String)]) throws {
         guard let engine else { throw LiteRtLmError.notInitialized }
         conversation?.close()
         conversation = nil
@@ -181,7 +195,21 @@ public final class LiteRtLmEngine: LlmModelHelper {
         sampler.topK = 40
         sampler.topP = 0.95
         sampler.temperature = 1.0
-        conversation = try engine.createConversation(withSystemPrompt: systemInstruction, sampler: sampler)
+
+        var messagesJson: String?
+        if !history.isEmpty {
+            let array = history.map { ["role": $0.role, "content": $0.content] }
+            if let data = try? JSONSerialization.data(withJSONObject: array) {
+                messagesJson = String(data: data, encoding: .utf8)
+            }
+        }
+        conversation = try engine.createConversation(
+            withSystemPrompt: systemInstruction,
+            initialMessages: messagesJson,
+            sampler: sampler,
+            applyPromptTemplate: true,
+            enableConstrainedDecoding: false,
+            maxOutputTokens: 0)
     }
 
     public func stopResponse() {

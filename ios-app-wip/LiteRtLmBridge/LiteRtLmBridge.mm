@@ -377,6 +377,22 @@ static const char *BackendCString(LRTLMBackend backend) {
                                           enableConstrainedDecoding:(BOOL)enableConstrainedDecoding
                                                      maxOutputTokens:(int)maxOutputTokens
                                                                error:(NSError **)outError {
+    return [self createConversationWithSystemPrompt:systemPrompt
+                                    initialMessages:nil
+                                            sampler:sampler
+                                applyPromptTemplate:applyPromptTemplate
+                          enableConstrainedDecoding:enableConstrainedDecoding
+                                    maxOutputTokens:maxOutputTokens
+                                              error:outError];
+}
+
+- (nullable LRTLMConversation *)createConversationWithSystemPrompt:(nullable NSString *)systemPrompt
+                                                  initialMessages:(nullable NSString *)initialMessagesJson
+                                                             sampler:(LRTLMSamplerParams *)sampler
+                                                 applyPromptTemplate:(BOOL)applyPromptTemplate
+                                          enableConstrainedDecoding:(BOOL)enableConstrainedDecoding
+                                                     maxOutputTokens:(int)maxOutputTokens
+                                                               error:(NSError **)outError {
     if (!_engine) {
         if (outError) *outError = MakeError(LRTLMErrorCodeInitFailed, @"Engine already closed");
         return nil;
@@ -427,6 +443,13 @@ static const char *BackendCString(LRTLMBackend backend) {
             NSString *sysJson = [[NSString alloc] initWithData:sysData encoding:NSUTF8StringEncoding];
             litert_lm_conversation_config_set_system_message(convConfig, sysJson.UTF8String);
         }
+    }
+    if (initialMessagesJson.length > 0) {
+        // JSON array of {"role":"user|assistant","content":"..."} objects.
+        // Used to warm a fresh KV cache with prior chat history after the
+        // orchestrator wipes the conversation slot.
+        litert_lm_conversation_config_set_messages(convConfig,
+                                                    initialMessagesJson.UTF8String);
     }
     if (enableConstrainedDecoding) {
         litert_lm_conversation_config_set_enable_constrained_decoding(convConfig, true);

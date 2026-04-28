@@ -1,9 +1,18 @@
 import Foundation
 
 // Mirrors android-app/.../orchestration/TraceRecorder.kt — append-only JSONL
-// span recorder for debugging the orchestration loop. Each `phase()` call
-// emits a {kind, name, durationMs, ok, error?} line to a per-run file under
-// Documents/claw-traces/<runId>.jsonl.
+// span recorder for the orchestration loop. Each `phase()` call emits one
+// `{type:"span", run_id, span:{kind, name, start_ms, end_ms, duration_ms,
+// status, thermal, mem_pss_mb, attrs}}` line to
+// `Documents/claw-traces/<runId>.jsonl`.
+//
+// Schema parity with Android is non-negotiable — the off-device scorers
+// in `test/eval/scorers/` parse trace JSONL field-by-field. Field rename
+// table (vs. the pre-eval-harness iOS shape):
+//   ok: Bool                  → status: "ok"|"error"
+//   memory_mb: Double         → mem_pss_mb: Int
+//   thermal_state: String     → thermal: Int (0..3, -1 = unknown)
+//   ts: Double (epoch sec)    → start_ms: Int64, end_ms: Int64
 
 public actor TraceRecorder {
     public let runId: String
@@ -32,13 +41,16 @@ public actor TraceRecorder {
                          attrs: [String: Any] = [:],
                          _ block: () async throws -> T) async rethrows -> T {
         guard enabled else { return try await block() }
-        let start = DispatchTime.now()
+        let startMs = Self.nowMs()
+        let startTime = DispatchTime.now()
         do {
             let value = try await block()
-            emit(kind: kind, name: name, start: start, outcome: .ok, attrs: attrs)
+            emitSpan(kind: kind, name: name, startMs: startMs, startTime: startTime,
+                     outcome: .ok, attrs: attrs)
             return value
         } catch {
-            emit(kind: kind, name: name, start: start, outcome: .error("\(error)"), attrs: attrs)
+            emitSpan(kind: kind, name: name, startMs: startMs, startTime: startTime,
+                     outcome: .error("\(error)"), attrs: attrs)
             throw error
         }
     }
@@ -48,61 +60,97 @@ public actor TraceRecorder {
         case error(String)
     }
 
+    /// Zero-duration "event" — emitted as a span with start_ms == end_ms so
+    /// scorers don't need a separate code path. Payload values become
+    /// span attrs.
     public func event(kind: String, name: String, payload: [String: String] = [:]) async {
         guard enabled else { return }
-        var record: [String: Any] = baseRecord(kind: kind, name: name)
-        for (k, v) in payload { record[k] = v }
-        write(record)
+        let now = Self.nowMs()
+        var attrs: [String: Any] = [:]
+        for (key, value) in payload { attrs[key] = value }
+        let span = buildSpan(kind: kind, name: name, startMs: now, endMs: now,
+                             durationMs: 0.0, outcome: .ok, attrs: attrs)
+        write(envelope(span: span))
     }
 
     /// Snapshot of recorded entries. Used by tests; ordering matches emission.
     public func recordedEvents() -> [[String: Any]] { inMemory }
 
-    private func emit(kind: String,
-                      name: String,
-                      start: DispatchTime,
-                      outcome: Outcome,
-                      attrs: [String: Any]) {
-        let elapsed = Double(DispatchTime.now().uptimeNanoseconds - start.uptimeNanoseconds) / 1_000_000
-        var record: [String: Any] = baseRecord(kind: kind, name: name)
-        record["duration_ms"] = elapsed
-        switch outcome {
-        case .ok:
-            record["ok"] = true
-        case .error(let message):
-            record["ok"] = false
-            record["error"] = message
-        }
-        for (key, value) in attrs { record[key] = value }
-        write(record)
+    /// Append a `{"type":"run","run":{…}}` line at the end of an eval. The
+    /// off-device file-stability poller treats any JSON line as "still
+    /// writing"; the run-summary line + a trailing `eval-complete` event
+    /// (emitted by `EvalEntryPoint`) signal end-of-write.
+    public func flushRunSummary(_ summary: [String: Any]) {
+        guard enabled else { return }
+        write(["type": "run", "run": summary])
     }
 
-    /// Common columns: ts, kind, name + system telemetry (thermal, memory)
-    /// that we want on every entry for postmortems. Mirrors Android's
-    /// per-span thermal_state + memory footprint capture.
-    private func baseRecord(kind: String, name: String) -> [String: Any] {
-        [
-            "ts": Date().timeIntervalSince1970,
+    // MARK: - Span emission
+
+    // swiftlint:disable:next function_parameter_count
+    private func emitSpan(kind: String,
+                          name: String,
+                          startMs: Int64,
+                          startTime: DispatchTime,
+                          outcome: Outcome,
+                          attrs: [String: Any]) {
+        let elapsedMs = Double(DispatchTime.now().uptimeNanoseconds - startTime.uptimeNanoseconds) / 1_000_000
+        let endMs = startMs + Int64(elapsedMs.rounded())
+        let span = buildSpan(kind: kind, name: name, startMs: startMs, endMs: endMs,
+                             durationMs: elapsedMs, outcome: outcome, attrs: attrs)
+        write(envelope(span: span))
+    }
+
+    // swiftlint:disable:next function_parameter_count
+    private func buildSpan(kind: String,
+                           name: String,
+                           startMs: Int64,
+                           endMs: Int64,
+                           durationMs: Double,
+                           outcome: Outcome,
+                           attrs: [String: Any]) -> [String: Any] {
+        var span: [String: Any] = [
             "kind": kind,
             "name": name,
-            "thermal_state": Self.thermalLabel(),
-            "memory_mb": Self.residentMemoryMB(),
+            "start_ms": startMs,
+            "end_ms": endMs,
+            "duration_ms": durationMs,
+            "thermal": Self.thermalCode(),
+            "mem_pss_mb": Self.residentMemoryMB(),
         ]
+        switch outcome {
+        case .ok:
+            span["status"] = "ok"
+        case .error(let message):
+            span["status"] = "error"
+            span["error"] = message
+        }
+        if !attrs.isEmpty { span["attrs"] = attrs }
+        return span
     }
 
-    private static func thermalLabel() -> String {
+    private func envelope(span: [String: Any]) -> [String: Any] {
+        ["type": "span", "run_id": runId, "span": span]
+    }
+
+    // MARK: - System telemetry
+
+    /// 0=nominal, 1=fair, 2=serious, 3=critical, -1=unknown. Matches
+    /// Android's int representation so scorers can compare directly.
+    private static func thermalCode() -> Int {
         switch ProcessInfo.processInfo.thermalState {
-        case .nominal:  return "nominal"
-        case .fair:     return "fair"
-        case .serious:  return "serious"
-        case .critical: return "critical"
-        @unknown default: return "unknown"
+        case .nominal:  return 0
+        case .fair:     return 1
+        case .serious:  return 2
+        case .critical: return 3
+        @unknown default: return -1
         }
     }
 
-    /// Best-effort resident memory. Returns 0.0 if mach_task_basic_info
-    /// fails — we never want telemetry to block trace writes.
-    private static func residentMemoryMB() -> Double {
+    /// Best-effort resident memory in MiB. Returns 0 if mach_task_basic_info
+    /// fails — we never want telemetry to block trace writes. Cast to Int
+    /// to match Android's reported integer MB.
+    private static func residentMemoryMB() -> Int {
         var info = mach_task_basic_info()
         var count = mach_msg_type_number_t(MemoryLayout<mach_task_basic_info>.size /
                                             MemoryLayout<integer_t>.size)
@@ -114,8 +162,17 @@ public actor TraceRecorder {
             }
         }
         guard kr == KERN_SUCCESS else { return 0 }
-        return Double(info.resident_size) / 1_048_576.0
+        return Int(Double(info.resident_size) / 1_048_576.0)
     }
+
+    /// Wall-clock milliseconds since the unix epoch. Single source of
+    /// truth for `start_ms`/`end_ms` so the off-device scorer can compute
+    /// per-kind latencies by sorting on these.
+    static func nowMs() -> Int64 {
+        Int64(Date().timeIntervalSince1970 * 1000)
+    }
+
+    // MARK: - Persistence
 
     private func write(_ record: [String: Any]) {
         inMemory.append(record)

@@ -191,6 +191,20 @@ public final class ChatViewModel {
                         self.messages.append(ChatMessage(id: answerId, role: .assistant,
                                                          text: final, kind: .text))
                         try? store.appendMessage(to: conversation, role: "assistant", content: final)
+                        // Wipe the formatter's KV cache and reseed with
+                        // the visible chat history so post-task chat
+                        // turns can still reason against earlier bubbles.
+                        // Without the reset, the next chat turn would
+                        // inherit the formatter's `<msg>…</msg>` few-
+                        // shot prompt and the model would echo the
+                        // wrapper. Without the history reseed, the
+                        // model would start cold and have no memory of
+                        // the user's prior turns visible in the UI.
+                        let historyForReplay = ChatViewModel.replayableHistory(
+                            from: self.messages, take: s.agentHistoryWindow)
+                        try? engine.resetConversation(
+                            systemInstruction: prompt,
+                            history: historyForReplay)
                         self.isStreaming = false
                         return
                     }
@@ -364,6 +378,25 @@ public final class ChatViewModel {
             let text = msg.text.count > 280 ? String(msg.text.prefix(280)) + "…" : msg.text
             return "\(role): \(text)"
         }.joined(separator: "\n")
+    }
+
+    /// Last N visible chat turns formatted for `set_messages` reseed
+    /// of a fresh LiteRT-LM conversation. Drops loading placeholders,
+    /// orchestration logs (UI noise the model shouldn't see), and
+    /// error bubbles. Returns role-tagged tuples — JSON encoding is
+    /// the bridge's job.
+    nonisolated static func replayableHistory(from messages: [ChatMessage],
+                                              take: Int) -> [(role: String, content: String)] {
+        guard take > 0 else { return [] }
+        let stable = messages.filter { msg in
+            (msg.kind == .text || msg.kind == .thinking)
+                && !msg.text.isEmpty
+                && (msg.role == .user || msg.role == .assistant)
+        }
+        return stable.suffix(take).map { msg in
+            (role: msg.role == .assistant ? "assistant" : "user",
+             content: msg.text)
+        }
     }
 
     private func update(id: UUID, text: String, kind: ChatMessage.Kind, thought: String? = nil) {

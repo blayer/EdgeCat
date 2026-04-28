@@ -32,3 +32,7 @@ research/SCRATCH_*.md
 # macOS
 .DS_Store
 build-device/
+test/eval/.venv/
+test/eval/runs/
+test/eval/scorers/__pycache__/
+test/eval/scorers/.pytest_cache/
