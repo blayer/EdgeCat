@@ -304,6 +304,16 @@ public struct Planner {
           "successCriteria": ["Distance is on the clipboard."]
         }
 
+        "Answer a question from the web" example — search-web alone returns a LINK LIST, not the answer. Chain fetch-web-content on the top URL so the formatter has the actual page text to extract from:
+        {
+          "goal": "Tell the user the weather in Tokyo today",
+          "steps": [
+            {"id": "s1", "description": "Search the web for today's Tokyo weather.", "skillName": "search-web", "toolArgs": {"query": "weather in Tokyo today"}, "dependsOn": []},
+            {"id": "s2", "description": "Fetch the top result's page to get the actual weather details.", "skillName": "fetch-web-content", "toolArgs": {"url": "Output from s1"}, "dependsOn": ["s1"]}
+          ],
+          "successCriteria": ["Reply states today's Tokyo temperature/conditions."]
+        }
+
         User request: \(userMessage)
         """
     }

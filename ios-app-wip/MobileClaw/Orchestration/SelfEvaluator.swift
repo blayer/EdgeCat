@@ -25,6 +25,17 @@ public struct SelfEvaluator {
         for step in plan.steps {
             guard let result = results[step.id], result.status == .completed else { return nil }
             if result.output.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { return nil }
+            // search-web's output ("Search results for: ...") contains
+            // the user's query tokens as titles + snippets, which would
+            // make the goal-token check below trivially pass. But links
+            // are not an answer. Force a full LLM evaluation when the
+            // last step is a bare search with no fetch-web-content
+            // follow-up — the LLM evaluator will say "shouldReplan" so
+            // the planner can chain the fetch.
+            let isLastStep = step.id == plan.steps.last?.id
+            if isLastStep && Self.isBareSearchResults(result.output) {
+                return nil
+            }
             let lower = result.output.lowercased()
             // Skip the marker-scan for outputs that are JSON envelopes
             // declaring their own success — `{"status":"succeeded",...}`
@@ -63,6 +74,18 @@ public struct SelfEvaluator {
             missingItems: [],
             shouldReplan: false,
             failedCriteria: [])
+    }
+
+    /// `true` when the output is a search-web results listing with no
+    /// fetched page content. Search results contain query tokens that
+    /// would trivially satisfy the triage goal-token check, but they're
+    /// just links — not an answer. Detected by the formatted header
+    /// SearchWebSkill emits ("Search results for: …") combined with the
+    /// absence of "Page content from".
+    static func isBareSearchResults(_ output: String) -> Bool {
+        let lower = output.lowercased()
+        guard lower.contains("search results for") else { return false }
+        return !lower.contains("page content from")
     }
 
     private static func tokens(from text: String) -> [String] {
