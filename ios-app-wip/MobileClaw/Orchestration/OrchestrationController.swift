@@ -279,6 +279,8 @@ extension OrchestrationController {
             "unknown skill:",
             "missing '",
             "missing required argument",
+            "not a calculator expression",
+            "could not extract numeric expression",
         ]
         for f in failures {
             let lower = (f.error ?? "").lowercased()

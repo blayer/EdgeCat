@@ -109,8 +109,15 @@ public final class ExecutionOrchestrator: @unchecked Sendable {
         }
 
         // Resolve final args: rescue placeholders + date-time + phone.
-        let depOutputs = step.dependsOn.reduce(into: [String: String]()) { acc, dep in
-            if let r = priorResults[dep], r.status == .completed { acc[dep] = r.output }
+        // Feed ALL completed prior steps to the rescue, not just those
+        // listed in `dependsOn`. Small models routinely emit
+        // `toolArgs: {"url": "Output from s1"}` while leaving
+        // `dependsOn: []`, which would otherwise leave the literal
+        // string in the arg and fail with "invalid 'url' argument".
+        // The substitution is keyed on the step ID appearing in the
+        // arg value, so unrelated prior IDs are harmless.
+        let depOutputs = priorResults.reduce(into: [String: String]()) { acc, kv in
+            if kv.value.status == .completed { acc[kv.key] = kv.value.output }
         }
         var finalArgs = StepArgRescue.rescue(args: step.toolArgs, dependencies: depOutputs)
 

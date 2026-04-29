@@ -35,7 +35,14 @@ public enum StepArgRescue {
     static func extractUrlIfNeeded(_ value: String, key: String) -> String {
         let urlishKeys: Set<String> = ["url", "link", "href"]
         guard urlishKeys.contains(key) else { return value }
-        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        // Un-escape JSON slashes BEFORE the URL scan. Swift's
+        // `JSONSerialization.data(withJSONObject:)` defaults to
+        // emitting `\/` for forward slashes, so search-web's output
+        // contains `https:\/\/www.accuweather.com\/...`. Without this
+        // step the regex below would capture only `https:` and the
+        // chained fetch-web-content step fails with `invalid 'url'`.
+        let unescaped = value.replacingOccurrences(of: #"\/"#, with: "/")
+        let trimmed = unescaped.trimmingCharacters(in: .whitespacesAndNewlines)
         // Already a clean URL? Pass through.
         if let u = URL(string: trimmed), u.scheme == "http" || u.scheme == "https" {
             return trimmed

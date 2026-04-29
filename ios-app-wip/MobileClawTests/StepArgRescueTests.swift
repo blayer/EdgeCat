@@ -114,6 +114,21 @@ final class StepArgRescueTests: XCTestCase {
         XCTAssertEqual(out["url"], "https://example.com/path")
     }
 
+    func testUrlArgHandlesJsonEscapedSlashes() {
+        // Swift's JSONSerialization default emits `\/` for forward
+        // slashes, so search-web's wrapped output looks like
+        // `https:\/\/www.accuweather.com\/...`. Without un-escaping,
+        // the regex captures only `https:` and fetch-web-content
+        // fails with "invalid 'url' argument".
+        let jsonOutput =
+            #"{"results":"1. Tokyo - AccuWeather\n   https:\/\/www.accuweather.com\/en\/jp\/tokyo\n"}"#
+        let out = StepArgRescue.rescue(
+            args: ["url": "Output from s1"],
+            dependencies: ["s1": jsonOutput],
+            now: referenceDate)
+        XCTAssertEqual(out["url"], "https://www.accuweather.com/en/jp/tokyo")
+    }
+
     func testUrlArgHandlesJsonEscapedNewline() {
         // Real search-web output is JSON-serialized; newlines in the
         // formatted `results` field come through as the literal two-char

@@ -81,11 +81,14 @@ public struct Planner {
         return Self.filterUnknownSkills(plan: parsed, available: availableSkills)
     }
 
-    /// Cap conversation context to roughly `historyWindow` turns (~280 chars
-    /// per turn). Keeps the planner prompt within Gemma 4 E2B's working
-    /// window without an exact tokenizer dependency.
+    /// Cap conversation context to roughly `historyWindow` turns (~1000
+    /// chars per turn). Keeps the planner prompt within Gemma 4 E2B's
+    /// working window without an exact tokenizer dependency. Bumped from
+    /// 280 → 1000 so multi-paragraph assistant outputs (trip plans,
+    /// itineraries) survive into the next turn — at 280 the planner only
+    /// saw the first sentence and asked the user to repeat themselves.
     private func bound(_ context: String) -> String {
-        let limit = max(0, historyWindow) * 280
+        let limit = max(0, historyWindow) * 1000
         if context.count <= limit { return context }
         let start = context.index(context.endIndex, offsetBy: -limit)
         return String(context[start...])
@@ -302,6 +305,17 @@ public struct Planner {
             {"id": "s2", "description": "Copy the distance to clipboard.", "skillName": "clipboard", "toolArgs": {"action": "write", "text": "Output from s1"}, "dependsOn": ["s1"]}
           ],
           "successCriteria": ["Distance is on the clipboard."]
+        }
+
+        Synthesis / drafting / "make a plan from this data" example — pick the `summarize` skill (LLM-only — no tool is invoked, the executor synthesizes via the LLM). NEVER use calculator for text — calculator is ARITHMETIC ONLY:
+        {
+          "goal": "Draft a Tokyo trip itinerary from the fetched page",
+          "steps": [
+            {"id": "s1", "description": "Search the web for Tokyo sightseeing.", "skillName": "search-web", "toolArgs": {"query": "Tokyo famous sights itinerary"}, "dependsOn": []},
+            {"id": "s2", "description": "Fetch the top result for actual content.", "skillName": "fetch-web-content", "toolArgs": {"url": "Output from s1"}, "dependsOn": ["s1"]},
+            {"id": "s3", "description": "Synthesize a one-day Tokyo itinerary using the fetched details.", "skillName": "summarize", "toolArgs": {}, "dependsOn": ["s2"]}
+          ],
+          "successCriteria": ["Reply contains a concrete itinerary."]
         }
 
         "Answer a question from the web" example — search-web alone returns a LINK LIST, not the answer. Chain fetch-web-content on the top URL so the formatter has the actual page text to extract from:

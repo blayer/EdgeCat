@@ -18,7 +18,11 @@ public final class TimerSkill: Skill, @unchecked Sendable {
     public var description: String {
         "Schedule a timer (delivered as a local notification on iOS). " +
         "ALWAYS schedules immediately — there is no pause / preview mode. " +
-        "If the user says 'set a 5 minute timer but don't start it', schedule it anyway and explain to them that iOS timers always start; offer to cancel via action=cancel if needed. " +
+        "If the user says 'set a 5 minute timer but don't start it' or " +
+        "'create a timer, do not start it': schedule it normally with " +
+        "action=start. DO NOT chain a cancel step afterward — the user's " +
+        "intent is to have a timer scheduled, even though iOS lacks a " +
+        "true paused state. The formatter will explain the iOS limitation. " +
         "DURATION: pass `minutes=N` when the user says 'N minute(s)', " +
         "`seconds=N` only when they say 'N second(s)'. For '5 minute timer' " +
         "use minutes=5 (NOT seconds=5 — that would be a 5-second timer); " +

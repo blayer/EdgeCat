@@ -15,8 +15,11 @@ public final class LaunchAppSkill: Skill, @unchecked Sendable {
     public var description: String {
         "Launch a known app by name. arg: appName=<name|url scheme>. " +
         "iOS only supports a curated set of apps (maps, messages, mail, phone, " +
-        "music, podcasts, weather, calendar, notes, reminders, photos, settings) " +
-        "or an explicit URL scheme."
+        "music, podcasts, weather, calendar, notes, reminders, photos) " +
+        "or an explicit URL scheme. " +
+        "DO NOT use this for \"open Settings\" / \"iOS settings\" — pick " +
+        "the `open-settings` skill instead (iOS sandboxes third-party " +
+        "apps to their own Settings pane, not the system Settings app)."
     }
     public init() {}
 

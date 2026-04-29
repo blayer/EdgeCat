@@ -81,6 +81,15 @@ public final class SkillRegistry: ToolExecutor, @unchecked Sendable {
             RecognizeTextSkill(),
             ReadPdfSkill(),
             PreviewUrlSkill(),
+            // LLM-only catalog stubs. ExecutionOrchestrator short-circuits
+            // these via `SkillTools.llmOnly`, routing to `runLlmStep`
+            // instead of calling the skill's run(). Registering catalog
+            // entries lets the planner SEE them and emit
+            // `skillName: "summarize"` for synthesis steps — which keeps
+            // the plan_validity scorer happy (it requires non-null
+            // skill_name) while still routing through the LLM lane.
+            SummarizeSkill(),
+            ComposeSkill(),
             // Stubs (iOS sandbox / API restrictions) — kept registered so
             // the planner sees the same skill names as Android and can
             // route around the `not_supported_on_ios` error via repair.

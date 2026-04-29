@@ -8,6 +8,10 @@ public final class CalculatorSkill: Skill, @unchecked Sendable {
     public var description: String {
         "Evaluate a NUMERIC arithmetic expression like \"3 * (4 + 5)\". " +
         "Supports +, -, *, /, %, parentheses, and standard math functions. " +
+        "DO NOT use this to summarize, synthesize, draft, or rewrite text — " +
+        "this skill is ONLY for arithmetic. For free-form composition, use " +
+        "an LLM-only step (description-only with no skillName) and the " +
+        "executor will synthesize the answer from prior step outputs. " +
         "DO NOT use this for date or time arithmetic — there's no `date()` function. " +
         "For dates, use the DATE CONTEXT block at the top of the prompt (TODAY, TOMORROW, ONE_WEEK_FROM_NOW, TWO_WEEKS_FROM_NOW) — never compute via calculator."
     }
@@ -40,6 +44,17 @@ public final class CalculatorSkill: Skill, @unchecked Sendable {
         if sanitized.unicodeScalars.contains(where: { !allowed.contains($0) }) {
             return ToolExecutionResult(success: false, error: "could not evaluate: \(expr)")
         }
+        // Date-shape (YYYY-MM-DD) or two adjacent number literals
+        // (e.g. "2026 04") would parse as malformed NSExpression input
+        // and raise an uncatchable Obj-C exception that hangs the
+        // orchestration step. Reject before NSExpression sees it.
+        if Self.looksLikeDateOrInvalidArithmetic(sanitized) {
+            return ToolExecutionResult(
+                success: false,
+                error: "not a calculator expression: \(expr.prefix(60)). " +
+                       "Use search-photos with from/to args for date ranges, " +
+                       "or use the DATE CONTEXT block for date arithmetic.")
+        }
         let nsExpr = NSExpression(format: sanitized)
         guard let value = nsExpr.expressionValue(with: nil, context: nil) else {
             return ToolExecutionResult(success: false, error: "could not evaluate: \(expr)")
@@ -47,32 +62,64 @@ public final class CalculatorSkill: Skill, @unchecked Sendable {
         return ToolExecutionResult(success: true, output: "\(value)")
     }
 
-    /// Pull the longest substring of arithmetic-friendly characters out
-    /// of the input. Lets the calculator survive a planner that piped a
-    /// JSON output into the `expression` arg — we extract the first
-    /// numeric expression we can find rather than rejecting the call.
+    /// Pull a clean arithmetic expression out of the input. Lets the
+    /// calculator survive a planner that piped a small JSON output into
+    /// the `expression` arg — but only when the input is recognizably a
+    /// math expression. For free-form prose the function returns "" so
+    /// the caller fails fast instead of silently evaluating "-8" because
+    /// some random number was buried in a paragraph.
+    ///
+    /// Heuristic: accept input where ≥70% of non-space characters are
+    /// arithmetic. Otherwise reject (return "").
     static func cleanExpression(_ s: String) -> String {
-        // If `s` is already mostly arithmetic, take it as-is.
         let arithChars = CharacterSet(charactersIn: "0123456789.+-*/() \t")
-        let mostlyArithmetic = s.unicodeScalars.allSatisfy { arithChars.contains($0) }
-        if mostlyArithmetic { return s.trimmingCharacters(in: .whitespacesAndNewlines) }
-        // Otherwise scan for runs of arithmetic chars and pick the
-        // longest run that contains at least one digit.
-        var best = ""
-        var current = ""
-        for scalar in s.unicodeScalars {
-            if arithChars.contains(scalar) {
-                current.unicodeScalars.append(scalar)
-            } else {
-                if current.contains(where: { $0.isNumber }) && current.count > best.count {
-                    best = current
-                }
-                current = ""
-            }
+        let trimmed = s.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmed.isEmpty { return "" }
+        // Pure-arithmetic input passes through untouched.
+        if trimmed.unicodeScalars.allSatisfy({ arithChars.contains($0) }) {
+            return trimmed
         }
-        if current.contains(where: { $0.isNumber }) && current.count > best.count {
-            best = current
+        // Count how arithmetic-shaped the input actually is. Rejecting
+        // mostly-prose inputs prevents the planner from accidentally
+        // calling calculator on synthesis tasks ("draft an itinerary…")
+        // and getting back a meaningless number scraped from prose.
+        let nonSpace = trimmed.unicodeScalars.filter { $0 != " " && $0 != "\t" }
+        guard !nonSpace.isEmpty else { return "" }
+        let arithCount = nonSpace.filter { arithChars.contains($0) }.count
+        let ratio = Double(arithCount) / Double(nonSpace.count)
+        guard ratio >= 0.7 else { return "" }
+        // Mostly arithmetic but contains a few stray non-arith chars
+        // (commas, currency signs from e.g. "$3.50 + $1.25"). Strip
+        // them and return the cleaned expression.
+        var cleaned = ""
+        for scalar in trimmed.unicodeScalars where arithChars.contains(scalar) {
+            cleaned.unicodeScalars.append(scalar)
         }
-        return best.trimmingCharacters(in: .whitespacesAndNewlines)
+        return cleaned.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    /// Pattern guard for inputs that pass the charset check but would
+    /// crash NSExpression(format:). Three classes:
+    /// 1. Date shapes: `YYYY-MM-DD` (subtraction-of-three-numbers).
+    /// 2. Two adjacent multi-digit numbers separated by space — NSExpression
+    ///    can't decide whether `2026 04` is one number or two.
+    /// 3. Trailing binary operators (`3 +`) or two adjacent operators
+    ///    (`3 + +`) — malformed expressions.
+    static func looksLikeDateOrInvalidArithmetic(_ s: String) -> Bool {
+        // Class 1 — `\b\d{4}-\d{2}-\d{2}\b`
+        if s.range(of: #"\b\d{4}-\d{1,2}-\d{1,2}\b"#,
+                   options: .regularExpression) != nil { return true }
+        // Class 2 — two multi-digit numbers separated by spaces
+        if s.range(of: #"\b\d{2,}\s+\d{2,}\b"#,
+                   options: .regularExpression) != nil { return true }
+        // Class 3 — trailing or doubled operators (after collapsing
+        // whitespace). `--` is allowed because NSExpression treats it
+        // as unary-minus on a negative literal.
+        let collapsed = s.replacingOccurrences(of: " ", with: "")
+                         .replacingOccurrences(of: "\t", with: "")
+        if collapsed.last.map({ "+-*/".contains($0) }) == true { return true }
+        if collapsed.range(of: #"[+*/]{2,}|[+/]{2,}|\*\*"#,
+                           options: .regularExpression) != nil { return true }
+        return false
     }
 }
