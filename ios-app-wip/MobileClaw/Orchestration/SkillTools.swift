@@ -57,9 +57,16 @@ public enum SkillTools {
     /// itself (LLM-only skill or no skill at all).
     public static func resolveTool(skillName: String?, toolName: String?) -> String? {
         // Explicit toolName overrides everything (planner can opt out of
-        // routing).
-        if let toolName, !toolName.isEmpty { return toolName }
-        guard let skillName, !skillName.isEmpty else { return nil }
+        // routing). Treat the literal string "null" the same as a true
+        // null/empty — the planner sometimes serializes the JSON null
+        // as the four-character string "null" and we don't want that
+        // routed to the registry as a skill lookup.
+        if let toolName, !toolName.isEmpty,
+           toolName.lowercased() != "null" {
+            return toolName
+        }
+        guard let skillName, !skillName.isEmpty,
+              skillName.lowercased() != "null" else { return nil }
         let normalized = normalize(skillName)
         // On iOS each skill is its own `Skill` class registered in
         // `SkillRegistry` under its skill name (e.g. "search-web"), so

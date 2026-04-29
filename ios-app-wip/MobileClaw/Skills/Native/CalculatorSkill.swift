@@ -14,16 +14,28 @@ public final class CalculatorSkill: Skill, @unchecked Sendable {
     public init() {}
 
     public func run(args: [String: String]) async -> ToolExecutionResult {
-        let expr = args["expression"] ?? args["expr"] ?? ""
-        guard !expr.isEmpty else {
+        let raw = args["expression"] ?? args["expr"] ?? ""
+        guard !raw.isEmpty else {
             return ToolExecutionResult(success: false, error: "missing 'expression' argument")
         }
-        let sanitized = expr.replacingOccurrences(of: "×", with: "*")
+        // Substitute unicode operators BEFORE cleanExpression — × and ÷
+        // aren't in the arithmetic charset, so cleanExpression would
+        // split "6 × 7" into ["6", "7"] and pick the longest, leaving
+        // just "6". Translating up-front preserves the operator.
+        let normalized = raw.replacingOccurrences(of: "×", with: "*")
                             .replacingOccurrences(of: "÷", with: "/")
-        // Reject anything that isn't numbers, decimal points, parentheses,
-        // whitespace, or basic operators. NSExpression(format:) raises an
-        // uncatchable Objective-C exception on non-arithmetic input
-        // (e.g. "this is not math"), so we have to gate it ourselves.
+        // Recover an arithmetic expression even if the planner chained
+        // a previous step's full output (often JSON like
+        // `{"summary":{"total":42},...}`) into the `expression` arg.
+        // Extract the first run of `[0-9.+-*/() ]` characters that
+        // contains at least one digit and try to evaluate that. If the
+        // raw input is already pure-arithmetic, this is a no-op.
+        let expr = Self.cleanExpression(normalized)
+        guard !expr.isEmpty else {
+            return ToolExecutionResult(success: false,
+                                        error: "could not extract numeric expression from: \(raw.prefix(60))")
+        }
+        let sanitized = expr
         let allowed = CharacterSet(charactersIn: "0123456789.+-*/() \t")
         if sanitized.unicodeScalars.contains(where: { !allowed.contains($0) }) {
             return ToolExecutionResult(success: false, error: "could not evaluate: \(expr)")
@@ -33,5 +45,34 @@ public final class CalculatorSkill: Skill, @unchecked Sendable {
             return ToolExecutionResult(success: false, error: "could not evaluate: \(expr)")
         }
         return ToolExecutionResult(success: true, output: "\(value)")
+    }
+
+    /// Pull the longest substring of arithmetic-friendly characters out
+    /// of the input. Lets the calculator survive a planner that piped a
+    /// JSON output into the `expression` arg — we extract the first
+    /// numeric expression we can find rather than rejecting the call.
+    static func cleanExpression(_ s: String) -> String {
+        // If `s` is already mostly arithmetic, take it as-is.
+        let arithChars = CharacterSet(charactersIn: "0123456789.+-*/() \t")
+        let mostlyArithmetic = s.unicodeScalars.allSatisfy { arithChars.contains($0) }
+        if mostlyArithmetic { return s.trimmingCharacters(in: .whitespacesAndNewlines) }
+        // Otherwise scan for runs of arithmetic chars and pick the
+        // longest run that contains at least one digit.
+        var best = ""
+        var current = ""
+        for scalar in s.unicodeScalars {
+            if arithChars.contains(scalar) {
+                current.unicodeScalars.append(scalar)
+            } else {
+                if current.contains(where: { $0.isNumber }) && current.count > best.count {
+                    best = current
+                }
+                current = ""
+            }
+        }
+        if current.contains(where: { $0.isNumber }) && current.count > best.count {
+            best = current
+        }
+        return best.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 }

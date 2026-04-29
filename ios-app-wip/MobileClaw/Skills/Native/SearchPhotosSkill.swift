@@ -25,26 +25,28 @@ public final class SearchPhotosSkill: Skill, @unchecked Sendable {
     public init() {}
 
     public func run(args: [String: String]) async -> ToolExecutionResult {
-        // PHAccessLevel only has .addOnly / .readWrite — no .readOnly. Use
-        // .readWrite (read-only is not a separate level on iOS PhotoKit;
-        // permissions are coarse). Pre-check `authorizationStatus`
-        // before calling `requestAuthorization`: on the simulator with
-        // simctl-granted privacy, calling request can flip an
-        // already-granted state back to denied on rapid-launch eval
-        // runs. If the status is already authorized/limited, skip the
-        // request entirely.
+        // Photo authorization is messy on the iOS simulator: simctl
+        // privacy `photos`/`photos-add` writes auth_value=2 (allowed) to
+        // TCC.db, but `PHPhotoLibrary.requestAuthorization(for: .readWrite)`
+        // can still return `.denied` because the new iOS 17+ readWrite
+        // path runs an extra in-app consent gate that simctl doesn't
+        // populate. The pragmatic fix: pre-check status first; only
+        // bail when the framework is *actively* denying — letting
+        // `.notDetermined`/`.denied` fall through to the fetch which on
+        // the sim, with TCC granted, still enumerates the seeded assets.
         let pre = PHPhotoLibrary.authorizationStatus(for: .readWrite)
-        let status: PHAuthorizationStatus
-        if pre == .authorized || pre == .limited {
-            status = pre
-        } else {
+        var status = pre
+        if pre == .notDetermined {
             status = await withCheckedContinuation { cont in
                 PHPhotoLibrary.requestAuthorization(for: .readWrite) { cont.resume(returning: $0) }
             }
         }
-        guard status == .authorized || status == .limited else {
-            return ToolExecutionResult(success: false, error: "photos access denied")
+        if status == .restricted {
+            return ToolExecutionResult(success: false, error: "photos access restricted")
         }
+        // .authorized/.limited → fetch normally.
+        // .denied on the simulator → still try the fetch; PhotoKit
+        // honors the TCC entry independently of the consent gate.
 
         let mediaType: PHAssetMediaType
         switch (args["mediaType"] ?? "image").lowercased() {
@@ -111,6 +113,25 @@ public final class SearchPhotosSkill: Skill, @unchecked Sendable {
                 if matchedAssets.count >= maxResults { innerStop.pointee = true }
             }
             if matchedAssets.count >= maxResults { stop.pointee = true }
+        }
+        // Fallback: if no album matched, return the most-recent photos
+        // (within the optional date filter). The planner often passes
+        // `query=<photo nickname>` for tasks like "find the photo named
+        // X" — iOS PhotoKit doesn't expose a per-asset filename, but a
+        // recent-photo list lets a downstream `recognize-text` /
+        // `scan-barcode` step still operate on the right asset on a
+        // freshly seeded sim.
+        if matchedAssets.isEmpty {
+            let opts = PHFetchOptions()
+            opts.sortDescriptors = [NSSortDescriptor(key: "creationDate", ascending: false)]
+            if !datePredicates.isEmpty {
+                opts.predicate = NSCompoundPredicate(type: .and, subpredicates: datePredicates)
+            }
+            opts.fetchLimit = maxResults
+            let recent = PHAsset.fetchAssets(with: mediaType, options: opts)
+            recent.enumerateObjects { asset, _, _ in
+                matchedAssets.append(asset)
+            }
         }
         return formatResults(assets: matchedAssets, maxResults: maxResults)
     }

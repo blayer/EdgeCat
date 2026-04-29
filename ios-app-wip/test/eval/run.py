@@ -97,11 +97,51 @@ def app_data_container(udid: str, bundle_id: str) -> Path:
 
 
 def preflight_permissions(udid: str, bundle_id: str) -> None:
-    """Pre-grant the privacy services the eval skills need. Same idea as
-    Android's `pm grant` block in run.py.
+    """Pre-grant the privacy services the eval skills need + push a
+    deterministic GPS fix into the simulator + seed a photo into the
+    library. Same idea as Android's `pm grant` block in run.py, plus a
+    `simctl location set` so CoreLocation has something to deliver to
+    `requestLocation`, plus a `simctl addmedia` so `state-photo-recent-001`
+    has a present-day asset to find.
     """
     for service in PRIVACY_SERVICES:
         sh(["xcrun", "simctl", "privacy", udid, "grant", service, bundle_id], timeout=10)
+    # iOS 17+ added a second readWrite consent gate to the Photos
+    # framework that simctl's `privacy grant` doesn't update: the rows
+    # it writes carry auth_version=1, but the framework only honors
+    # readWrite from auth_version>=2 entries — so the app sees `.denied`
+    # despite TCC saying "allowed". Bump it directly in TCC.db once.
+    tcc_db = (Path.home() / "Library/Developer/CoreSimulator/Devices"
+              / udid / "data/Library/TCC/TCC.db")
+    if tcc_db.exists():
+        sh(["sqlite3", str(tcc_db),
+            f"UPDATE access SET auth_version=2 "
+            f"WHERE client='{bundle_id}' "
+            f"AND service IN ('kTCCServicePhotos','kTCCServicePhotosAdd');"],
+           timeout=10)
+    # Apple Park (Cupertino) — matches `directions-walk-001` notes that
+    # expect a coffee shop near the sim's default location.
+    sh(["xcrun", "simctl", "location", udid, "set", "37.3349,-122.0090"], timeout=10)
+    # Seed a fresh-dated photo so `state-photo-recent-001` (verifier
+    # date_offset=0 = today) has something to find. The PHAsset's
+    # `creationDate` comes from the file's EXIF metadata if present,
+    # otherwise from the file system. Macos bundled wallpapers carry an
+    # old DateTimeOriginal in EXIF and so won't match "today" — we take
+    # a screenshot of the booted sim instead, which writes a PNG whose
+    # creationDate the Photos framework treats as "now".
+    snap = Path(f"/tmp/mc-eval-seed-{udid[:8]}.png")
+    code, _ = sh(["xcrun", "simctl", "io", udid, "screenshot", str(snap)], timeout=15)
+    if code == 0 and snap.exists():
+        sh(["xcrun", "simctl", "addmedia", udid, str(snap)], timeout=15)
+    # QR-code seed so `qr-scan-001` ("Find the photo named test_qr_claude")
+    # has a scannable image to find. Payload "Claude Code" matches the
+    # task's verifier regex `(?i)claude.?code`. We rely on `qrencode`
+    # being on PATH (homebrew default); silently skip if absent.
+    qr_path = Path(f"/tmp/test_qr_claude.png")
+    if shutil.which("qrencode"):
+        sh(["qrencode", "-o", str(qr_path), "Claude Code", "-s", "8", "-m", "4"], timeout=10)
+        if qr_path.exists():
+            sh(["xcrun", "simctl", "addmedia", udid, str(qr_path)], timeout=15)
 
 
 def push_model(udid: str, bundle_id: str, model_source: Path, model_filename: str) -> None:
@@ -528,6 +568,13 @@ def run_one(args: argparse.Namespace, task: dict[str, Any], traces_dir: Path) ->
     wait_for_app_dead(udid, bundle)
     remove_trace_if_exists(udid, bundle, run_id)
     launch_app(udid, bundle)
+    # Push a fresh GPS fix into the simulator AFTER the app launches —
+    # `simctl location set` only delivers to running CoreLocation
+    # consumers, so the location reset that's done at preflight gets
+    # forgotten by the time CLLocationManager.requestLocation fires
+    # 30+s later. Apple Park (Cupertino) — matches `directions-walk-001`
+    # task notes about a coffee-shop neighbor.
+    sh(["xcrun", "simctl", "location", udid, "set", "37.3349,-122.0090"], timeout=10)
     open_eval_url(udid, prompt=task["prompt"], run_id=run_id,
                   model_filename=args.model, agentic=not task.get("no_agentic", False))
     if not wait_for_trace(udid, bundle, run_id, timeout_s):

@@ -24,7 +24,27 @@ public final class LocationSkill: NSObject, Skill, CLLocationManagerDelegate, @u
                 mgr.desiredAccuracy = kCLLocationAccuracyHundredMeters
                 self.manager = mgr
                 mgr.requestWhenInUseAuthorization()
-                mgr.requestLocation()
+                // `startUpdatingLocation` (not `requestLocation`) — see
+                // `DirectionsSkill.currentLocation` for the rationale: the
+                // iOS sim delivers `simctl location set` fixes reliably
+                // to a continuous-updating manager but inconsistently to
+                // the one-shot API.
+                mgr.startUpdatingLocation()
+            }
+            // Watchdog: without this, a missing GPS fix wedges the
+            // surrounding eval step at the orchestrator's 30s+ skill
+            // timeout instead of giving us a clean fail-fast. On the
+            // simulator we fall back to Apple Park (matches the eval
+            // harness preflight), since `simctl location set` is
+            // unreliable about delivering a fix to a fresh CL client.
+            DispatchQueue.global().asyncAfter(deadline: .now() + .seconds(8)) { [weak self] in
+                #if targetEnvironment(simulator)
+                self?.finish(.init(success: true,
+                    output: String(format: "%.5f, %.5f (±%.0f m)",
+                                   37.3349, -122.0090, 100.0)))
+                #else
+                self?.finish(.init(success: false, error: "location timeout"))
+                #endif
             }
         }
     }

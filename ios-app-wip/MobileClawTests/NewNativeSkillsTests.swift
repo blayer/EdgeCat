@@ -88,7 +88,11 @@ final class NewNativeSkillsTests: XCTestCase {
     func testListDownloadsReturnsValidJsonShape() async {
         let result = await ListDownloadsSkill().run(args: [:])
         XCTAssertTrue(result.success)
-        guard let data = result.output.data(using: .utf8),
+        // Output is "<status header>\n<json>" — extract the JSON portion
+        // (the skill prepends a status line for verifier-regex matching;
+        // see ListDownloadsSkill.swift).
+        let json = jsonPortion(of: result.output)
+        guard let data = json.data(using: .utf8),
               let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
             XCTFail("Output not valid JSON: \(result.output)"); return
         }
@@ -100,12 +104,18 @@ final class NewNativeSkillsTests: XCTestCase {
     func testListDownloadsRespectsMaxResults() async {
         let result = await ListDownloadsSkill().run(args: ["maxResults": "1"])
         XCTAssertTrue(result.success)
-        guard let data = result.output.data(using: .utf8),
+        let json = jsonPortion(of: result.output)
+        guard let data = json.data(using: .utf8),
               let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
               let count = obj["count"] as? Int else {
             XCTFail("Bad JSON"); return
         }
         XCTAssertLessThanOrEqual(count, 1)
+    }
+
+    private func jsonPortion(of output: String) -> String {
+        guard let brace = output.firstIndex(of: "{") else { return output }
+        return String(output[brace...])
     }
 
     // MARK: - Stubs (TakePhoto / VolumeControl)

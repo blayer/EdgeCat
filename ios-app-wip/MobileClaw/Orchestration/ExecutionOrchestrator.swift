@@ -121,6 +121,18 @@ public final class ExecutionOrchestrator: @unchecked Sendable {
         }
 
         var res = await runWithTimeout(toolName: tool, args: finalArgs)
+        // If the registry doesn't know the skill (planner hallucinated
+        // a name like `query-wikipedia` or `list_photos_album`), fall
+        // through to an LLM-driven step using the description as the
+        // instruction. Beats failing the step and burning a replan
+        // iteration on the same hallucination.
+        if !res.success,
+           let err = res.error?.lowercased(),
+           err.contains("unknown skill:") {
+            await trace?.event(kind: "step.fallback_llm", name: step.id,
+                                payload: ["from_skill": tool])
+            return await runLlmStep(step, priorResults: priorResults, start: start)
+        }
         var attempt = 0
         while !res.success && attempt < maxRepair {
             attempt += 1

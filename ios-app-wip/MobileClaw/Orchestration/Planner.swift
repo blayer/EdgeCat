@@ -55,7 +55,8 @@ public struct Planner {
         let raw = try await llm.generateResponse(
             prompt: prompt,
             enableThinking: policy.planner(userMessage: userMessage, iteration: iteration))
-        return try parsePlan(raw, defaultGoal: userMessage)
+        let parsed = try parsePlan(raw, defaultGoal: userMessage)
+        return Self.filterUnknownSkills(plan: parsed, available: availableSkills)
     }
 
     /// Re-plan after the evaluator says the prior plan didn't satisfy the
@@ -76,7 +77,8 @@ public struct Planner {
         let raw = try await llm.generateResponse(
             prompt: prompt,
             enableThinking: policy.replan(replanAttempt: context.replanAttempt))
-        return try parsePlan(raw, defaultGoal: userMessage)
+        let parsed = try parsePlan(raw, defaultGoal: userMessage)
+        return Self.filterUnknownSkills(plan: parsed, available: availableSkills)
     }
 
     /// Cap conversation context to roughly `historyWindow` turns (~280 chars
@@ -470,6 +472,34 @@ public struct Planner {
                 repairUnquotedKeys(
                     repairQuotes(
                         repairCommas(s)))))
+    }
+
+    /// Drop steps whose `skillName` doesn't exist in the registry. Small
+    /// models hallucinate plausible-sounding names ("weather-api-skill",
+    /// "query-wikipedia") that would route to `runJs` and fail with
+    /// "unknown skill: …", costing us an execute + replan round-trip per
+    /// hallucination. Pre-filter so the executor only sees real skills.
+    ///
+    /// Steps with empty / null `skillName` are LLM-only (summarize-style)
+    /// and pass through unchanged. Names matching `SkillTools.llmOnly`
+    /// also pass — they're synthesized by the executor's LLM lane, not
+    /// dispatched to the registry.
+    static func filterUnknownSkills(plan: ExecutionPlan,
+                                    available: [SkillSummary]) -> ExecutionPlan {
+        let valid = Set(available.map { SkillTools.normalize($0.name).lowercased() })
+        let filtered = plan.steps.filter { step in
+            guard let name = step.skillName?.trimmingCharacters(in: .whitespaces),
+                  !name.isEmpty, name.lowercased() != "null" else {
+                return true   // LLM-only / description-only step.
+            }
+            let normalized = SkillTools.normalize(name).lowercased()
+            return valid.contains(normalized) || SkillTools.llmOnly.contains(normalized)
+        }
+        if filtered.count == plan.steps.count { return plan }
+        return ExecutionPlan(goal: plan.goal,
+                             reasoning: plan.reasoning,
+                             steps: filtered,
+                             successCriteria: plan.successCriteria)
     }
 
     /// Last-ditch parser: when no tier produces valid JSON, scrape the goal

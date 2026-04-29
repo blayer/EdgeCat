@@ -88,14 +88,23 @@ final class OrchestrationControllerTests: XCTestCase {
 
     func testCapsAtMaxIterations() async throws {
         // Always responds replan=true; controller should cap at maxIterations.
-        // Use toolName directly so we don't hit the SkillTools routing.
+        // Each iteration varies the plan arg so the idempotent-replan guard
+        // doesn't bail early — we want to verify the maxIterations cap
+        // specifically, not the loop-stuck guard.
         let evaluatorReplan = #"""
         {"goalAchieved":false,"shouldReplan":true,"assessment":"never","missingItems":[],"failedCriteria":[]}
         """#
-        let plan = #"""
-        {"goal":"x","reasoning":"r","steps":[{"id":"s1","description":"x","toolName":"calc"}]}
-        """#
-        let llm = ScriptedLLM(Array(repeating: [plan, evaluatorReplan], count: 5).flatMap { $0 })
+        func plan(_ tag: String) -> String {
+            #"""
+            {"goal":"x","reasoning":"r","steps":[{"id":"s1","description":"x","toolName":"calc","toolArgs":{"v":"\#(tag)"}}]}
+            """#
+        }
+        let llm = ScriptedLLM([
+            plan("a"), evaluatorReplan,
+            plan("b"), evaluatorReplan,
+            plan("c"), evaluatorReplan,
+            plan("d"), evaluatorReplan,
+        ])
         let tools = ScriptedExecutor(["calc": ToolExecutionResult(success: true, output: "y")])
         let ctrl = OrchestrationController(llm: llm, tools: tools,
                                            policy: ThinkingPolicy(mode: .off),
@@ -105,6 +114,99 @@ final class OrchestrationControllerTests: XCTestCase {
         // After maxIterations=2 → iterations 0,1 run; iteration counter
         // increments to 2 on the failed evaluation that triggers replan.
         XCTAssertEqual(ctrl.state.iteration, 2)
+    }
+
+    func testIdempotentReplanGuardBailsBeforeMaxIterations() async throws {
+        // Same plan + same args + same outcomes across iterations →
+        // fingerprint matches → controller bails out instead of looping.
+        // Saves ~25-30s per redundant iteration on stuck tasks.
+        let evaluatorReplan = #"""
+        {"goalAchieved":false,"shouldReplan":true,"assessment":"never","missingItems":[],"failedCriteria":[]}
+        """#
+        let plan = #"""
+        {"goal":"x","reasoning":"r","steps":[{"id":"s1","description":"x","toolName":"calc","toolArgs":{"v":"same"}}]}
+        """#
+        let llm = ScriptedLLM([
+            plan, evaluatorReplan,
+            plan, evaluatorReplan,
+            plan, evaluatorReplan,
+        ])
+        let tools = ScriptedExecutor(["calc": ToolExecutionResult(success: true, output: "y")])
+        let ctrl = OrchestrationController(llm: llm, tools: tools,
+                                           policy: ThinkingPolicy(mode: .off),
+                                           maxIterations: 5)
+        _ = try await ctrl.handle(userMessage: "hi")
+        // Iter 0 records first fingerprint, iter 1 matches it and bails.
+        XCTAssertEqual(ctrl.state.iteration, 1,
+                       "Idempotency guard should bail on the second matching iteration")
+    }
+
+    func testIterationFingerprintMatchesAcrossIdenticalIterations() {
+        // Same plan, same args, same outcomes → identical fingerprint
+        // → controller should bail.
+        let plan = ExecutionPlan(
+            goal: "g", reasoning: "r",
+            steps: [
+                PlanStep(id: "s1", description: "x", skillName: "search-photos",
+                         toolArgs: ["query": "foo"]),
+                PlanStep(id: "s2", description: "y", skillName: "scan-barcode",
+                         toolArgs: ["imageId": "abc"]),
+            ])
+        let resultsA: [String: StepResult] = [
+            "s1": StepResult(stepId: "s1", status: .completed, output: "ok"),
+            "s2": StepResult(stepId: "s2", status: .failed, error: "no barcode"),
+        ]
+        let resultsB = resultsA
+        XCTAssertEqual(
+            OrchestrationController.iterationFingerprint(plan: plan, results: resultsA),
+            OrchestrationController.iterationFingerprint(plan: plan, results: resultsB))
+    }
+
+    func testIterationFingerprintDiffersWhenArgsChange() {
+        let plan1 = ExecutionPlan(
+            goal: "g", reasoning: "r",
+            steps: [PlanStep(id: "s1", description: "x", skillName: "search-web",
+                             toolArgs: ["query": "tokyo"])])
+        let plan2 = ExecutionPlan(
+            goal: "g", reasoning: "r",
+            steps: [PlanStep(id: "s1", description: "x", skillName: "search-web",
+                             toolArgs: ["query": "kyoto"])])
+        let results: [String: StepResult] = [
+            "s1": StepResult(stepId: "s1", status: .completed, output: "ok"),
+        ]
+        XCTAssertNotEqual(
+            OrchestrationController.iterationFingerprint(plan: plan1, results: results),
+            OrchestrationController.iterationFingerprint(plan: plan2, results: results))
+    }
+
+    func testNonRecoverableMarkersIncludePlannerShapeFailures() {
+        // unknown-skill failure on every step → bail out
+        let unknownSkill: [String: StepResult] = [
+            "s1": StepResult(stepId: "s1", status: .failed,
+                             error: "unknown skill: weather-api-skill"),
+        ]
+        XCTAssertTrue(
+            OrchestrationController.allFailuresAreNonRecoverable(unknownSkill))
+
+        // missing-arg failure on every step → bail out
+        let missingArg: [String: StepResult] = [
+            "s1": StepResult(stepId: "s1", status: .failed,
+                             error: "missing 'query' argument"),
+            "s2": StepResult(stepId: "s2", status: .failed,
+                             error: "missing 'expression' argument"),
+        ]
+        XCTAssertTrue(
+            OrchestrationController.allFailuresAreNonRecoverable(missingArg))
+
+        // Mixed: one transient → DON'T bail, replan might fix it
+        let mixed: [String: StepResult] = [
+            "s1": StepResult(stepId: "s1", status: .failed,
+                             error: "unknown skill: foo"),
+            "s2": StepResult(stepId: "s2", status: .failed,
+                             error: "network unreachable"),
+        ]
+        XCTAssertFalse(
+            OrchestrationController.allFailuresAreNonRecoverable(mixed))
     }
 
     func testFailedSkillStillFormatsBestEffort() async throws {

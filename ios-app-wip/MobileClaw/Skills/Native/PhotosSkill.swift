@@ -6,7 +6,12 @@ import Photos
 
 public final class PhotosSkill: Skill, @unchecked Sendable {
     public var name: String { "list-photos" }
-    public var description: String { "Summarize the user's photo library: total count + recent dates." }
+    public var description: String {
+        "Return a count + last-5 dates summary of the user's photo library. " +
+        "DO NOT use this for 'find a photo / show me a photo' tasks — use " +
+        "`search-photos` (filterable by date range, album, media type) for " +
+        "anything that needs an actual asset back. This skill is summary-only."
+    }
     public init() {}
 
     public func run(args: [String: String]) async -> ToolExecutionResult {

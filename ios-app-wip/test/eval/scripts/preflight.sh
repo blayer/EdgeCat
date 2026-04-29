@@ -47,4 +47,11 @@ for service in "${services[@]}"; do
         2>/dev/null || true
 done
 
-echo "preflight: granted ${#services[@]} privacy services to $BUNDLE_ID on $UDID"
+# Push a deterministic GPS fix into the simulator so CoreLocation has
+# something to deliver. Without this, `CLLocationManager.requestLocation`
+# can sit silently for the whole 5–8s skill timeout. Apple Park
+# (Cupertino) matches the `directions-walk-001` task's coffee-shop
+# expectation per dataset notes.
+xcrun simctl location "$UDID" set 37.3349,-122.0090 2>/dev/null || true
+
+echo "preflight: granted ${#services[@]} privacy services + set GPS to Apple Park on $BUNDLE_ID/$UDID"
