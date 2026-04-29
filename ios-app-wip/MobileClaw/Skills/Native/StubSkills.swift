@@ -47,32 +47,23 @@ public final class TakePhotoSkill: Skill, @unchecked Sendable {
     }
 }
 
-/// LLM-only catalog stub. The executor short-circuits skills whose
-/// names appear in `SkillTools.llmOnly` and runs `runLlmStep` instead
-/// of calling this skill — so `run()` here is a no-op fallback that
-/// shouldn't ever fire. Registering the catalog entry lets the planner
-/// pick `summarize` for free-form synthesis tasks (instead of leaving
-/// `skillName: null`), which the eval harness's plan_validity scorer
-/// requires.
+// LLM-only catalog stubs. The executor short-circuits these via
+// `SkillTools.llmOnly` and routes to `runLlmStep` — these `run()`
+// implementations are defensive no-ops. Catalog visibility lets the
+// planner pick `summarize`/`compose` for synthesis steps (which keeps
+// plan_validity scoring happy and avoids `skillName: null`).
+//
+// Descriptions are intentionally one-liners — verbose copy here
+// inflates every planner prompt by ~150 chars and destabilizes
+// generation on tight context budgets (Gemma 4 E2B).
+
 public final class SummarizeSkill: Skill, @unchecked Sendable {
     public var name: String { "summarize" }
     public var description: String {
-        "Synthesize free-form text from prior step outputs (LLM-only). " +
-        "USE THIS for any task whose final step is composing a paragraph, " +
-        "drafting an itinerary, summarizing an article, or otherwise " +
-        "producing prose. The executor routes this name through the LLM " +
-        "lane — no tool is invoked. " +
-        "DO NOT pick `calculator` for synthesis (that's arithmetic only). " +
-        "Set `dependsOn` to the prior step IDs whose outputs you want the " +
-        "LLM to read. Optional `instruction` arg overrides the description " +
-        "as the synthesis prompt."
+        "Synthesize free-form text from prior step outputs (LLM-only, no tool call). Use for paragraphs, summaries, itineraries, drafts."
     }
     public init() {}
     public func run(args: [String: String]) async -> ToolExecutionResult {
-        // Defensive: if for some reason the executor invokes this directly
-        // (shouldn't happen — `SkillTools.llmOnly` short-circuits to
-        // `runLlmStep`), return the description as a no-op so we don't
-        // surface a hard failure.
         ToolExecutionResult(success: true,
                             output: args["instruction"] ?? args["description"] ?? "")
     }
@@ -81,10 +72,7 @@ public final class SummarizeSkill: Skill, @unchecked Sendable {
 public final class ComposeSkill: Skill, @unchecked Sendable {
     public var name: String { "compose" }
     public var description: String {
-        "Compose free-form text (LLM-only). Same routing as `summarize` — " +
-        "the executor synthesizes via the LLM lane rather than calling a " +
-        "tool. Use for messages, drafts, replies, or any non-arithmetic " +
-        "text generation that doesn't fit a domain-specific skill."
+        "Compose free-form text (LLM-only, no tool call). Same routing as summarize — for messages, replies, or non-arithmetic text generation."
     }
     public init() {}
     public func run(args: [String: String]) async -> ToolExecutionResult {

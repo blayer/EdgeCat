@@ -162,6 +162,23 @@ final class PlannerTests: XCTestCase {
         XCTAssertEqual(plan.steps.count, 1)
     }
 
+    func testFilterPreservesPlanWhenAllStepsAreHallucinated() {
+        // If filtering would empty a non-empty plan, keep the originals.
+        // Empty plan → "(no result)" final output; better to let the
+        // executor fail per-step so the replan has error context.
+        let plan = ExecutionPlan(
+            goal: "g", reasoning: "r",
+            steps: [
+                PlanStep(id: "s1", description: "x", skillName: "weather-api"),
+                PlanStep(id: "s2", description: "y", skillName: "query-wikipedia"),
+            ])
+        let filtered = Planner.filterUnknownSkills(
+            plan: plan,
+            available: [SkillSummary(name: "search-web", description: "x")])
+        XCTAssertEqual(filtered.steps.count, 2,
+                       "Empty result must fall back to originals so the executor produces useful errors")
+    }
+
     func testFilterUnknownSkillsHandlesUnderscoreAlias() {
         // LLMs frequently emit underscore-cased names; the resolver
         // normalizes to hyphen-case, so the filter must too.

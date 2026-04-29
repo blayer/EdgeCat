@@ -110,6 +110,23 @@ final class PlannerJsonRepairTests: XCTestCase {
                                             defaultGoal: "default-goal")
         XCTAssertEqual(r.repairTier, "regex-fallback")
         XCTAssertEqual(r.plan.goal, "default-goal")
+        // No skill-shaped field at all → empty steps. The controller's
+        // empty-plan path surfaces "(no result)" to the user, which is
+        // safer than letting an LLM hallucinate a domain-specific answer.
+        XCTAssertTrue(r.plan.steps.isEmpty)
+    }
+
+    func testRegexFallbackAcceptsAlternateSkillKeys() {
+        // Models occasionally use `skill_name` or `skill` instead of
+        // `skillName`. Accept all three so partial JSON failures still
+        // yield actionable steps. Use input that's recoverable only by
+        // regex (mismatched quote types so JSON tier fails entirely).
+        let raw = #"""
+        plan thoughts: "skill_name": "calculator" please use this for 2+2
+        """#
+        let r = planner.parsePlanWithStatus(raw, defaultGoal: "x")
+        XCTAssertEqual(r.repairTier, "regex-fallback")
+        XCTAssertEqual(r.plan.steps.first?.skillName, "calculator")
     }
 
     // MARK: - Repair tier unit checks (raw transformation)

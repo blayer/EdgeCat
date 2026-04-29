@@ -83,11 +83,11 @@ public final class SkillRegistry: ToolExecutor, @unchecked Sendable {
             PreviewUrlSkill(),
             // LLM-only catalog stubs. ExecutionOrchestrator short-circuits
             // these via `SkillTools.llmOnly`, routing to `runLlmStep`
-            // instead of calling the skill's run(). Registering catalog
-            // entries lets the planner SEE them and emit
-            // `skillName: "summarize"` for synthesis steps — which keeps
-            // the plan_validity scorer happy (it requires non-null
-            // skill_name) while still routing through the LLM lane.
+            // instead of calling the skill's run(). Catalog visibility
+            // lets the planner emit `skillName: "summarize"` for synthesis
+            // steps (keeping plan_validity scoring happy) while still
+            // routing through the LLM lane. Descriptions are one-liners
+            // to avoid inflating the catalog block in the planner prompt.
             SummarizeSkill(),
             ComposeSkill(),
             // Stubs (iOS sandbox / API restrictions) — kept registered so

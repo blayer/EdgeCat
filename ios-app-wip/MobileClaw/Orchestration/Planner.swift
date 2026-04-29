@@ -307,13 +307,13 @@ public struct Planner {
           "successCriteria": ["Distance is on the clipboard."]
         }
 
-        Synthesis / drafting / "make a plan from this data" example — pick the `summarize` skill (LLM-only — no tool is invoked, the executor synthesizes via the LLM). NEVER use calculator for text — calculator is ARITHMETIC ONLY:
+        Synthesis / drafting / "make a plan from this data" example — leave skillName NULL and put the instruction in the description. The executor synthesizes free-form text via the LLM. NEVER use calculator for text — calculator is ARITHMETIC ONLY:
         {
           "goal": "Draft a Tokyo trip itinerary from the fetched page",
           "steps": [
             {"id": "s1", "description": "Search the web for Tokyo sightseeing.", "skillName": "search-web", "toolArgs": {"query": "Tokyo famous sights itinerary"}, "dependsOn": []},
             {"id": "s2", "description": "Fetch the top result for actual content.", "skillName": "fetch-web-content", "toolArgs": {"url": "Output from s1"}, "dependsOn": ["s1"]},
-            {"id": "s3", "description": "Synthesize a one-day Tokyo itinerary using the fetched details.", "skillName": "summarize", "toolArgs": {}, "dependsOn": ["s2"]}
+            {"id": "s3", "description": "Synthesize a one-day Tokyo itinerary using the fetched details.", "skillName": null, "toolArgs": {}, "dependsOn": ["s2"]}
           ],
           "successCriteria": ["Reply contains a concrete itinerary."]
         }
@@ -508,6 +508,13 @@ public struct Planner {
     /// and pass through unchanged. Names matching `SkillTools.llmOnly`
     /// also pass — they're synthesized by the executor's LLM lane, not
     /// dispatched to the registry.
+    ///
+    /// Safety net: if filtering would empty a non-empty plan (every
+    /// step hallucinated), keep the original steps. An empty plan
+    /// cascades to a "(no result)" final output — better to let the
+    /// executor fail per-step so the replan has concrete error context
+    /// to react to. Mirrors Android's "prefer noisy failure to silent
+    /// no-op" heuristic in the Phase 7 planner-cleanup work.
     static func filterUnknownSkills(plan: ExecutionPlan,
                                     available: [SkillSummary]) -> ExecutionPlan {
         let valid = Set(available.map { SkillTools.normalize($0.name).lowercased() })
@@ -520,6 +527,11 @@ public struct Planner {
             return valid.contains(normalized) || SkillTools.llmOnly.contains(normalized)
         }
         if filtered.count == plan.steps.count { return plan }
+        // Don't return an empty plan — pass the originals through so the
+        // executor's per-step "unknown skill" failures drive a productive
+        // replan. The expanded non-recoverable markers list catches the
+        // unrecoverable case (every step fails with `unknown skill:`).
+        if filtered.isEmpty { return plan }
         return ExecutionPlan(goal: plan.goal,
                              reasoning: plan.reasoning,
                              steps: filtered,
@@ -530,9 +542,29 @@ public struct Planner {
     /// + skill names with regex so the orchestrator at least has something
     /// to feed to ExecutionOrchestrator (which will mostly fail-fast, but
     /// emits step-level traces that help debugging).
+    ///
+    /// Accepts multiple key spellings (`skillName`, `skill_name`, `skill`,
+    /// `tool_name`, `toolName`) because models drift across formats. We
+    /// deliberately do NOT add a synthetic LLM-only fallback for the
+    /// no-keys-found case: skill-dependent tasks (scan-barcode, search-
+    /// photos) would have the LLM hallucinate a plausible-sounding
+    /// answer ("No QR codes found in the image") without actually
+    /// running anything. Empty-plan + "(no result)" downstream is the
+    /// safer signal that the planner failed.
     private static func regexFallback(_ text: String, defaultGoal: String) -> ExecutionPlan {
         let goal = firstMatch(in: text, pattern: #""goal"\s*:\s*"([^"]+)""#) ?? defaultGoal
-        let skillNames = matches(in: text, pattern: #""skillName"\s*:\s*"([^"]+)""#)
+        let skillKeys = [
+            #""skillName"\s*:\s*"([^"]+)""#,
+            #""skill_name"\s*:\s*"([^"]+)""#,
+            #""skill"\s*:\s*"([^"]+)""#,
+            #""tool_name"\s*:\s*"([^"]+)""#,
+            #""toolName"\s*:\s*"([^"]+)""#,
+        ]
+        var skillNames: [String] = []
+        for pattern in skillKeys {
+            let hits = matches(in: text, pattern: pattern)
+            if !hits.isEmpty { skillNames = hits; break }
+        }
         let steps: [PlanStep] = skillNames.enumerated().map { idx, name in
             PlanStep(id: "s\(idx + 1)", description: "regex-fallback step", skillName: name)
         }
