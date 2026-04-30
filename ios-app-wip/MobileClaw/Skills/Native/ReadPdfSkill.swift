@@ -37,7 +37,7 @@ public final class ReadPdfSkill: Skill, @unchecked Sendable {
         }
         guard let document = PDFDocument(url: url) else {
             return ToolExecutionResult(success: false,
-                                        error: "couldn't open PDF (corrupt or password-protected): \(path)")
+                                       error: "couldn't open PDF (corrupt or password-protected): \(path)")
         }
         let maxPages = max(1, min(args["max_pages"].flatMap(Int.init) ?? 50, 200))
         let maxChars = max(100, min(args["max_chars"].flatMap(Int.init) ?? 4000, 20000))

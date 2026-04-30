@@ -147,7 +147,7 @@ public final class ReadHealthSkill: Skill, @unchecked Sendable {
         #if canImport(HealthKit)
         guard HKHealthStore.isHealthDataAvailable() else {
             return ToolExecutionResult(success: false,
-                                        error: "HealthKit unavailable on this device")
+                                       error: "HealthKit unavailable on this device")
         }
         let metric = (args["metric"] ?? "steps").lowercased()
         let windowDays = max(1, min(args["window_days"].flatMap(Int.init) ?? 1, 30))
@@ -168,7 +168,7 @@ public final class ReadHealthSkill: Skill, @unchecked Sendable {
             try await Self.bulkAuthorizeOnce(store: store)
         } catch {
             return ToolExecutionResult(success: false,
-                                        error: "healthkit auth failed: \(error.localizedDescription)")
+                                       error: "healthkit auth failed: \(error.localizedDescription)")
         }
         // Then serialize the actual query block — keeps the per-call
         // contract simple even though most concurrent calls now skip
@@ -204,17 +204,17 @@ public final class ReadHealthSkill: Skill, @unchecked Sendable {
                                              maxSamples: maxSamples)
             default:
                 return ToolExecutionResult(success: false,
-                                            error: "unknown metric: \(metric). " +
+                                           error: "unknown metric: \(metric). " +
                                                 "valid: steps, heart_rate, distance, sleep, workouts")
             }
             }
         } catch {
             return ToolExecutionResult(success: false,
-                                        error: "healthkit query failed: \(error.localizedDescription)")
+                                       error: "healthkit query failed: \(error.localizedDescription)")
         }
         #else
         return ToolExecutionResult(success: false,
-                                    error: "HealthKit not linked")
+                                   error: "HealthKit not linked")
         #endif
     }
 
@@ -229,7 +229,7 @@ public final class ReadHealthSkill: Skill, @unchecked Sendable {
                              maxSamples: Int) async throws -> ToolExecutionResult {
         guard let qty = HKQuantityType.quantityType(forIdentifier: identifier) else {
             return ToolExecutionResult(success: false,
-                                        error: "no quantity type for \(metric)")
+                                       error: "no quantity type for \(metric)")
         }
         try await Self.authorizeIfNeeded(store: store, read: [qty], key: metric)
         let predicate = HKQuery.predicateForSamples(withStart: start, end: end, options: [])

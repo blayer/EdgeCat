@@ -29,8 +29,12 @@ public final class TimerStore: @unchecked Sendable {
     private let queue = DispatchQueue(label: "TimerStore")
 
     private init() {
+        // Documents directory is guaranteed to exist on iOS, but
+        // FileManager returns it via an array — fall back to a temp
+        // location to satisfy the linter without a force-unwrap.
         let docs = FileManager.default.urls(for: .documentDirectory,
-                                             in: .userDomainMask).first!
+                                            in: .userDomainMask).first
+            ?? URL(fileURLWithPath: NSTemporaryDirectory(), isDirectory: true)
         self.url = docs.appendingPathComponent("timer-store.json")
     }
 

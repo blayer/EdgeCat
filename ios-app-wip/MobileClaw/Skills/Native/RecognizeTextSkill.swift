@@ -53,7 +53,7 @@ public final class RecognizeTextSkill: Skill, @unchecked Sendable {
             guard let img = UIImage(contentsOfFile: pathArg),
                   let cg = img.cgImage else {
                 return ToolExecutionResult(success: false,
-                                            error: "couldn't load image at: \(pathArg)")
+                                           error: "couldn't load image at: \(pathArg)")
             }
             cgImage = cg
         } else if !photoIdArg.isEmpty {
@@ -61,11 +61,11 @@ public final class RecognizeTextSkill: Skill, @unchecked Sendable {
                 cgImage = try await loadAssetCGImage(photoId: photoIdArg)
             } catch {
                 return ToolExecutionResult(success: false,
-                                            error: "couldn't load asset: \(error.localizedDescription)")
+                                           error: "couldn't load asset: \(error.localizedDescription)")
             }
         } else {
             return ToolExecutionResult(success: false,
-                                        error: "missing 'path' or 'photo_id' argument")
+                                       error: "missing 'path' or 'photo_id' argument")
         }
 
         let request = VNRecognizeTextRequest()
@@ -78,7 +78,7 @@ public final class RecognizeTextSkill: Skill, @unchecked Sendable {
             try handler.perform([request])
         } catch {
             return ToolExecutionResult(success: false,
-                                        error: "vision request failed: \(error.localizedDescription)")
+                                       error: "vision request failed: \(error.localizedDescription)")
         }
         let observations = request.results ?? []
         let lines = observations.compactMap { $0.topCandidates(1).first?.string }
