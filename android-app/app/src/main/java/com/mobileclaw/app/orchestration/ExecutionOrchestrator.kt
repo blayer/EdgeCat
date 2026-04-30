@@ -29,6 +29,32 @@ private const val TAG = "AGExecutionOrchestrator"
 /** Skills that are executed by the LLM rather than by running JS in a WebView. */
 private val LLM_ONLY_SKILLS = setOf("summarize", "compose")
 
+/** Arg keys whose value should be a single URL — triggers URL extraction from dep output. */
+private val URL_KEYS = setOf("url", "link", "href")
+
+/** Trailing punctuation that prose often glues onto a URL but isn't part of it. */
+private val URL_TRAILING_PUNCT = setOf('.', ',', ';', ':', '!', '?', ')', ']', '}')
+
+/**
+ * Scrape the first `https?://…` token out of [text]. Stops at whitespace, quotes,
+ * angle brackets, AND backslash (so JSON-encoded `\n` after the URL doesn't get
+ * swallowed). Strips trailing punctuation and validates with `java.net.URI`.
+ * Returns null if no parseable URL is found.
+ */
+internal fun extractFirstHttpUrl(text: String): String? {
+  val match = Regex("""https?://[^\s"'<>\\]+""").find(text) ?: return null
+  var raw = match.value
+  while (raw.isNotEmpty() && raw.last() in URL_TRAILING_PUNCT) {
+    raw = raw.dropLast(1)
+  }
+  return try {
+    val u = java.net.URI(raw)
+    if (u.scheme == "http" || u.scheme == "https") raw else null
+  } catch (_: Exception) {
+    null
+  }
+}
+
 /** Native app skills — map skill name to the native tool name. */
 private val NATIVE_SKILL_TOOLS = mapOf(
   "calculator" to "calculate",
@@ -606,13 +632,16 @@ class ExecutionOrchestrator(
         if (value.contains(depId, ignoreCase = true) ||
             value.startsWith("Output from", ignoreCase = true) ||
             value.startsWith("The ", ignoreCase = true) && value.contains("result", ignoreCase = true)) {
-          // For URL args, try to extract an actual URL from the output.
-          if (key == "url") {
+          // For URL-shaped args, try to extract an actual URL from the output.
+          // search-web's output is JSON-serialized, so newlines come through as
+          // the two-char escape `\n` — exclude `\` from the URL char class to
+          // stop scraping there instead of producing "https://x.com\n".
+          if (key in URL_KEYS) {
             Log.d(TAG, "Trying URL extraction from dep output (${output.length} chars): ${output.take(300)}")
-            val urlMatch = Regex("https?://[^\\s,\"'\\]}>]+").find(output)
-            if (urlMatch != null) {
-              Log.d(TAG, "Extracted URL: ${urlMatch.value}")
-              args[key] = urlMatch.value
+            val extracted = extractFirstHttpUrl(output)
+            if (extracted != null) {
+              Log.d(TAG, "Extracted URL: $extracted")
+              args[key] = extracted
               break
             }
             Log.d(TAG, "No URL found in dep output, using raw output")
