@@ -45,8 +45,8 @@ final class RecognizeTextSkillTests: XCTestCase {
         }
         XCTAssertEqual(json["status"] as? String, "succeeded")
         let text = (json["text"] as? String) ?? ""
-        XCTAssertTrue(text.lowercased().contains("mobile") ||
-                       text.lowercased().contains("claw"),
+        XCTAssertTrue(text.lowercased().contains("edge") ||
+                       text.lowercased().contains("cat"),
                       "expected 'EdgeCat' in OCR output, got: '\(text)'")
         XCTAssertGreaterThan(json["observation_count"] as? Int ?? 0, 0)
     }

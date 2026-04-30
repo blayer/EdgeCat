@@ -4,7 +4,7 @@ import Foundation
 // span recorder for the orchestration loop. Each `phase()` call emits one
 // `{type:"span", run_id, span:{kind, name, start_ms, end_ms, duration_ms,
 // status, thermal, mem_pss_mb, attrs}}` line to
-// `Documents/claw-traces/<runId>.jsonl`.
+// `Documents/edgecat-traces/<runId>.jsonl`.
 //
 // Schema parity with Android is non-negotiable — the off-device scorers
 // in `test/eval/scorers/` parse trace JSONL field-by-field. Field rename
@@ -31,7 +31,7 @@ public actor TraceRecorder {
             return
         }
         let docs = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first
-        let dir = docs?.appendingPathComponent("claw-traces", isDirectory: true)
+        let dir = docs?.appendingPathComponent("edgecat-traces", isDirectory: true)
         if let dir { try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true) }
         self.url = dir?.appendingPathComponent("\(runId).jsonl")
     }

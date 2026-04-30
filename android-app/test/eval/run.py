@@ -53,7 +53,7 @@ EVAL_ACTIVITY = f"{PKG}/.eval.EvalActivity"
 EVAL_ACTION = "com.edgecat.app.EVAL_RUN"
 # EvalActivity writes to app-private external files dir so the app can write on
 # scoped-storage Android without MANAGE_EXTERNAL_STORAGE. adb can still read it.
-TRACE_DIR_ON_DEVICE = f"/sdcard/Android/data/{PKG}/files/claw-traces"
+TRACE_DIR_ON_DEVICE = f"/sdcard/Android/data/{PKG}/files/edgecat-traces"
 DEFAULT_ADB = "/Users/nali/Library/Android/sdk/platform-tools/adb"
 
 

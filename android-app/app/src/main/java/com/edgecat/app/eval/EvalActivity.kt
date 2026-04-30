@@ -58,7 +58,7 @@ private const val TAG = "AGEvalActivity"
 private const val ACTION_RUN = "com.edgecat.app.EVAL_RUN"
 private const val EXTRA_PROMPT = "prompt"
 private const val EXTRA_RUN_ID = "run_id"
-private const val TRACE_DIR = "/sdcard/claw-traces"
+private const val TRACE_DIR = "/sdcard/edgecat-traces"
 
 /**
  * Hidden, intent-driven entry point for UI-free orchestration evaluation.
@@ -77,7 +77,7 @@ private const val TRACE_DIR = "/sdcard/claw-traces"
  *   - Refuses to run if no model has been initialized (writes a failure trace and exits).
  *     No hardcoded fallback — production config only.
  *   - Runs the full orchestrator loop with an isolated InMemoryMemoryRepository, writes the trace
- *     to /sdcard/claw-traces/<run_id>.jsonl, and finishes.
+ *     to /sdcard/edgecat-traces/<run_id>.jsonl, and finishes.
  *
  * No Conversation row is written to the chat DB — eval messages would otherwise leak into the
  * main app's conversation history if cleanup was skipped (activity killed mid-run, am force-stop

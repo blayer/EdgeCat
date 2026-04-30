@@ -160,7 +160,7 @@ def push_model(udid: str, bundle_id: str, model_source: Path, model_filename: st
 
 
 def trace_path(udid: str, bundle_id: str, run_id: str) -> Path:
-    return app_data_container(udid, bundle_id) / "Documents" / "claw-traces" / f"{run_id}.jsonl"
+    return app_data_container(udid, bundle_id) / "Documents" / "edgecat-traces" / f"{run_id}.jsonl"
 
 
 def remove_trace_if_exists(udid: str, bundle_id: str, run_id: str) -> None:

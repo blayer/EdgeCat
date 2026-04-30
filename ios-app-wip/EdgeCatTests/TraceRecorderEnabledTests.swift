@@ -3,7 +3,7 @@ import XCTest
 
 /// `agentTracesKey` must gate trace persistence — when the user disables
 /// traces in Settings the orchestrator should produce zero events. Mirrors
-/// android-app's `claw-trace-enabled` flag-file behavior.
+/// android-app's `edgecat-trace-enabled` flag-file behavior.
 ///
 /// Schema details (envelope, field names) are exercised by
 /// `TraceSchemaTests`; this file's focus is the enabled/disabled toggle
@@ -102,7 +102,7 @@ final class TraceRecorderEnabledTests: XCTestCase {
         await rec.event(kind: "x", name: "y")
 
         let docs = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first
-        let url = docs?.appendingPathComponent("claw-traces", isDirectory: true)
+        let url = docs?.appendingPathComponent("edgecat-traces", isDirectory: true)
             .appendingPathComponent("\(runId).jsonl")
         if let url {
             XCTAssertFalse(FileManager.default.fileExists(atPath: url.path),
