@@ -62,7 +62,7 @@ public final class ExecutionOrchestrator: @unchecked Sendable {
         for batch in batches {
             await trace?.event(kind: "batch.start", name: "batch",
                                 payload: ["size": String(batch.count)])
-            let batchResults = await runBatch(batch, results: results)
+            let batchResults = await runBatch(batch, results: results, goal: plan.goal)
             for (id, res) in batchResults { results[id] = res }
             await trace?.event(kind: "batch.end", name: "batch", payload: [:])
         }
@@ -70,12 +70,13 @@ public final class ExecutionOrchestrator: @unchecked Sendable {
     }
 
     private func runBatch(_ batch: [PlanStep],
-                          results: [String: StepResult]) async -> [String: StepResult] {
+                          results: [String: StepResult],
+                          goal: String) async -> [String: StepResult] {
         let snapshot = results
         return await withTaskGroup(of: (String, StepResult).self) { group in
             for step in batch {
                 group.addTask { [self] in
-                    let r = await runStep(step, priorResults: snapshot)
+                    let r = await runStep(step, priorResults: snapshot, goal: goal)
                     return (step.id, r)
                 }
             }
@@ -86,7 +87,8 @@ public final class ExecutionOrchestrator: @unchecked Sendable {
     }
 
     private func runStep(_ step: PlanStep,
-                         priorResults: [String: StepResult]) async -> StepResult {
+                         priorResults: [String: StepResult],
+                         goal: String = "") async -> StepResult {
         // Dependency check — failed dep means skip.
         if step.dependsOn.contains(where: { priorResults[$0]?.status != .completed }) {
             return StepResult(stepId: step.id, status: .skipped, error: "dependency unmet")
@@ -119,7 +121,9 @@ public final class ExecutionOrchestrator: @unchecked Sendable {
         let depOutputs = priorResults.reduce(into: [String: String]()) { acc, kv in
             if kv.value.status == .completed { acc[kv.key] = kv.value.output }
         }
-        var finalArgs = StepArgRescue.rescue(args: step.toolArgs, dependencies: depOutputs)
+        var finalArgs = StepArgRescue.rescue(args: step.toolArgs,
+                                             dependencies: depOutputs,
+                                             goal: goal)
 
         // For runJs: inject normalized skillName so the WebView loader
         // hits the right asset folder.

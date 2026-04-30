@@ -194,4 +194,83 @@ final class StepArgRescueTests: XCTestCase {
         XCTAssertEqual(out["phoneNumber"], "+15550123")
         XCTAssertEqual(out["title"], "Team standup")
     }
+
+    // MARK: - Title rescue (composite-event-from-reminder-001 regression)
+
+    func testEmptyTitlePulledFromSingleQuotedGoal() {
+        // Planner emitted toolArgs:{title:""} for a calendar.add step;
+        // the user's prompt has the title in single quotes — extract it
+        // so CalendarSkill doesn't reject with `missing 'title' argument`.
+        let out = StepArgRescue.rescue(
+            args: ["title": "", "action": "add"],
+            dependencies: [:],
+            now: referenceDate,
+            goal: "Create a reminder to call mom, then add a calendar event for 'Call mom' tomorrow at 6pm")
+        XCTAssertEqual(out["title"], "Call mom")
+    }
+
+    func testEmptyTitlePulledFromDoubleQuotedGoal() {
+        let out = StepArgRescue.rescue(
+            args: ["title": ""],
+            dependencies: [:],
+            now: referenceDate,
+            goal: #"Add a calendar event called "iOS Eval Test" tomorrow at 2pm"#)
+        XCTAssertEqual(out["title"], "iOS Eval Test")
+    }
+
+    func testPlaceholderTitleReplacedFromGoal() {
+        // Substitution put "Output from s1" into title (because s1 was a
+        // reminders step whose output JSON isn't a clean string). Title
+        // rescue catches that as a placeholder and overrides from the goal.
+        // Note: substitutePlaceholders runs first, so we use a key whose
+        // dep ref isn't matched (no s1 mention here when s1 is a real id).
+        let out = StepArgRescue.rescue(
+            args: ["title": "<output of step_99>"],
+            dependencies: [:],
+            now: referenceDate,
+            goal: "add a calendar event for 'Call mom' tomorrow")
+        XCTAssertEqual(out["title"], "Call mom")
+    }
+
+    func testRawJsonEnvelopeInTitleReplacedFromGoal() {
+        // Substitution copied the entire prior-step JSON into title;
+        // recognize the `{` prefix as "not a real title" and rescue.
+        let out = StepArgRescue.rescue(
+            args: ["title": #"{"reminderId":"abc","title":"Call mom"}"#],
+            dependencies: [:],
+            now: referenceDate,
+            goal: "schedule 'Team Sync' for tomorrow")
+        XCTAssertEqual(out["title"], "Team Sync")
+    }
+
+    func testTitleNotOverwrittenWhenAlreadyValid() {
+        // Real-looking title must pass through even if the goal also has a
+        // quoted phrase — never let the rescue clobber a planner success.
+        let out = StepArgRescue.rescue(
+            args: ["title": "Doctor Appointment"],
+            dependencies: [:],
+            now: referenceDate,
+            goal: "add 'Old Title' to my calendar")
+        XCTAssertEqual(out["title"], "Doctor Appointment")
+    }
+
+    func testNonTitleKeyIgnoredByTitleRescue() {
+        // `notes` is not in the title-key set; even when empty, leave it.
+        let out = StepArgRescue.rescue(
+            args: ["notes": ""],
+            dependencies: [:],
+            now: referenceDate,
+            goal: "add 'Should Not Become Notes' to my calendar")
+        XCTAssertEqual(out["notes"], "")
+    }
+
+    func testTitleRescueNoOpWithEmptyGoal() {
+        // Empty goal → no fallback source; pass through unchanged.
+        let out = StepArgRescue.rescue(
+            args: ["title": ""],
+            dependencies: [:],
+            now: referenceDate,
+            goal: "")
+        XCTAssertEqual(out["title"], "")
+    }
 }
