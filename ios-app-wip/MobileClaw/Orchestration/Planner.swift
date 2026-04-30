@@ -723,7 +723,9 @@ public struct Planner {
     /// "I couldn't generate a plan for that".
     static func inferSkillsFromGoal(_ goal: String) -> [String] {
         let g = goal.lowercased()
-        let isSummarize = g.contains("summar")  // "summary"/"summarize"/"summarise"
+        let isSummarize = g.contains("summarize")
+            || g.contains("summarise")
+            || g.contains("summary")
         // Personal-health detector: requires both a health keyword AND a
         // first-person marker ("my"/"i've"/"have i") so we don't misroute
         // generic web questions like "what is the resting heart rate of
