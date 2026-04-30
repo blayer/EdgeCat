@@ -51,7 +51,7 @@ if ! grep -q 'name = "libLiteRtLm.dylib"' "$BUILD_FILE"; then
   echo "==> Patching c/BUILD with libLiteRtLm.dylib target"
   cat >> "$BUILD_FILE" <<'PATCH'
 
-# Mobile-Claw iOS port: single self-contained iOS dylib with LiteRT-LM C API +
+# EdgeCat iOS port: single self-contained iOS dylib with LiteRT-LM C API +
 # statically-linked transitive deps. Mirrors the Android JNI target so
 # rules_rust drives the final link and rustc emits the alloc shim correctly.
 cc_binary(

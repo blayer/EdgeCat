@@ -1,5 +1,5 @@
 #!/bin/bash
-# Mobile-Claw Memory On-Device Tests
+# EdgeCat Memory On-Device Tests
 # Usage: ./memory.sh [-d <device-serial>]
 #
 # Tests that the memory layer saves episodes/repairs and recalls them
@@ -25,7 +25,7 @@ SCREENSHOTS_DIR="$SCRIPT_DIR/screenshots/memory"
 UI_XML="/tmp/ui_mem_${DEVICE_SERIAL:-default}.xml"
 SKILL_NAME=""
 SKILL_PATH=""
-PKG="com.mobileclaw.app"
+PKG="com.edgecat.app"
 
 source "$SCRIPT_DIR/helpers.sh"
 mkdir -p "$SCREENSHOTS_DIR"

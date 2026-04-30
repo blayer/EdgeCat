@@ -1,6 +1,6 @@
-# Mobile-Claw iOS eval harness
+# EdgeCat iOS eval harness
 
-Mirror of `android-app/test/eval/`. Drives a Mobile-Claw iPhone simulator
+Mirror of `android-app/test/eval/`. Drives a EdgeCat iPhone simulator
 through a set of agentic tasks, captures a JSONL trace per run, and
 produces an OQI-shaped report. The trace schema is byte-compatible with
 the Android scorers (`scorers/{structural,state,perf}.py` are copied
@@ -45,11 +45,11 @@ xcrun simctl boot 80A09B97-…
 # Build + install the app.
 cd ios-app-wip
 xcodegen
-xcodebuild -scheme MobileClaw -sdk iphonesimulator \
+xcodebuild -scheme EdgeCat -sdk iphonesimulator \
     -destination "platform=iOS Simulator,id=80A09B97-…" \
     -derivedDataPath /tmp/mc-build build
 xcrun simctl install 80A09B97-… \
-    /tmp/mc-build/Build/Products/Debug-iphonesimulator/MobileClaw.app
+    /tmp/mc-build/Build/Products/Debug-iphonesimulator/EdgeCat.app
 
 # Pre-flight permissions.
 test/eval/scripts/preflight.sh 80A09B97-…
@@ -62,7 +62,7 @@ python ios-app-wip/test/eval/run.py \
     --dataset ios-app-wip/test/eval/datasets/v1_basic.jsonl \
     --label main \
     --udid 80A09B97-… \
-    --bundle-id com.mobileclawapp.app \
+    --bundle-id com.edgecat.app \
     --model gemma-4-E2B-it.litertlm \
     --model-source ~/Models/gemma-4-E2B-it.litertlm
 ```
@@ -93,8 +93,8 @@ Exit codes: `0` = no regression, `1` = OQI dropped, `2` = error.
 1. `xcrun simctl terminate <udid> <bundle>` (kill prior run, free LiteRT-LM memory).
 2. Wait ~3s for the process to release Metal + LiteRT-LM resources.
 3. Delete the previous trace file (if any) so the file-stability poll has a clean start.
-4. `xcrun simctl launch --setenv MOBILECLAW_EVAL_MODE=1 <udid> <bundle>` — the env var makes `MobileClawApp` render `EvalRunnerView` (a headless status surface) instead of the normal `AppRouter`. Mirrors Android's `EvalActivity` `noHistory=true` semantics.
-5. `xcrun simctl openurl <udid> "mobileclaw://eval?prompt=…&runId=…&agentic=1"` — the URL handler in `EvalEntryPoint.swift` runs the orchestrator with an `EmptyMemoryProvider` (no SwiftData write-back) and a 90s model-init deadline.
+4. `xcrun simctl launch --setenv EDGECAT_EVAL_MODE=1 <udid> <bundle>` — the env var makes `EdgeCatApp` render `EvalRunnerView` (a headless status surface) instead of the normal `AppRouter`. Mirrors Android's `EvalActivity` `noHistory=true` semantics.
+5. `xcrun simctl openurl <udid> "edgecat://eval?prompt=…&runId=…&agentic=1"` — the URL handler in `EvalEntryPoint.swift` runs the orchestrator with an `EmptyMemoryProvider` (no SwiftData write-back) and a 90s model-init deadline.
 6. Poll `Documents/claw-traces/<runId>.jsonl` size; treat 2 consecutive equal reads as final.
 7. Copy the trace to `runs/<label>-<ts>/traces/<runId>.jsonl`.
 8. Score it (six structural scorers + perf metrics + state verifier).
@@ -129,8 +129,8 @@ The trailing `eval-complete` event is the runner's "done" sentinel.
 
 ## Troubleshooting
 
-- **"no model loaded"** — check `Documents/Models/<file>.litertlm` exists in the sim's sandbox via `xcrun simctl get_app_container <udid> com.mobileclawapp.app data`. Re-run with `--model-source` to push.
-- **Trace empty / missing** — the env var didn't reach the app. Verify with `xcrun simctl launch --setenv MOBILECLAW_EVAL_MODE=1 …` and check `MobileClawApp.isEvalMode` reads the var.
+- **"no model loaded"** — check `Documents/Models/<file>.litertlm` exists in the sim's sandbox via `xcrun simctl get_app_container <udid> com.edgecat.app data`. Re-run with `--model-source` to push.
+- **Trace empty / missing** — the env var didn't reach the app. Verify with `xcrun simctl launch --setenv EDGECAT_EVAL_MODE=1 …` and check `EdgeCatApp.isEvalMode` reads the var.
 - **Permission dialogs hang** — re-run `preflight.sh`. Some services require the app to NOT be running when granted; terminate first.
 - **`get_app_container` returns nothing** — the app isn't installed on that sim. Run the install step.
 

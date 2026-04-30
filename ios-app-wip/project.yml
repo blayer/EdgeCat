@@ -1,7 +1,7 @@
-name: MobileClaw
+name: EdgeCat
 
 options:
-  bundleIdPrefix: com.mobileclawapp
+  bundleIdPrefix: com.edgecat
   deploymentTarget:
     iOS: "17.0"
   createIntermediateGroups: true
@@ -23,32 +23,32 @@ settings:
     EXCLUDED_ARCHS[sdk=iphonesimulator*]: x86_64
 
 targets:
-  MobileClaw:
+  EdgeCat:
     type: application
     platform: iOS
     sources:
-      - path: MobileClaw
+      - path: EdgeCat
         excludes:
           # `skills/` is added to the bundle as a folder reference below;
           # excluding it from sources prevents Xcode from emitting duplicate
           # copy actions ("Multiple commands produce …/index.html").
           - "Resources/skills/**"
     resources:
-      - MobileClaw/Resources/Assets.xcassets
-      - MobileClaw/Resources/model_allowlist.json
-      - MobileClaw/Resources/prompt_templates.json
+      - EdgeCat/Resources/Assets.xcassets
+      - EdgeCat/Resources/model_allowlist.json
+      - EdgeCat/Resources/prompt_templates.json
       # Material Symbols Rounded — same icon set Compose uses on Android
       # via `Icons.Rounded.*`. Nunito is the body typography family that
       # Android also bundles (android-app/.../res/font/).
-      - MobileClaw/Resources/Fonts/MaterialSymbolsRounded.ttf
-      - MobileClaw/Resources/Fonts/nunito_regular.ttf
-      - MobileClaw/Resources/Fonts/nunito_medium.ttf
-      - MobileClaw/Resources/Fonts/nunito_semibold.ttf
-      - MobileClaw/Resources/Fonts/nunito_bold.ttf
-      - MobileClaw/Resources/Fonts/nunito_extrabold.ttf
-      - MobileClaw/Resources/Fonts/nunito_light.ttf
-      - MobileClaw/Resources/Fonts/nunito_extralight.ttf
-      - MobileClaw/Resources/Fonts/nunito_black.ttf
+      - EdgeCat/Resources/Fonts/MaterialSymbolsRounded.ttf
+      - EdgeCat/Resources/Fonts/nunito_regular.ttf
+      - EdgeCat/Resources/Fonts/nunito_medium.ttf
+      - EdgeCat/Resources/Fonts/nunito_semibold.ttf
+      - EdgeCat/Resources/Fonts/nunito_bold.ttf
+      - EdgeCat/Resources/Fonts/nunito_extrabold.ttf
+      - EdgeCat/Resources/Fonts/nunito_light.ttf
+      - EdgeCat/Resources/Fonts/nunito_extralight.ttf
+      - EdgeCat/Resources/Fonts/nunito_black.ttf
     # xcodegen 2.45 silently drops `type: folder` resources, so the JS skill
     # bundle (Resources/skills/<slug>/{SKILL.md,scripts/index.html}) gets
     # copied via an explicit Run Script phase instead. Folder reference =
@@ -61,12 +61,12 @@ targets:
           - $(BUILT_PRODUCTS_DIR)/$(WRAPPER_NAME)/skills
         script: |
           rsync -a --delete \
-            "$SRCROOT/MobileClaw/Resources/skills/" \
+            "$SRCROOT/EdgeCat/Resources/skills/" \
             "$BUILT_PRODUCTS_DIR/$WRAPPER_NAME/skills/"
     info:
-      path: MobileClaw/Resources/Info.plist
+      path: EdgeCat/Resources/Info.plist
       properties:
-        CFBundleDisplayName: Mobile-Claw
+        CFBundleDisplayName: EdgeCat
         CFBundleShortVersionString: 0.1.0
         CFBundleVersion: "1"
         UILaunchScreen: {}
@@ -93,26 +93,26 @@ targets:
           - nunito_black.ttf
         # Privacy strings — present from day one so we don't have to revisit Info.plist
         # every time we add a skill in Phase D. The strings are user-facing rationales.
-        NSContactsUsageDescription: "Mobile-Claw uses your contacts when you ask the assistant to call or message someone."
-        NSCalendarsUsageDescription: "Mobile-Claw reads and creates calendar events at your request."
-        NSRemindersUsageDescription: "Mobile-Claw creates reminders at your request."
-        NSPhotoLibraryUsageDescription: "Mobile-Claw reads photos when you ask the assistant to find or share images."
-        NSLocationWhenInUseUsageDescription: "Mobile-Claw reads your location when the assistant needs nearby context."
-        NSCameraUsageDescription: "Mobile-Claw uses the camera for barcode scanning and photo input to the assistant."
-        NSMicrophoneUsageDescription: "Mobile-Claw uses the microphone for voice input to the assistant."
-        NSFaceIDUsageDescription: "Mobile-Claw can use Face ID to protect saved conversations."
-        NSHealthShareUsageDescription: "Mobile-Claw reads health metrics (steps, heart rate, distance, sleep, workouts) when you ask the assistant about your activity."
+        NSContactsUsageDescription: "EdgeCat uses your contacts when you ask the assistant to call or message someone."
+        NSCalendarsUsageDescription: "EdgeCat reads and creates calendar events at your request."
+        NSRemindersUsageDescription: "EdgeCat creates reminders at your request."
+        NSPhotoLibraryUsageDescription: "EdgeCat reads photos when you ask the assistant to find or share images."
+        NSLocationWhenInUseUsageDescription: "EdgeCat reads your location when the assistant needs nearby context."
+        NSCameraUsageDescription: "EdgeCat uses the camera for barcode scanning and photo input to the assistant."
+        NSMicrophoneUsageDescription: "EdgeCat uses the microphone for voice input to the assistant."
+        NSFaceIDUsageDescription: "EdgeCat can use Face ID to protect saved conversations."
+        NSHealthShareUsageDescription: "EdgeCat reads health metrics (steps, heart rate, distance, sleep, workouts) when you ask the assistant about your activity."
         # iOS rejects the read entitlement without an update string, even when we never write.
-        NSHealthUpdateUsageDescription: "Mobile-Claw does not write to HealthKit; this entry is required by iOS only when the read entitlement is present."
+        NSHealthUpdateUsageDescription: "EdgeCat does not write to HealthKit; this entry is required by iOS only when the read entitlement is present."
         # Eval harness URL scheme — mirrors android-app/.../EvalActivity's
         # ADB intent entry point. Trigger via:
-        #   xcrun simctl openurl <udid> "mobileclaw://eval?prompt=hi&model=gemma-4-E2B-it.litertlm"
+        #   xcrun simctl openurl <udid> "edgecat://eval?prompt=hi&model=gemma-4-E2B-it.litertlm"
         CFBundleURLTypes:
-          - CFBundleURLName: com.mobileclawapp.app.url
+          - CFBundleURLName: com.edgecat.app.url
             CFBundleURLSchemes:
-              - mobileclaw   # handles both eval ("mobileclaw://eval...") + HF OAuth callback ("mobileclaw://hf-callback")
+              - edgecat   # handles both eval ("edgecat://eval...") + HF OAuth callback ("edgecat://hf-callback")
     entitlements:
-      path: MobileClaw/Resources/MobileClaw.entitlements
+      path: EdgeCat/Resources/EdgeCat.entitlements
       properties:
         # HealthKit read access — without this, every HK query returns
         # "Missing com.apple.developer.healthkit entitlement". Verifying
@@ -121,7 +121,7 @@ targets:
         com.apple.developer.healthkit: true
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: com.mobileclawapp.app
+        PRODUCT_BUNDLE_IDENTIFIER: com.edgecat.app
         TARGETED_DEVICE_FAMILY: "1,2"
         INFOPLIST_KEY_UIRequiresFullScreen: NO
     dependencies:
@@ -131,7 +131,7 @@ targets:
       # XCFrameworks bundle device (ios_arm64) + simulator (ios_sim_arm64)
       # slices in one artifact so the right dylib is picked automatically
       # depending on the build SDK. embed=true copies the resolved slice to
-      # MobileClaw.app/Frameworks/. link=false here because the bridge
+      # EdgeCat.app/Frameworks/. link=false here because the bridge
       # framework already links them at build time.
       - framework: LiteRtLmBridge/Vendor/LiteRtLm.xcframework
         embed: true
@@ -144,27 +144,27 @@ targets:
       # Metal accelerator — loaded at runtime by libLiteRtLm.dylib via
       # dlopen("libLiteRtMetalAccelerator.dylib") when the engine is
       # asked for backend=gpu. embed=true copies the resolved slice to
-      # MobileClaw.app/Frameworks/, where dyld's @rpath search finds it.
+      # EdgeCat.app/Frameworks/, where dyld's @rpath search finds it.
       # link=false because we don't reference its symbols at build time.
       - framework: LiteRtLmBridge/Vendor/LiteRtLmMetalAccelerator.xcframework
         embed: true
         codeSign: true
         link: false
 
-  MobileClawTests:
+  EdgeCatTests:
     type: bundle.unit-test
     platform: iOS
     sources:
-      - path: MobileClawTests
+      - path: EdgeCatTests
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: com.mobileclawapp.app.tests
+        PRODUCT_BUNDLE_IDENTIFIER: com.edgecat.app.tests
         GENERATE_INFOPLIST_FILE: YES
         BUNDLE_LOADER: "$(TEST_HOST)"
-        TEST_HOST: "$(BUILT_PRODUCTS_DIR)/MobileClaw.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/MobileClaw"
+        TEST_HOST: "$(BUILT_PRODUCTS_DIR)/EdgeCat.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/EdgeCat"
         SWIFT_VERSION: "5.10"
     dependencies:
-      - target: MobileClaw
+      - target: EdgeCat
 
   LiteRtLmBridge:
     type: framework
@@ -188,7 +188,7 @@ targets:
           - $(SRCROOT)/LiteRtLmBridge/Vendor/litert_lm
         # Public header so the app target can `import LiteRtLmBridge`.
         SWIFT_INCLUDE_PATHS: $(SRCROOT)/LiteRtLmBridge/include
-        PRODUCT_BUNDLE_IDENTIFIER: com.mobileclawapp.litertlmbridge
+        PRODUCT_BUNDLE_IDENTIFIER: com.edgecat.litertlmbridge
     dependencies:
       # The bridge target links the LiteRT-LM xcframework at build time so the
       # .mm file's calls to litert_lm_engine_* resolve. The app target embeds
@@ -199,17 +199,17 @@ targets:
         embed: false
 
 schemes:
-  MobileClaw:
+  EdgeCat:
     build:
       targets:
-        MobileClaw: all
+        EdgeCat: all
         LiteRtLmBridge: all
     run:
       config: Debug
     test:
       config: Debug
       targets:
-        - MobileClawTests
+        - EdgeCatTests
       gatherCoverageData: true
     profile:
       config: Release

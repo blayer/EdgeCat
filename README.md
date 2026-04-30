@@ -1,13 +1,13 @@
-# Mobile-Claw
+# EdgeCat
 
 **Agentic orchestration for on-device LLMs.** Turn a 2B/4B chat model into a task-executing assistant that plans, calls device skills, recovers from failure, and answers in natural language — all offline, on Android.
 
-> Built on top of [Google AI Edge Gallery](https://github.com/google-ai-edge/gallery). Mobile-Claw is an extension focused on **expanding the skill system and layering agentic orchestration** (planner → executor → evaluator) around the same on-device runtime. All credit for the underlying model-hosting app, UI shell, and LiteRT-LM integration goes to the AI Edge Gallery team.
+> Built on top of [Google AI Edge Gallery](https://github.com/google-ai-edge/gallery). EdgeCat is an extension focused on **expanding the skill system and layering agentic orchestration** (planner → executor → evaluator) around the same on-device runtime. All credit for the underlying model-hosting app, UI shell, and LiteRT-LM integration goes to the AI Edge Gallery team.
 
 ## Download
 
-- **Release APKs** — [GitHub Releases](https://github.com/blayer/Mobile-Claw/releases/latest). Signed, tagged builds produced by the `Release` workflow.
-- **Debug APKs (per-commit)** — available as artifacts on each [CI run](https://github.com/blayer/Mobile-Claw/actions/workflows/ci.yml) for 14 days after the commit.
+- **Release APKs** — [GitHub Releases](https://github.com/blayer/EdgeCat/releases/latest). Signed, tagged builds produced by the `Release` workflow.
+- **Debug APKs (per-commit)** — available as artifacts on each [CI run](https://github.com/blayer/EdgeCat/actions/workflows/ci.yml) for 14 days after the commit.
 
 ## Why orchestration?
 
@@ -18,7 +18,7 @@ A raw on-device model like Gemma-4-2B (8K context) can chat, but it can't reliab
 - **Stay grounded.** It invents URLs, paraphrases numbers, rubber-stamps its own refusals.
 - **Fit the context.** A 29-skill catalog, tool outputs, and conversation history blow past 8K quickly.
 
-Mobile-Claw wraps the base model in a **planner → executor → evaluator loop** that compensates for each of these weaknesses with targeted subsystems. The model stays the same; what changes is the scaffolding around it.
+EdgeCat wraps the base model in a **planner → executor → evaluator loop** that compensates for each of these weaknesses with targeted subsystems. The model stays the same; what changes is the scaffolding around it.
 
 ## Architecture at a glance
 
@@ -110,7 +110,7 @@ Turns raw tool output (Kotlin maps, search blobs, JSON dumps) into a natural cha
 
 ### Thinking Policy (`orchestration/ThinkingPolicy.kt`)
 
-Gemma's chain-of-thought mode roughly doubles latency. Blanket-on is wasteful; blanket-off degrades planning. Mobile-Claw turns thinking on surgically:
+Gemma's chain-of-thought mode roughly doubles latency. Blanket-on is wasteful; blanket-off degrades planning. EdgeCat turns thinking on surgically:
 
 | Call site | AUTO mode |
 |---|---|
@@ -156,7 +156,7 @@ The planner reads `description` for catalog listings and `instructions` when the
 
 ## Failure modes this addresses
 
-| Failure mode (raw 2B) | Mobile-Claw mitigation |
+| Failure mode (raw 2B) | EdgeCat mitigation |
 |---|---|
 | Hallucinates tool names | Constrained catalog; JSON repair; `search-skills` for unknowns |
 | Mangles arg JSON | Typed `ExecutionPlan`; schema-bound parser with regex fallback |
@@ -170,7 +170,7 @@ The planner reads `description` for catalog listings and `instructions` when the
 ## Directory layout
 
 ```
-app/src/main/java/com/mobileclaw/app/
+app/src/main/java/com/edgecat/app/
 ├── orchestration/                    ← this module
 │   ├── OrchestrationController.kt    ← plan→execute→evaluate loop
 │   ├── Planner.kt                    ← NL → JSON plan

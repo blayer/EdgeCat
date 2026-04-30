@@ -250,7 +250,7 @@ def run_verifier(
         return output_regex(trace, verifier_spec.get("check") or ".*")
     if vtype == "state":
         name = verifier_spec.get("check")
-        # iOS path: the runner emits a `mobileclaw://verify?kind=<name>&…`
+        # iOS path: the runner emits a `edgecat://verify?kind=<name>&…`
         # URL after the eval run, and the in-app `StateVerifiers` writes
         # a verify span into the trace. We just read it here.
         if not adb:

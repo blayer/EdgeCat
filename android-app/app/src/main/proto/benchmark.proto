@@ -15,11 +15,11 @@ limitations under the License.
 
 syntax = "proto3";
 
-package com.mobileclaw.app.proto;
+package com.edgecat.app.proto;
 
 option java_multiple_files = true;
 option java_outer_classname = "Benchmark";
-option java_package = "com.mobileclaw.app.proto";
+option java_package = "com.edgecat.app.proto";
 
 message BenchmarkResults {
   repeated BenchmarkResult result = 1;

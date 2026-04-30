@@ -7,7 +7,7 @@
         errorLine1="                          val dur = if (result.durationMs > 0) &quot; (${String.format(&quot;%.1f&quot;, result.durationMs / 1000.0)}s)&quot; else &quot;&quot;"
         errorLine2="                                                                    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
         <location
-            file="src/main/java/com/mobileclaw/app/customtasks/agentchat/AgentChatScreen.kt"
+            file="src/main/java/com/edgecat/app/customtasks/agentchat/AgentChatScreen.kt"
             line="707"
             column="69"/>
     </issue>
@@ -18,7 +18,7 @@
         errorLine1="    if (gb >= 1.0) String.format(&quot;%.1f GB&quot;, gb)"
         errorLine2="                   ~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
         <location
-            file="src/main/java/com/mobileclaw/app/ModelSelectScreen.kt"
+            file="src/main/java/com/edgecat/app/ModelSelectScreen.kt"
             line="240"
             column="20"/>
     </issue>
@@ -29,7 +29,7 @@
         errorLine1="    else String.format(&quot;%.0f MB&quot;, gb * 1024)"
         errorLine2="         ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
         <location
-            file="src/main/java/com/mobileclaw/app/ModelSelectScreen.kt"
+            file="src/main/java/com/edgecat/app/ModelSelectScreen.kt"
             line="241"
             column="10"/>
     </issue>
@@ -40,11 +40,11 @@
         errorLine1="              type = &quot;text/plain&quot;"
         errorLine2="              ~~~~~~~~~~~~~~~~~~~">
         <location
-            file="src/main/java/com/mobileclaw/app/customtasks/agentchat/IntentHandler.kt"
+            file="src/main/java/com/edgecat/app/customtasks/agentchat/IntentHandler.kt"
             line="49"
             column="15"/>
         <location
-            file="src/main/java/com/mobileclaw/app/customtasks/agentchat/IntentHandler.kt"
+            file="src/main/java/com/edgecat/app/customtasks/agentchat/IntentHandler.kt"
             line="48"
             column="15"
             message="Originally set here"/>
@@ -89,7 +89,7 @@
         errorLine1="agp = &quot;8.8.2&quot;"
         errorLine2="      ~~~~~~~">
         <location
-            file="$HOME/MyProject/Mobile-Claw/gradle/libs.versions.toml"
+            file="$HOME/MyProject/EdgeCat/gradle/libs.versions.toml"
             line="2"
             column="7"/>
     </issue>
@@ -100,7 +100,7 @@
         errorLine1="agp = &quot;8.8.2&quot;"
         errorLine2="      ~~~~~~~">
         <location
-            file="$HOME/MyProject/Mobile-Claw/gradle/libs.versions.toml"
+            file="$HOME/MyProject/EdgeCat/gradle/libs.versions.toml"
             line="2"
             column="7"/>
     </issue>
@@ -111,7 +111,7 @@
         errorLine1="agp = &quot;8.8.2&quot;"
         errorLine2="      ~~~~~~~">
         <location
-            file="$HOME/MyProject/Mobile-Claw/gradle/libs.versions.toml"
+            file="$HOME/MyProject/EdgeCat/gradle/libs.versions.toml"
             line="2"
             column="7"/>
     </issue>
@@ -155,7 +155,7 @@
         errorLine1="coreKtx = &quot;1.15.0&quot;"
         errorLine2="          ~~~~~~~~">
         <location
-            file="$HOME/MyProject/Mobile-Claw/gradle/libs.versions.toml"
+            file="$HOME/MyProject/EdgeCat/gradle/libs.versions.toml"
             line="4"
             column="11"/>
     </issue>
@@ -166,7 +166,7 @@
         errorLine1="coreKtx = &quot;1.15.0&quot;"
         errorLine2="          ~~~~~~~~">
         <location
-            file="$HOME/MyProject/Mobile-Claw/gradle/libs.versions.toml"
+            file="$HOME/MyProject/EdgeCat/gradle/libs.versions.toml"
             line="4"
             column="11"/>
     </issue>
@@ -177,7 +177,7 @@
         errorLine1="coreKtx = &quot;1.15.0&quot;"
         errorLine2="          ~~~~~~~~">
         <location
-            file="$HOME/MyProject/Mobile-Claw/gradle/libs.versions.toml"
+            file="$HOME/MyProject/EdgeCat/gradle/libs.versions.toml"
             line="4"
             column="11"/>
     </issue>
@@ -188,7 +188,7 @@
         errorLine1="junitVersion = &quot;1.2.1&quot;"
         errorLine2="               ~~~~~~~">
         <location
-            file="$HOME/MyProject/Mobile-Claw/gradle/libs.versions.toml"
+            file="$HOME/MyProject/EdgeCat/gradle/libs.versions.toml"
             line="6"
             column="16"/>
     </issue>
@@ -199,7 +199,7 @@
         errorLine1="junitVersion = &quot;1.2.1&quot;"
         errorLine2="               ~~~~~~~">
         <location
-            file="$HOME/MyProject/Mobile-Claw/gradle/libs.versions.toml"
+            file="$HOME/MyProject/EdgeCat/gradle/libs.versions.toml"
             line="6"
             column="16"/>
     </issue>
@@ -210,7 +210,7 @@
         errorLine1="junitVersion = &quot;1.2.1&quot;"
         errorLine2="               ~~~~~~~">
         <location
-            file="$HOME/MyProject/Mobile-Claw/gradle/libs.versions.toml"
+            file="$HOME/MyProject/EdgeCat/gradle/libs.versions.toml"
             line="6"
             column="16"/>
     </issue>
@@ -221,7 +221,7 @@
         errorLine1="espressoCore = &quot;3.6.1&quot;"
         errorLine2="               ~~~~~~~">
         <location
-            file="$HOME/MyProject/Mobile-Claw/gradle/libs.versions.toml"
+            file="$HOME/MyProject/EdgeCat/gradle/libs.versions.toml"
             line="7"
             column="16"/>
     </issue>
@@ -232,7 +232,7 @@
         errorLine1="espressoCore = &quot;3.6.1&quot;"
         errorLine2="               ~~~~~~~">
         <location
-            file="$HOME/MyProject/Mobile-Claw/gradle/libs.versions.toml"
+            file="$HOME/MyProject/EdgeCat/gradle/libs.versions.toml"
             line="7"
             column="16"/>
     </issue>
@@ -243,7 +243,7 @@
         errorLine1="espressoCore = &quot;3.6.1&quot;"
         errorLine2="               ~~~~~~~">
         <location
-            file="$HOME/MyProject/Mobile-Claw/gradle/libs.versions.toml"
+            file="$HOME/MyProject/EdgeCat/gradle/libs.versions.toml"
             line="7"
             column="16"/>
     </issue>
@@ -254,7 +254,7 @@
         errorLine1="lifecycleRuntimeKtx = &quot;2.8.7&quot;"
         errorLine2="                      ~~~~~~~">
         <location
-            file="$HOME/MyProject/Mobile-Claw/gradle/libs.versions.toml"
+            file="$HOME/MyProject/EdgeCat/gradle/libs.versions.toml"
             line="8"
             column="23"/>
     </issue>
@@ -265,7 +265,7 @@
         errorLine1="lifecycleRuntimeKtx = &quot;2.8.7&quot;"
         errorLine2="                      ~~~~~~~">
         <location
-            file="$HOME/MyProject/Mobile-Claw/gradle/libs.versions.toml"
+            file="$HOME/MyProject/EdgeCat/gradle/libs.versions.toml"
             line="8"
             column="23"/>
     </issue>
@@ -276,7 +276,7 @@
         errorLine1="lifecycleRuntimeKtx = &quot;2.8.7&quot;"
         errorLine2="                      ~~~~~~~">
         <location
-            file="$HOME/MyProject/Mobile-Claw/gradle/libs.versions.toml"
+            file="$HOME/MyProject/EdgeCat/gradle/libs.versions.toml"
             line="8"
             column="23"/>
     </issue>
@@ -287,7 +287,7 @@
         errorLine1="activityCompose = &quot;1.10.1&quot;"
         errorLine2="                  ~~~~~~~~">
         <location
-            file="$HOME/MyProject/Mobile-Claw/gradle/libs.versions.toml"
+            file="$HOME/MyProject/EdgeCat/gradle/libs.versions.toml"
             line="9"
             column="19"/>
     </issue>
@@ -298,7 +298,7 @@
         errorLine1="activityCompose = &quot;1.10.1&quot;"
         errorLine2="                  ~~~~~~~~">
         <location
-            file="$HOME/MyProject/Mobile-Claw/gradle/libs.versions.toml"
+            file="$HOME/MyProject/EdgeCat/gradle/libs.versions.toml"
             line="9"
             column="19"/>
     </issue>
@@ -309,7 +309,7 @@
         errorLine1="activityCompose = &quot;1.10.1&quot;"
         errorLine2="                  ~~~~~~~~">
         <location
-            file="$HOME/MyProject/Mobile-Claw/gradle/libs.versions.toml"
+            file="$HOME/MyProject/EdgeCat/gradle/libs.versions.toml"
             line="9"
             column="19"/>
     </issue>
@@ -320,7 +320,7 @@
         errorLine1="composeBom = &quot;2026.02.00&quot;"
         errorLine2="             ~~~~~~~~~~~~">
         <location
-            file="$HOME/MyProject/Mobile-Claw/gradle/libs.versions.toml"
+            file="$HOME/MyProject/EdgeCat/gradle/libs.versions.toml"
             line="10"
             column="14"/>
     </issue>
@@ -331,7 +331,7 @@
         errorLine1="composeBom = &quot;2026.02.00&quot;"
         errorLine2="             ~~~~~~~~~~~~">
         <location
-            file="$HOME/MyProject/Mobile-Claw/gradle/libs.versions.toml"
+            file="$HOME/MyProject/EdgeCat/gradle/libs.versions.toml"
             line="10"
             column="14"/>
     </issue>
@@ -342,7 +342,7 @@
         errorLine1="composeBom = &quot;2026.02.00&quot;"
         errorLine2="             ~~~~~~~~~~~~">
         <location
-            file="$HOME/MyProject/Mobile-Claw/gradle/libs.versions.toml"
+            file="$HOME/MyProject/EdgeCat/gradle/libs.versions.toml"
             line="10"
             column="14"/>
     </issue>
@@ -353,7 +353,7 @@
         errorLine1="navigation = &quot;2.8.9&quot;"
         errorLine2="             ~~~~~~~">
         <location
-            file="$HOME/MyProject/Mobile-Claw/gradle/libs.versions.toml"
+            file="$HOME/MyProject/EdgeCat/gradle/libs.versions.toml"
             line="11"
             column="14"/>
     </issue>
@@ -364,7 +364,7 @@
         errorLine1="navigation = &quot;2.8.9&quot;"
         errorLine2="             ~~~~~~~">
         <location
-            file="$HOME/MyProject/Mobile-Claw/gradle/libs.versions.toml"
+            file="$HOME/MyProject/EdgeCat/gradle/libs.versions.toml"
             line="11"
             column="14"/>
     </issue>
@@ -375,7 +375,7 @@
         errorLine1="navigation = &quot;2.8.9&quot;"
         errorLine2="             ~~~~~~~">
         <location
-            file="$HOME/MyProject/Mobile-Claw/gradle/libs.versions.toml"
+            file="$HOME/MyProject/EdgeCat/gradle/libs.versions.toml"
             line="11"
             column="14"/>
     </issue>
@@ -386,7 +386,7 @@
         errorLine1="workRuntime = &quot;2.10.0&quot;"
         errorLine2="              ~~~~~~~~">
         <location
-            file="$HOME/MyProject/Mobile-Claw/gradle/libs.versions.toml"
+            file="$HOME/MyProject/EdgeCat/gradle/libs.versions.toml"
             line="15"
             column="15"/>
     </issue>
@@ -397,7 +397,7 @@
         errorLine1="workRuntime = &quot;2.10.0&quot;"
         errorLine2="              ~~~~~~~~">
         <location
-            file="$HOME/MyProject/Mobile-Claw/gradle/libs.versions.toml"
+            file="$HOME/MyProject/EdgeCat/gradle/libs.versions.toml"
             line="15"
             column="15"/>
     </issue>
@@ -408,7 +408,7 @@
         errorLine1="workRuntime = &quot;2.10.0&quot;"
         errorLine2="              ~~~~~~~~">
         <location
-            file="$HOME/MyProject/Mobile-Claw/gradle/libs.versions.toml"
+            file="$HOME/MyProject/EdgeCat/gradle/libs.versions.toml"
             line="15"
             column="15"/>
     </issue>
@@ -419,7 +419,7 @@
         errorLine1="dataStore = &quot;1.1.7&quot;"
         errorLine2="            ~~~~~~~">
         <location
-            file="$HOME/MyProject/Mobile-Claw/gradle/libs.versions.toml"
+            file="$HOME/MyProject/EdgeCat/gradle/libs.versions.toml"
             line="16"
             column="13"/>
     </issue>
@@ -430,7 +430,7 @@
         errorLine1="dataStore = &quot;1.1.7&quot;"
         errorLine2="            ~~~~~~~">
         <location
-            file="$HOME/MyProject/Mobile-Claw/gradle/libs.versions.toml"
+            file="$HOME/MyProject/EdgeCat/gradle/libs.versions.toml"
             line="16"
             column="13"/>
     </issue>
@@ -441,7 +441,7 @@
         errorLine1="dataStore = &quot;1.1.7&quot;"
         errorLine2="            ~~~~~~~">
         <location
-            file="$HOME/MyProject/Mobile-Claw/gradle/libs.versions.toml"
+            file="$HOME/MyProject/EdgeCat/gradle/libs.versions.toml"
             line="16"
             column="13"/>
     </issue>
@@ -452,7 +452,7 @@
         errorLine1="gson = &quot;2.12.1&quot;"
         errorLine2="       ~~~~~~~~">
         <location
-            file="$HOME/MyProject/Mobile-Claw/gradle/libs.versions.toml"
+            file="$HOME/MyProject/EdgeCat/gradle/libs.versions.toml"
             line="17"
             column="8"/>
     </issue>
@@ -463,7 +463,7 @@
         errorLine1="gson = &quot;2.12.1&quot;"
         errorLine2="       ~~~~~~~~">
         <location
-            file="$HOME/MyProject/Mobile-Claw/gradle/libs.versions.toml"
+            file="$HOME/MyProject/EdgeCat/gradle/libs.versions.toml"
             line="17"
             column="8"/>
     </issue>
@@ -474,7 +474,7 @@
         errorLine1="gson = &quot;2.12.1&quot;"
         errorLine2="       ~~~~~~~~">
         <location
-            file="$HOME/MyProject/Mobile-Claw/gradle/libs.versions.toml"
+            file="$HOME/MyProject/EdgeCat/gradle/libs.versions.toml"
             line="17"
             column="8"/>
     </issue>
@@ -485,7 +485,7 @@
         errorLine1="lifecycleProcess = &quot;2.8.7&quot;"
         errorLine2="                   ~~~~~~~">
         <location
-            file="$HOME/MyProject/Mobile-Claw/gradle/libs.versions.toml"
+            file="$HOME/MyProject/EdgeCat/gradle/libs.versions.toml"
             line="18"
             column="20"/>
     </issue>
@@ -496,7 +496,7 @@
         errorLine1="lifecycleProcess = &quot;2.8.7&quot;"
         errorLine2="                   ~~~~~~~">
         <location
-            file="$HOME/MyProject/Mobile-Claw/gradle/libs.versions.toml"
+            file="$HOME/MyProject/EdgeCat/gradle/libs.versions.toml"
             line="18"
             column="20"/>
     </issue>
@@ -507,7 +507,7 @@
         errorLine1="lifecycleProcess = &quot;2.8.7&quot;"
         errorLine2="                   ~~~~~~~">
         <location
-            file="$HOME/MyProject/Mobile-Claw/gradle/libs.versions.toml"
+            file="$HOME/MyProject/EdgeCat/gradle/libs.versions.toml"
             line="18"
             column="20"/>
     </issue>
@@ -518,7 +518,7 @@
         errorLine1="webkit = &quot;1.14.0&quot;"
         errorLine2="         ~~~~~~~~">
         <location
-            file="$HOME/MyProject/Mobile-Claw/gradle/libs.versions.toml"
+            file="$HOME/MyProject/EdgeCat/gradle/libs.versions.toml"
             line="19"
             column="10"/>
     </issue>
@@ -529,7 +529,7 @@
         errorLine1="webkit = &quot;1.14.0&quot;"
         errorLine2="         ~~~~~~~~">
         <location
-            file="$HOME/MyProject/Mobile-Claw/gradle/libs.versions.toml"
+            file="$HOME/MyProject/EdgeCat/gradle/libs.versions.toml"
             line="19"
             column="10"/>
     </issue>
@@ -540,7 +540,7 @@
         errorLine1="webkit = &quot;1.14.0&quot;"
         errorLine2="         ~~~~~~~~">
         <location
-            file="$HOME/MyProject/Mobile-Claw/gradle/libs.versions.toml"
+            file="$HOME/MyProject/EdgeCat/gradle/libs.versions.toml"
             line="19"
             column="10"/>
     </issue>
@@ -551,7 +551,7 @@
         errorLine1="cameraX = &quot;1.4.2&quot;"
         errorLine2="          ~~~~~~~">
         <location
-            file="$HOME/MyProject/Mobile-Claw/gradle/libs.versions.toml"
+            file="$HOME/MyProject/EdgeCat/gradle/libs.versions.toml"
             line="28"
             column="11"/>
     </issue>
@@ -562,7 +562,7 @@
         errorLine1="cameraX = &quot;1.4.2&quot;"
         errorLine2="          ~~~~~~~">
         <location
-            file="$HOME/MyProject/Mobile-Claw/gradle/libs.versions.toml"
+            file="$HOME/MyProject/EdgeCat/gradle/libs.versions.toml"
             line="28"
             column="11"/>
     </issue>
@@ -573,7 +573,7 @@
         errorLine1="cameraX = &quot;1.4.2&quot;"
         errorLine2="          ~~~~~~~">
         <location
-            file="$HOME/MyProject/Mobile-Claw/gradle/libs.versions.toml"
+            file="$HOME/MyProject/EdgeCat/gradle/libs.versions.toml"
             line="28"
             column="11"/>
     </issue>
@@ -584,7 +584,7 @@
         errorLine1="cameraX = &quot;1.4.2&quot;"
         errorLine2="          ~~~~~~~">
         <location
-            file="$HOME/MyProject/Mobile-Claw/gradle/libs.versions.toml"
+            file="$HOME/MyProject/EdgeCat/gradle/libs.versions.toml"
             line="28"
             column="11"/>
     </issue>
@@ -595,7 +595,7 @@
         errorLine1="cameraX = &quot;1.4.2&quot;"
         errorLine2="          ~~~~~~~">
         <location
-            file="$HOME/MyProject/Mobile-Claw/gradle/libs.versions.toml"
+            file="$HOME/MyProject/EdgeCat/gradle/libs.versions.toml"
             line="28"
             column="11"/>
     </issue>
@@ -606,7 +606,7 @@
         errorLine1="cameraX = &quot;1.4.2&quot;"
         errorLine2="          ~~~~~~~">
         <location
-            file="$HOME/MyProject/Mobile-Claw/gradle/libs.versions.toml"
+            file="$HOME/MyProject/EdgeCat/gradle/libs.versions.toml"
             line="28"
             column="11"/>
     </issue>
@@ -617,7 +617,7 @@
         errorLine1="cameraX = &quot;1.4.2&quot;"
         errorLine2="          ~~~~~~~">
         <location
-            file="$HOME/MyProject/Mobile-Claw/gradle/libs.versions.toml"
+            file="$HOME/MyProject/EdgeCat/gradle/libs.versions.toml"
             line="28"
             column="11"/>
     </issue>
@@ -628,7 +628,7 @@
         errorLine1="cameraX = &quot;1.4.2&quot;"
         errorLine2="          ~~~~~~~">
         <location
-            file="$HOME/MyProject/Mobile-Claw/gradle/libs.versions.toml"
+            file="$HOME/MyProject/EdgeCat/gradle/libs.versions.toml"
             line="28"
             column="11"/>
     </issue>
@@ -639,7 +639,7 @@
         errorLine1="cameraX = &quot;1.4.2&quot;"
         errorLine2="          ~~~~~~~">
         <location
-            file="$HOME/MyProject/Mobile-Claw/gradle/libs.versions.toml"
+            file="$HOME/MyProject/EdgeCat/gradle/libs.versions.toml"
             line="28"
             column="11"/>
     </issue>
@@ -650,7 +650,7 @@
         errorLine1="cameraX = &quot;1.4.2&quot;"
         errorLine2="          ~~~~~~~">
         <location
-            file="$HOME/MyProject/Mobile-Claw/gradle/libs.versions.toml"
+            file="$HOME/MyProject/EdgeCat/gradle/libs.versions.toml"
             line="28"
             column="11"/>
     </issue>
@@ -661,7 +661,7 @@
         errorLine1="cameraX = &quot;1.4.2&quot;"
         errorLine2="          ~~~~~~~">
         <location
-            file="$HOME/MyProject/Mobile-Claw/gradle/libs.versions.toml"
+            file="$HOME/MyProject/EdgeCat/gradle/libs.versions.toml"
             line="28"
             column="11"/>
     </issue>
@@ -672,7 +672,7 @@
         errorLine1="cameraX = &quot;1.4.2&quot;"
         errorLine2="          ~~~~~~~">
         <location
-            file="$HOME/MyProject/Mobile-Claw/gradle/libs.versions.toml"
+            file="$HOME/MyProject/EdgeCat/gradle/libs.versions.toml"
             line="28"
             column="11"/>
     </issue>
@@ -683,7 +683,7 @@
         errorLine1="splashscreen = &quot;1.2.0-beta01&quot;"
         errorLine2="               ~~~~~~~~~~~~~~">
         <location
-            file="$HOME/MyProject/Mobile-Claw/gradle/libs.versions.toml"
+            file="$HOME/MyProject/EdgeCat/gradle/libs.versions.toml"
             line="30"
             column="16"/>
     </issue>
@@ -694,7 +694,7 @@
         errorLine1="splashscreen = &quot;1.2.0-beta01&quot;"
         errorLine2="               ~~~~~~~~~~~~~~">
         <location
-            file="$HOME/MyProject/Mobile-Claw/gradle/libs.versions.toml"
+            file="$HOME/MyProject/EdgeCat/gradle/libs.versions.toml"
             line="30"
             column="16"/>
     </issue>
@@ -705,7 +705,7 @@
         errorLine1="splashscreen = &quot;1.2.0-beta01&quot;"
         errorLine2="               ~~~~~~~~~~~~~~">
         <location
-            file="$HOME/MyProject/Mobile-Claw/gradle/libs.versions.toml"
+            file="$HOME/MyProject/EdgeCat/gradle/libs.versions.toml"
             line="30"
             column="16"/>
     </issue>
@@ -716,7 +716,7 @@
         errorLine1="ossLicenses = &quot;0.10.6&quot;"
         errorLine2="              ~~~~~~~~">
         <location
-            file="$HOME/MyProject/Mobile-Claw/gradle/libs.versions.toml"
+            file="$HOME/MyProject/EdgeCat/gradle/libs.versions.toml"
             line="33"
             column="15"/>
     </issue>
@@ -727,7 +727,7 @@
         errorLine1="ossLicenses = &quot;0.10.6&quot;"
         errorLine2="              ~~~~~~~~">
         <location
-            file="$HOME/MyProject/Mobile-Claw/gradle/libs.versions.toml"
+            file="$HOME/MyProject/EdgeCat/gradle/libs.versions.toml"
             line="33"
             column="15"/>
     </issue>
@@ -738,7 +738,7 @@
         errorLine1="ossLicenses = &quot;0.10.6&quot;"
         errorLine2="              ~~~~~~~~">
         <location
-            file="$HOME/MyProject/Mobile-Claw/gradle/libs.versions.toml"
+            file="$HOME/MyProject/EdgeCat/gradle/libs.versions.toml"
             line="33"
             column="15"/>
     </issue>
@@ -749,7 +749,7 @@
         errorLine1="playServicesOssLicenses = &quot;17.1.0&quot;"
         errorLine2="                          ~~~~~~~~">
         <location
-            file="$HOME/MyProject/Mobile-Claw/gradle/libs.versions.toml"
+            file="$HOME/MyProject/EdgeCat/gradle/libs.versions.toml"
             line="34"
             column="27"/>
     </issue>
@@ -760,7 +760,7 @@
         errorLine1="playServicesOssLicenses = &quot;17.1.0&quot;"
         errorLine2="                          ~~~~~~~~">
         <location
-            file="$HOME/MyProject/Mobile-Claw/gradle/libs.versions.toml"
+            file="$HOME/MyProject/EdgeCat/gradle/libs.versions.toml"
             line="34"
             column="27"/>
     </issue>
@@ -771,7 +771,7 @@
         errorLine1="playServicesOssLicenses = &quot;17.1.0&quot;"
         errorLine2="                          ~~~~~~~~">
         <location
-            file="$HOME/MyProject/Mobile-Claw/gradle/libs.versions.toml"
+            file="$HOME/MyProject/EdgeCat/gradle/libs.versions.toml"
             line="34"
             column="27"/>
     </issue>
@@ -782,7 +782,7 @@
         errorLine1="googleService = &quot;4.4.3&quot;"
         errorLine2="                ~~~~~~~">
         <location
-            file="$HOME/MyProject/Mobile-Claw/gradle/libs.versions.toml"
+            file="$HOME/MyProject/EdgeCat/gradle/libs.versions.toml"
             line="35"
             column="17"/>
     </issue>
@@ -793,7 +793,7 @@
         errorLine1="googleService = &quot;4.4.3&quot;"
         errorLine2="                ~~~~~~~">
         <location
-            file="$HOME/MyProject/Mobile-Claw/gradle/libs.versions.toml"
+            file="$HOME/MyProject/EdgeCat/gradle/libs.versions.toml"
             line="35"
             column="17"/>
     </issue>
@@ -804,7 +804,7 @@
         errorLine1="googleService = &quot;4.4.3&quot;"
         errorLine2="                ~~~~~~~">
         <location
-            file="$HOME/MyProject/Mobile-Claw/gradle/libs.versions.toml"
+            file="$HOME/MyProject/EdgeCat/gradle/libs.versions.toml"
             line="35"
             column="17"/>
     </issue>
@@ -815,7 +815,7 @@
         errorLine1="firebaseBom = &quot;33.16.0&quot;"
         errorLine2="              ~~~~~~~~~">
         <location
-            file="$HOME/MyProject/Mobile-Claw/gradle/libs.versions.toml"
+            file="$HOME/MyProject/EdgeCat/gradle/libs.versions.toml"
             line="36"
             column="15"/>
     </issue>
@@ -826,7 +826,7 @@
         errorLine1="firebaseBom = &quot;33.16.0&quot;"
         errorLine2="              ~~~~~~~~~">
         <location
-            file="$HOME/MyProject/Mobile-Claw/gradle/libs.versions.toml"
+            file="$HOME/MyProject/EdgeCat/gradle/libs.versions.toml"
             line="36"
             column="15"/>
     </issue>
@@ -837,7 +837,7 @@
         errorLine1="firebaseBom = &quot;33.16.0&quot;"
         errorLine2="              ~~~~~~~~~">
         <location
-            file="$HOME/MyProject/Mobile-Claw/gradle/libs.versions.toml"
+            file="$HOME/MyProject/EdgeCat/gradle/libs.versions.toml"
             line="36"
             column="15"/>
     </issue>
@@ -848,7 +848,7 @@
         errorLine1="exifinterface = &quot;1.4.1&quot;"
         errorLine2="                ~~~~~~~">
         <location
-            file="$HOME/MyProject/Mobile-Claw/gradle/libs.versions.toml"
+            file="$HOME/MyProject/EdgeCat/gradle/libs.versions.toml"
             line="37"
             column="17"/>
     </issue>
@@ -859,7 +859,7 @@
         errorLine1="exifinterface = &quot;1.4.1&quot;"
         errorLine2="                ~~~~~~~">
         <location
-            file="$HOME/MyProject/Mobile-Claw/gradle/libs.versions.toml"
+            file="$HOME/MyProject/EdgeCat/gradle/libs.versions.toml"
             line="37"
             column="17"/>
     </issue>
@@ -870,7 +870,7 @@
         errorLine1="exifinterface = &quot;1.4.1&quot;"
         errorLine2="                ~~~~~~~">
         <location
-            file="$HOME/MyProject/Mobile-Claw/gradle/libs.versions.toml"
+            file="$HOME/MyProject/EdgeCat/gradle/libs.versions.toml"
             line="37"
             column="17"/>
     </issue>
@@ -881,7 +881,7 @@
         errorLine1="room = &quot;2.7.1&quot;"
         errorLine2="       ~~~~~~~">
         <location
-            file="$HOME/MyProject/Mobile-Claw/gradle/libs.versions.toml"
+            file="$HOME/MyProject/EdgeCat/gradle/libs.versions.toml"
             line="44"
             column="8"/>
     </issue>
@@ -892,7 +892,7 @@
         errorLine1="room = &quot;2.7.1&quot;"
         errorLine2="       ~~~~~~~">
         <location
-            file="$HOME/MyProject/Mobile-Claw/gradle/libs.versions.toml"
+            file="$HOME/MyProject/EdgeCat/gradle/libs.versions.toml"
             line="44"
             column="8"/>
     </issue>
@@ -903,7 +903,7 @@
         errorLine1="room = &quot;2.7.1&quot;"
         errorLine2="       ~~~~~~~">
         <location
-            file="$HOME/MyProject/Mobile-Claw/gradle/libs.versions.toml"
+            file="$HOME/MyProject/EdgeCat/gradle/libs.versions.toml"
             line="44"
             column="8"/>
     </issue>
@@ -914,7 +914,7 @@
         errorLine1="room = &quot;2.7.1&quot;"
         errorLine2="       ~~~~~~~">
         <location
-            file="$HOME/MyProject/Mobile-Claw/gradle/libs.versions.toml"
+            file="$HOME/MyProject/EdgeCat/gradle/libs.versions.toml"
             line="44"
             column="8"/>
     </issue>
@@ -925,7 +925,7 @@
         errorLine1="room = &quot;2.7.1&quot;"
         errorLine2="       ~~~~~~~">
         <location
-            file="$HOME/MyProject/Mobile-Claw/gradle/libs.versions.toml"
+            file="$HOME/MyProject/EdgeCat/gradle/libs.versions.toml"
             line="44"
             column="8"/>
     </issue>
@@ -936,7 +936,7 @@
         errorLine1="room = &quot;2.7.1&quot;"
         errorLine2="       ~~~~~~~">
         <location
-            file="$HOME/MyProject/Mobile-Claw/gradle/libs.versions.toml"
+            file="$HOME/MyProject/EdgeCat/gradle/libs.versions.toml"
             line="44"
             column="8"/>
     </issue>
@@ -947,7 +947,7 @@
         errorLine1="room = &quot;2.7.1&quot;"
         errorLine2="       ~~~~~~~">
         <location
-            file="$HOME/MyProject/Mobile-Claw/gradle/libs.versions.toml"
+            file="$HOME/MyProject/EdgeCat/gradle/libs.versions.toml"
             line="44"
             column="8"/>
     </issue>
@@ -958,7 +958,7 @@
         errorLine1="room = &quot;2.7.1&quot;"
         errorLine2="       ~~~~~~~">
         <location
-            file="$HOME/MyProject/Mobile-Claw/gradle/libs.versions.toml"
+            file="$HOME/MyProject/EdgeCat/gradle/libs.versions.toml"
             line="44"
             column="8"/>
     </issue>
@@ -969,7 +969,7 @@
         errorLine1="room = &quot;2.7.1&quot;"
         errorLine2="       ~~~~~~~">
         <location
-            file="$HOME/MyProject/Mobile-Claw/gradle/libs.versions.toml"
+            file="$HOME/MyProject/EdgeCat/gradle/libs.versions.toml"
             line="44"
             column="8"/>
     </issue>
@@ -980,7 +980,7 @@
         errorLine1="room = &quot;2.7.1&quot;"
         errorLine2="       ~~~~~~~">
         <location
-            file="$HOME/MyProject/Mobile-Claw/gradle/libs.versions.toml"
+            file="$HOME/MyProject/EdgeCat/gradle/libs.versions.toml"
             line="44"
             column="8"/>
     </issue>
@@ -991,7 +991,7 @@
         errorLine1="room = &quot;2.7.1&quot;"
         errorLine2="       ~~~~~~~">
         <location
-            file="$HOME/MyProject/Mobile-Claw/gradle/libs.versions.toml"
+            file="$HOME/MyProject/EdgeCat/gradle/libs.versions.toml"
             line="44"
             column="8"/>
     </issue>
@@ -1002,7 +1002,7 @@
         errorLine1="room = &quot;2.7.1&quot;"
         errorLine2="       ~~~~~~~">
         <location
-            file="$HOME/MyProject/Mobile-Claw/gradle/libs.versions.toml"
+            file="$HOME/MyProject/EdgeCat/gradle/libs.versions.toml"
             line="44"
             column="8"/>
     </issue>
@@ -1035,7 +1035,7 @@
         errorLine1="          val resources = LocalContext.current.resources"
         errorLine2="                          ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
         <location
-            file="src/main/java/com/mobileclaw/app/ui/modelmanager/ModelList.kt"
+            file="src/main/java/com/edgecat/app/ui/modelmanager/ModelList.kt"
             line="270"
             column="27"/>
     </issue>
@@ -1046,7 +1046,7 @@
         errorLine1="  modifier: Modifier = Modifier,"
         errorLine2="  ~~~~~~~~">
         <location
-            file="src/main/java/com/mobileclaw/app/customtasks/agentchat/CursorTrackingTextField.kt"
+            file="src/main/java/com/edgecat/app/customtasks/agentchat/CursorTrackingTextField.kt"
             line="55"
             column="3"/>
     </issue>
@@ -1123,7 +1123,7 @@
         errorLine1="          javaScriptEnabled = true"
         errorLine2="          ~~~~~~~~~~~~~~~~~~~~~~~~">
         <location
-            file="src/main/java/com/mobileclaw/app/ui/common/MobileClawWebView.kt"
+            file="src/main/java/com/edgecat/app/ui/common/EdgeCatWebView.kt"
             line="154"
             column="11"/>
     </issue>
@@ -1145,7 +1145,7 @@
         errorLine1="  (if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {"
         errorLine2="       ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
         <location
-            file="src/main/java/com/mobileclaw/app/data/Consts.kt"
+            file="src/main/java/com/edgecat/app/data/Consts.kt"
             line="71"
             column="8"/>
     </issue>
@@ -1156,7 +1156,7 @@
         errorLine1="      val smsManager = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {"
         errorLine2="                           ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
         <location
-            file="src/main/java/com/mobileclaw/app/customtasks/agentchat/DeviceSkills.kt"
+            file="src/main/java/com/edgecat/app/customtasks/agentchat/DeviceSkills.kt"
             line="92"
             column="28"/>
     </issue>
@@ -1167,7 +1167,7 @@
         errorLine1="    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {"
         errorLine2="        ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
         <location
-            file="src/main/java/com/mobileclaw/app/data/ModelAllowlist.kt"
+            file="src/main/java/com/edgecat/app/data/ModelAllowlist.kt"
             line="75"
             column="9"/>
     </issue>
@@ -1178,7 +1178,7 @@
         errorLine1="    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {"
         errorLine2="        ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
         <location
-            file="src/main/java/com/mobileclaw/app/ui/theme/Theme.kt"
+            file="src/main/java/com/edgecat/app/ui/theme/Theme.kt"
             line="331"
             column="9"/>
     </issue>
@@ -2714,7 +2714,7 @@
         errorLine1="  var agentMaxLoops by remember { mutableStateOf(dataStoreRepo.getAgentMaxLoops()) }"
         errorLine2="                                  ~~~~~~~~~~~~~~">
         <location
-            file="src/main/java/com/mobileclaw/app/customtasks/agentchat/AgentChatScreen.kt"
+            file="src/main/java/com/edgecat/app/customtasks/agentchat/AgentChatScreen.kt"
             line="169"
             column="35"/>
     </issue>
@@ -2725,7 +2725,7 @@
         errorLine1="  var agentMaxRepairAttempts by remember { mutableStateOf(dataStoreRepo.getAgentMaxRepairAttempts()) }"
         errorLine2="                                           ~~~~~~~~~~~~~~">
         <location
-            file="src/main/java/com/mobileclaw/app/customtasks/agentchat/AgentChatScreen.kt"
+            file="src/main/java/com/edgecat/app/customtasks/agentchat/AgentChatScreen.kt"
             line="170"
             column="44"/>
     </issue>
@@ -2736,7 +2736,7 @@
         errorLine1="  var agentSkillTimeoutSecs by remember { mutableStateOf(dataStoreRepo.getAgentSkillTimeoutSecs()) }"
         errorLine2="                                          ~~~~~~~~~~~~~~">
         <location
-            file="src/main/java/com/mobileclaw/app/customtasks/agentchat/AgentChatScreen.kt"
+            file="src/main/java/com/edgecat/app/customtasks/agentchat/AgentChatScreen.kt"
             line="171"
             column="43"/>
     </issue>
@@ -2747,7 +2747,7 @@
         errorLine1="  var agentThinkingMode by remember { mutableStateOf(dataStoreRepo.getAgentThinkingMode()) }"
         errorLine2="                                      ~~~~~~~~~~~~~~">
         <location
-            file="src/main/java/com/mobileclaw/app/customtasks/agentchat/AgentChatScreen.kt"
+            file="src/main/java/com/edgecat/app/customtasks/agentchat/AgentChatScreen.kt"
             line="172"
             column="39"/>
     </issue>
@@ -2758,7 +2758,7 @@
         errorLine1="  var agentHistoryWindowSize by remember { mutableStateOf(dataStoreRepo.getAgentHistoryWindowSize()) }"
         errorLine2="                                           ~~~~~~~~~~~~~~">
         <location
-            file="src/main/java/com/mobileclaw/app/customtasks/agentchat/AgentChatScreen.kt"
+            file="src/main/java/com/edgecat/app/customtasks/agentchat/AgentChatScreen.kt"
             line="174"
             column="44"/>
     </issue>
@@ -2769,7 +2769,7 @@
         errorLine1="  var localMaxLoops by remember { mutableStateOf(agentMaxLoops.toFloat()) }"
         errorLine2="                                  ~~~~~~~~~~~~~~">
         <location
-            file="src/main/java/com/mobileclaw/app/ui/common/ConfigDialog.kt"
+            file="src/main/java/com/edgecat/app/ui/common/ConfigDialog.kt"
             line="166"
             column="35"/>
     </issue>
@@ -2780,7 +2780,7 @@
         errorLine1="  var localMaxRepair by remember { mutableStateOf(agentMaxRepairAttempts.toFloat()) }"
         errorLine2="                                   ~~~~~~~~~~~~~~">
         <location
-            file="src/main/java/com/mobileclaw/app/ui/common/ConfigDialog.kt"
+            file="src/main/java/com/edgecat/app/ui/common/ConfigDialog.kt"
             line="167"
             column="36"/>
     </issue>
@@ -2791,7 +2791,7 @@
         errorLine1="  var localTimeout by remember { mutableStateOf(agentSkillTimeoutSecs.toFloat()) }"
         errorLine2="                                 ~~~~~~~~~~~~~~">
         <location
-            file="src/main/java/com/mobileclaw/app/ui/common/ConfigDialog.kt"
+            file="src/main/java/com/edgecat/app/ui/common/ConfigDialog.kt"
             line="168"
             column="34"/>
     </issue>
@@ -2802,7 +2802,7 @@
         errorLine1="  var localThinkingMode by remember { mutableStateOf(agentThinkingMode) }"
         errorLine2="                                      ~~~~~~~~~~~~~~">
         <location
-            file="src/main/java/com/mobileclaw/app/ui/common/ConfigDialog.kt"
+            file="src/main/java/com/edgecat/app/ui/common/ConfigDialog.kt"
             line="169"
             column="39"/>
     </issue>
@@ -2813,7 +2813,7 @@
         errorLine1="  var localWindowSize by remember { mutableStateOf(agentHistoryWindowSize.toFloat()) }"
         errorLine2="                                    ~~~~~~~~~~~~~~">
         <location
-            file="src/main/java/com/mobileclaw/app/ui/common/ConfigDialog.kt"
+            file="src/main/java/com/edgecat/app/ui/common/ConfigDialog.kt"
             line="171"
             column="37"/>
     </issue>
@@ -2989,7 +2989,7 @@
     <issue
         id="UnusedResources"
         message="The resource `R.string.app_name_second_part` appears to be unused"
-        errorLine1="  &lt;string name=&quot;app_name_second_part&quot; translatable=&quot;false&quot;>Mobile-Claw&lt;/string>"
+        errorLine1="  &lt;string name=&quot;app_name_second_part&quot; translatable=&quot;false&quot;>EdgeCat&lt;/string>"
         errorLine2="          ~~~~~~~~~~~~~~~~~~~~~~~~~~~">
         <location
             file="src/main/res/values/strings.xml"
@@ -2999,8 +2999,8 @@
 
     <issue
         id="UnusedResources"
-        message="The resource `R.string.mobileclaw_news_notification_title` appears to be unused"
-        errorLine1="  &lt;string name=&quot;mobileclaw_news_notification_title&quot; translatable=&quot;false&quot;>Mobile-Claw News&lt;/string>"
+        message="The resource `R.string.edgecat_news_notification_title` appears to be unused"
+        errorLine1="  &lt;string name=&quot;edgecat_news_notification_title&quot; translatable=&quot;false&quot;>EdgeCat News&lt;/string>"
         errorLine2="          ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
         <location
             file="src/main/res/values/strings.xml"
@@ -4429,8 +4429,8 @@
 
     <issue
         id="UnusedResources"
-        message="The resource `R.style.Theme_MobileClaw_SplashScreen` appears to be unused"
-        errorLine1="  &lt;style name=&quot;Theme.MobileClaw.SplashScreen&quot; parent=&quot;Theme.SplashScreen&quot;>"
+        message="The resource `R.style.Theme_EdgeCat_SplashScreen` appears to be unused"
+        errorLine1="  &lt;style name=&quot;Theme.EdgeCat.SplashScreen&quot; parent=&quot;Theme.SplashScreen&quot;>"
         errorLine2="         ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
         <location
             file="src/main/res/values/themes.xml"
@@ -4440,8 +4440,8 @@
 
     <issue
         id="UnusedResources"
-        message="The resource `R.style.Theme_MobileClaw_OssLicenses` appears to be unused"
-        errorLine1="  &lt;style name=&quot;Theme.MobileClaw.OssLicenses&quot; parent=&quot;Theme.AppCompat.Light.DarkActionBar&quot;>"
+        message="The resource `R.style.Theme_EdgeCat_OssLicenses` appears to be unused"
+        errorLine1="  &lt;style name=&quot;Theme.EdgeCat.OssLicenses&quot; parent=&quot;Theme.AppCompat.Light.DarkActionBar&quot;>"
         errorLine2="         ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
         <location
             file="src/main/res/values/themes.xml"
@@ -4578,7 +4578,7 @@
         errorLine1="          setOnTouchListener { v, event ->"
         errorLine2="                             ^">
         <location
-            file="src/main/java/com/mobileclaw/app/ui/common/MobileClawWebView.kt"
+            file="src/main/java/com/edgecat/app/ui/common/EdgeCatWebView.kt"
             line="161"
             column="30"/>
     </issue>

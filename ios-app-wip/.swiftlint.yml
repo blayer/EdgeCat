@@ -1,6 +1,6 @@
 included:
-  - MobileClaw
-  - MobileClawTests
+  - EdgeCat
+  - EdgeCatTests
 
 excluded:
   - build

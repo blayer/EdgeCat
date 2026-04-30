@@ -9,7 +9,7 @@
 
 ## Goal
 
-We are porting an Android Kotlin app (Mobile-Claw, which uses LiteRT-LM via the
+We are porting an Android Kotlin app (EdgeCat, which uses LiteRT-LM via the
 `com.google.ai.edge.litertlm` Maven artifact) to native iOS Swift. We want to produce a
 **clean iOS arm64 prebuilt set** structured **the same way LiteRT-LM ships its
 `prebuilt/macos_arm64/` set today**, since the macOS set is the only complete, internally

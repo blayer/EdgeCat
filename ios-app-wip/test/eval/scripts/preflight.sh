@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# Pre-flight permissions for the Mobile-Claw eval harness on a simulator.
+# Pre-flight permissions for the EdgeCat eval harness on a simulator.
 # Mirrors `pm grant` block in android-app/test/eval/run.py — without these,
 # native skills (calendar, contacts, photos, location, …) hang on the
 # permission prompt headlessly.
@@ -19,7 +19,7 @@ set -euo pipefail
 export DEVELOPER_DIR="${DEVELOPER_DIR:-/Applications/Xcode.app/Contents/Developer}"
 
 UDID="${1:?simulator UDID required (xcrun simctl list devices)}"
-BUNDLE_ID="${2:-com.mobileclawapp.app}"
+BUNDLE_ID="${2:-com.edgecat.app}"
 
 # Sanity-check the simulator exists.
 if ! xcrun simctl list devices -j | grep -q "\"udid\" : \"$UDID\""; then

@@ -99,8 +99,8 @@ jobs:
           set -o pipefail
           rm -rf TestResults.xcresult
           xcodebuild \
-            -project MobileClaw.xcodeproj \
-            -scheme MobileClaw \
+            -project EdgeCat.xcodeproj \
+            -scheme EdgeCat \
             -sdk iphonesimulator \
             -configuration Debug \
             -destination "platform=iOS Simulator,id=${SIMULATOR_UDID}" \
@@ -171,8 +171,8 @@ jobs:
         run: |
           set -o pipefail
           xcodebuild \
-            -project MobileClaw.xcodeproj \
-            -scheme MobileClaw \
+            -project EdgeCat.xcodeproj \
+            -scheme EdgeCat \
             -sdk iphonesimulator \
             -configuration Debug \
             -destination "platform=iOS Simulator,id=${SIMULATOR_UDID}" \

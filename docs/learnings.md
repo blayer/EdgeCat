@@ -1,4 +1,4 @@
-# Mobile-Claw: Challenges & Learnings
+# EdgeCat: Challenges & Learnings
 
 Building an agentic AI assistant that runs entirely on-device with a 2B/4B parameter LLM (Gemma-3 E2B via MediaPipe/LiteRT on Android). This document captures the key challenges encountered and the optimizations developed across 51 commits and ~20K lines of code.
 

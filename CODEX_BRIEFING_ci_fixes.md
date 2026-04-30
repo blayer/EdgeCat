@@ -1,8 +1,8 @@
 # PR #24 — fix CI job failures
 
-PR: https://github.com/blayer/Mobile-Claw/pull/24
+PR: https://github.com/blayer/EdgeCat/pull/24
 Branch: `feat/ios-port-phase-a` (already pushed locally as `5f19c43`).
-Working tree: `/Users/nali/MyProject/Mobile-Claw` — note there are uncommitted bundle-ID-rename changes you should keep, do not revert.
+Working tree: `/Users/nali/MyProject/EdgeCat` — note there are uncommitted bundle-ID-rename changes you should keep, do not revert.
 
 Two CI jobs are failing on this PR. Fix both, commit the fixes on the same branch, and push. **Do not** create a new branch or new PR.
 
@@ -10,7 +10,7 @@ Two CI jobs are failing on this PR. Fix both, commit the fixes on the same branc
 
 ## Failure 1 — `ios-lint` (SwiftLint, exit code 2)
 
-Job: https://github.com/blayer/Mobile-Claw/actions/runs/24965416903/job/73099248650
+Job: https://github.com/blayer/EdgeCat/actions/runs/24965416903/job/73099248650
 
 ```
 Done linting! Found 12 violations, 12 serious in 84 files.
@@ -19,12 +19,12 @@ Done linting! Found 12 violations, 12 serious in 84 files.
 
 All 12 violations are `force_unwrapping` (the `--strict` flag upgrades warnings → errors). Affected files include at least:
 
-- `ios-app-wip/MobileClaw/UI/ModelSelect/ModelManagerView.swift` (1)
-- `ios-app-wip/MobileClaw/UI/ModelSelect/ModelCatalog.swift` (1)
-- `ios-app-wip/MobileClaw/UI/LlmChat/ChatViewModel.swift` (2)
-- `ios-app-wip/MobileClaw/Persistence/Conversation.swift` (1)
-- `ios-app-wip/MobileClaw/Persistence/ConversationStore.swift` (1)
-- `ios-app-wip/MobileClawTests/SelfEvaluatorTests.swift` (1)
+- `ios-app-wip/EdgeCat/UI/ModelSelect/ModelManagerView.swift` (1)
+- `ios-app-wip/EdgeCat/UI/ModelSelect/ModelCatalog.swift` (1)
+- `ios-app-wip/EdgeCat/UI/LlmChat/ChatViewModel.swift` (2)
+- `ios-app-wip/EdgeCat/Persistence/Conversation.swift` (1)
+- `ios-app-wip/EdgeCat/Persistence/ConversationStore.swift` (1)
+- `ios-app-wip/EdgeCatTests/SelfEvaluatorTests.swift` (1)
 - 5 more — find them by running `swiftlint lint --strict --reporter github-actions-logging` from `ios-app-wip/`.
 
 There are also two SwiftLint config warnings:
@@ -52,7 +52,7 @@ warning: 'unused_import' should be listed in the 'analyzer_rules' configuration 
 
 ## Failure 2 — `ios-test` (xcodebuild, exit code 64)
 
-Job: https://github.com/blayer/Mobile-Claw/actions/runs/24965416903/job/73099248632
+Job: https://github.com/blayer/EdgeCat/actions/runs/24965416903/job/73099248632
 
 Two distinct errors:
 
@@ -60,13 +60,13 @@ Two distinct errors:
 xcodebuild: error: Unable to find a destination matching the provided destination specifier:
 		{ platform:iOS Simulator, OS:latest, name:iPhone 16 Pro }
 
-	Ineligible destinations for the "MobileClaw" scheme:
+	Ineligible destinations for the "EdgeCat" scheme:
 		{ ... name:Any iOS Device, error:iOS 18.0 is not installed. To use with Xcode, first download and install the platform }
 ```
 
 ```
 xcodebuild: error: Existing file at -resultBundlePath
-"/Users/runner/work/Mobile-Claw/Mobile-Claw/ios-app-wip/TestResults.xcresult"
+"/Users/runner/work/EdgeCat/EdgeCat/ios-app-wip/TestResults.xcresult"
 ```
 
 ### Root causes
@@ -93,7 +93,7 @@ Edit `.github/workflows/ci-ios.yml`:
 - Do not skip the `--strict` SwiftLint flag.
 - Do not edit `.swiftlint.yml` to disable `force_unwrapping` — fix the code instead.
 - Do not change the iOS deployment target in `project.yml` (`iOS: "17.0"`).
-- Do not commit `MobileClaw.xcodeproj/` regenerated output unless it's already tracked. Re-run `xcodegen` only if you modified `project.yml`.
+- Do not commit `EdgeCat.xcodeproj/` regenerated output unless it's already tracked. Re-run `xcodegen` only if you modified `project.yml`.
 - Keep all changes on the existing branch `feat/ios-port-phase-a`.
 
 ---
@@ -101,10 +101,10 @@ Edit `.github/workflows/ci-ios.yml`:
 ## Verification before pushing
 
 ```bash
-cd /Users/nali/MyProject/Mobile-Claw/ios-app-wip
+cd /Users/nali/MyProject/EdgeCat/ios-app-wip
 xcodegen   # only if project.yml changed
 DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer \
-  xcodebuild -sdk iphonesimulator -scheme MobileClaw \
+  xcodebuild -sdk iphonesimulator -scheme EdgeCat \
   -destination 'platform=iOS Simulator,name=iPhone 17 Pro' \
   -configuration Debug test 2>&1 | tail -10
 # → must end with TEST SUCCEEDED
@@ -127,7 +127,7 @@ Then verify on GitHub: PR #24 ios-lint and ios-test should both be green.
 
 ## Deliverable
 
-After fixes, write a short status file at `/Users/nali/MyProject/Mobile-Claw/CODEX_SOLUTION_ci_fixes.md` summarizing:
+After fixes, write a short status file at `/Users/nali/MyProject/EdgeCat/CODEX_SOLUTION_ci_fixes.md` summarizing:
 
 - Final commit SHA pushed.
 - Number of force-unwrap violations fixed (should be 12) with file:line references.

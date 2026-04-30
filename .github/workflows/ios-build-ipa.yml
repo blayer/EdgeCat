@@ -1,6 +1,6 @@
 name: iOS / Build IPA
 
-# Produces a Mobile-Claw .ipa via `xcodebuild archive` + `xcodebuild
+# Produces a EdgeCat .ipa via `xcodebuild archive` + `xcodebuild
 # -exportArchive`. By default the workflow ships an UNSIGNED ipa suitable for
 # Apple Configurator / TestFlight uploads with later re-signing — production
 # signing requires DEVELOPMENT_TEAM + a provisioning profile, which aren't
@@ -82,12 +82,12 @@ jobs:
           set -o pipefail
           CONFIG="${{ inputs.configuration || 'Release' }}"
           xcodebuild \
-            -project MobileClaw.xcodeproj \
-            -scheme MobileClaw \
+            -project EdgeCat.xcodeproj \
+            -scheme EdgeCat \
             -configuration "$CONFIG" \
             -sdk iphoneos \
             -destination 'generic/platform=iOS' \
-            -archivePath build/MobileClaw.xcarchive \
+            -archivePath build/EdgeCat.xcarchive \
             MARKETING_VERSION="${{ steps.version.outputs.version }}" \
             CURRENT_PROJECT_VERSION="${{ steps.version.outputs.build }}" \
             ${{ steps.signing.outputs.flags }} \
@@ -115,13 +115,13 @@ jobs:
       - name: Export IPA (unsigned path uses bundled archive structure)
         if: ${{ inputs.sign != true && github.event_name != 'push' }}
         # When unsigned, xcodebuild -exportArchive refuses to export an .ipa.
-        # Repackage MobileClaw.xcarchive/Products/Applications/MobileClaw.app
+        # Repackage EdgeCat.xcarchive/Products/Applications/EdgeCat.app
         # into a Payload/ folder zipped with .ipa extension — the layout
         # Apple Configurator and most third-party tools accept for re-signing.
         run: |
           mkdir -p build/Payload
-          cp -R build/MobileClaw.xcarchive/Products/Applications/MobileClaw.app build/Payload/
-          (cd build && zip -qr "MobileClaw-${{ steps.version.outputs.version }}-unsigned.ipa" Payload)
+          cp -R build/EdgeCat.xcarchive/Products/Applications/EdgeCat.app build/Payload/
+          (cd build && zip -qr "EdgeCat-${{ steps.version.outputs.version }}-unsigned.ipa" Payload)
           rm -rf build/Payload
           ls -la build/
 
@@ -131,20 +131,20 @@ jobs:
           set -o pipefail
           xcodebuild \
             -exportArchive \
-            -archivePath build/MobileClaw.xcarchive \
+            -archivePath build/EdgeCat.xcarchive \
             -exportPath build/ \
             -exportOptionsPlist build/ExportOptions.plist
 
       - name: Upload xcarchive
         uses: actions/upload-artifact@v4
         with:
-          name: MobileClaw-${{ steps.version.outputs.version }}-archive
-          path: ios-app-wip/build/MobileClaw.xcarchive
+          name: EdgeCat-${{ steps.version.outputs.version }}-archive
+          path: ios-app-wip/build/EdgeCat.xcarchive
           retention-days: 14
 
       - name: Upload IPA
         uses: actions/upload-artifact@v4
         with:
-          name: MobileClaw-${{ steps.version.outputs.version }}-ipa
+          name: EdgeCat-${{ steps.version.outputs.version }}-ipa
           path: ios-app-wip/build/*.ipa
           retention-days: 30
