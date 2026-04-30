@@ -107,6 +107,7 @@ public final class OrchestrationController {
         var plan: ExecutionPlan?
         var results: [String: StepResult] = [:]
         var lastEvaluation: EvaluationResult?
+        var lastIterationFingerprint: String?
 
         while state.iteration < state.maxIterations {
             try throwIfCancelled()
@@ -170,6 +171,26 @@ public final class OrchestrationController {
             state.evaluation = evalResult
             lastEvaluation = evalResult
             if evalResult.goalAchieved || !evalResult.shouldReplan { break }
+            // Early-exit on non-recoverable step failures: if every
+            // failed step in this iteration carries an error keyword
+            // that won't change on retry (permission/auth gates, hard
+            // platform stubs), there's no point burning another
+            // ~25-30s on a replan. The replan would re-emit the same
+            // skill, hit the same OS-level deny, and we'd waste an
+            // LLM round-trip plus another execute phase. Bail out and
+            // let the formatter explain.
+            if Self.allFailuresAreNonRecoverable(results) { break }
+            // Idempotent-replan guard: if this iteration's plan +
+            // outcomes match the previous iteration's, the replan
+            // produced the same broken plan as before and another
+            // round won't help. Burns ~25-30s for nothing. Common
+            // pattern when the skill catalog can't satisfy the
+            // request (e.g. "find photo by filename" — PhotoKit has
+            // no name-based lookup, so search-photos + scan-barcode
+            // fails identically across iterations).
+            let fingerprint = Self.iterationFingerprint(plan: p, results: results)
+            if let prior = lastIterationFingerprint, prior == fingerprint { break }
+            lastIterationFingerprint = fingerprint
             state.status = .replanning
             state.iteration += 1
         }
@@ -213,4 +234,58 @@ public final class OrchestrationController {
 public enum OrchestrationError: Error {
     case noPlan
     case cancelled
+}
+
+extension OrchestrationController {
+    /// True when every failed step's error matches a known
+    /// non-recoverable pattern (auth/permission denials, platform
+    /// stubs, missing files). A replan with the same skill catalog
+    /// will hit the same wall, so we save the round-trip.
+    /// Stable string fingerprint of an iteration's plan + outcomes.
+    /// Two iterations with the same fingerprint produced the same skill
+    /// calls with the same args and got the same per-step status — the
+    /// loop is stuck and another replan won't help.
+    static func iterationFingerprint(plan: ExecutionPlan,
+                                     results: [String: StepResult]) -> String {
+        let parts = plan.steps.map { step -> String in
+            let skill = step.skillName ?? ""
+            let argPairs = step.toolArgs
+                .sorted { $0.key < $1.key }
+                .map { "\($0.key)=\($0.value)" }
+                .joined(separator: ",")
+            let status = results[step.id]?.status.rawValue ?? "?"
+            return "\(skill)|\(argPairs)|\(status)"
+        }
+        return parts.joined(separator: ";")
+    }
+
+    static func allFailuresAreNonRecoverable(_ results: [String: StepResult]) -> Bool {
+        let failures = results.values.filter { $0.status == .failed }
+        guard !failures.isEmpty else { return false }
+        // Permission/auth gates and platform stubs won't change on retry.
+        // Planner-shape failures ("unknown skill:", missing-arg) won't
+        // change either when every step in the iteration carries one —
+        // the model is producing the same hallucination or stripped-args
+        // plan, and another replan burns ~25-30s for the same result.
+        let markers = [
+            "permission denied",
+            "access denied",
+            "access restricted",
+            "not_supported_on_ios",
+            "not supported on ios",
+            "not allowed on ios",
+            "no such file",
+            "file not found",
+            "unknown skill:",
+            "missing '",
+            "missing required argument",
+            "not a calculator expression",
+            "could not extract numeric expression",
+        ]
+        for f in failures {
+            let lower = (f.error ?? "").lowercased()
+            if !markers.contains(where: { lower.contains($0) }) { return false }
+        }
+        return true
+    }
 }

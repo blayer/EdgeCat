@@ -109,8 +109,15 @@ public final class ExecutionOrchestrator: @unchecked Sendable {
         }
 
         // Resolve final args: rescue placeholders + date-time + phone.
-        let depOutputs = step.dependsOn.reduce(into: [String: String]()) { acc, dep in
-            if let r = priorResults[dep], r.status == .completed { acc[dep] = r.output }
+        // Feed ALL completed prior steps to the rescue, not just those
+        // listed in `dependsOn`. Small models routinely emit
+        // `toolArgs: {"url": "Output from s1"}` while leaving
+        // `dependsOn: []`, which would otherwise leave the literal
+        // string in the arg and fail with "invalid 'url' argument".
+        // The substitution is keyed on the step ID appearing in the
+        // arg value, so unrelated prior IDs are harmless.
+        let depOutputs = priorResults.reduce(into: [String: String]()) { acc, kv in
+            if kv.value.status == .completed { acc[kv.key] = kv.value.output }
         }
         var finalArgs = StepArgRescue.rescue(args: step.toolArgs, dependencies: depOutputs)
 
@@ -121,6 +128,18 @@ public final class ExecutionOrchestrator: @unchecked Sendable {
         }
 
         var res = await runWithTimeout(toolName: tool, args: finalArgs)
+        // If the registry doesn't know the skill (planner hallucinated
+        // a name like `query-wikipedia` or `list_photos_album`), fall
+        // through to an LLM-driven step using the description as the
+        // instruction. Beats failing the step and burning a replan
+        // iteration on the same hallucination.
+        if !res.success,
+           let err = res.error?.lowercased(),
+           err.contains("unknown skill:") {
+            await trace?.event(kind: "step.fallback_llm", name: step.id,
+                                payload: ["from_skill": tool])
+            return await runLlmStep(step, priorResults: priorResults, start: start)
+        }
         var attempt = 0
         while !res.success && attempt < maxRepair {
             attempt += 1

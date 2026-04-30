@@ -17,7 +17,10 @@ public final class SearchWebSkill: Skill, @unchecked Sendable {
     public var name: String { "search-web" }
     public var description: String {
         "Search the web (DuckDuckGo). arg: query. Returns the top 8 results " +
-        "with title, URL, and snippet."
+        "with title, URL, and snippet. " +
+        "For ANSWERING a question (weather, news, facts) chain with " +
+        "fetch-web-content on the top result's URL — the search output " +
+        "alone is just a link list, not the answer."
     }
     public init() {}
 

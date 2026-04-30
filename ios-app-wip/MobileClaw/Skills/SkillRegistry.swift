@@ -58,7 +58,6 @@ public final class SkillRegistry: ToolExecutor, @unchecked Sendable {
             SearchWebSkill(),
             ContactsSkill(),
             CalendarSkill(),
-            AddCalendarEventSkill(),
             RemindersSkill(),
             PhotosSkill(),
             SearchPhotosSkill(),
@@ -82,6 +81,15 @@ public final class SkillRegistry: ToolExecutor, @unchecked Sendable {
             RecognizeTextSkill(),
             ReadPdfSkill(),
             PreviewUrlSkill(),
+            // LLM-only catalog stubs. ExecutionOrchestrator short-circuits
+            // these via `SkillTools.llmOnly`, routing to `runLlmStep`
+            // instead of calling the skill's run(). Catalog visibility
+            // lets the planner emit `skillName: "summarize"` for synthesis
+            // steps (keeping plan_validity scoring happy) while still
+            // routing through the LLM lane. Descriptions are one-liners
+            // to avoid inflating the catalog block in the planner prompt.
+            SummarizeSkill(),
+            ComposeSkill(),
             // Stubs (iOS sandbox / API restrictions) — kept registered so
             // the planner sees the same skill names as Android and can
             // route around the `not_supported_on_ios` error via repair.

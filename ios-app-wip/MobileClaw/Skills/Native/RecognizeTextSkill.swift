@@ -32,17 +32,33 @@ public final class RecognizeTextSkill: Skill, @unchecked Sendable {
             .split(separator: ",").map { String($0).trimmingCharacters(in: .whitespaces) }
             .filter { !$0.isEmpty }
 
+        // If the planner chained `path` from a `search-photos` output,
+        // the substituted value will be the JSON envelope (e.g.
+        // `{"items":[{"id":"...","mediaType":"image",...}]}`), not a
+        // filesystem path. Recognize that shape and pluck the first
+        // image asset id so the OCR step doesn't fail with "couldn't
+        // load image at: {...JSON...}". Mirrors the parallel logic in
+        // `scan-barcode`.
+        var pathArg = args["path"] ?? ""
+        var photoIdArg = args["photo_id"] ?? ""
+        if let fromPath = Self.extractFirstImageId(from: pathArg) {
+            photoIdArg = fromPath
+            pathArg = ""
+        } else if let fromId = Self.extractFirstImageId(from: photoIdArg) {
+            photoIdArg = fromId
+        }
+
         let cgImage: CGImage
-        if let path = args["path"], !path.isEmpty {
-            guard let img = UIImage(contentsOfFile: path),
+        if !pathArg.isEmpty {
+            guard let img = UIImage(contentsOfFile: pathArg),
                   let cg = img.cgImage else {
                 return ToolExecutionResult(success: false,
-                                            error: "couldn't load image at: \(path)")
+                                            error: "couldn't load image at: \(pathArg)")
             }
             cgImage = cg
-        } else if let photoId = args["photo_id"], !photoId.isEmpty {
+        } else if !photoIdArg.isEmpty {
             do {
-                cgImage = try await loadAssetCGImage(photoId: photoId)
+                cgImage = try await loadAssetCGImage(photoId: photoIdArg)
             } catch {
                 return ToolExecutionResult(success: false,
                                             error: "couldn't load asset: \(error.localizedDescription)")
@@ -119,6 +135,60 @@ public final class RecognizeTextSkill: Skill, @unchecked Sendable {
                 }
                 cont.resume(returning: cg)
             }
+        }
+    }
+
+    /// Pull a PHAsset.localIdentifier out of a `search-photos` JSON
+    /// envelope. The planner often passes the entire upstream output
+    /// as `path` because the runner substitutes `"Output from s1"`
+    /// verbatim — we accept that and route through the photo-library
+    /// path instead of trying to load JSON-as-file. The substitution
+    /// truncates at 500 chars so the JSON may be malformed; a regex
+    /// fallback extracts the first `"id":"..."` token regardless.
+    static func extractFirstImageId(from value: String) -> String? {
+        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard trimmed.hasPrefix("{") || trimmed.contains("\"id\"") else { return nil }
+        // Fast path: full JSON parse.
+        if let data = trimmed.data(using: .utf8),
+           let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+           let items = obj["items"] as? [[String: Any]] {
+            if let first = items.first(where: { ($0["mediaType"] as? String) == "image" }),
+               let id = first["id"] as? String, !id.isEmpty {
+                return id
+            }
+            if let first = items.first, let id = first["id"] as? String, !id.isEmpty {
+                return id
+            }
+        }
+        // Truncation fallback: pull out the first `"id":"<...>"` value
+        // without depending on the JSON closing cleanly.
+        let pattern = #""id"\s*:\s*"([^"]+)""#
+        if let re = try? NSRegularExpression(pattern: pattern) {
+            let range = NSRange(trimmed.startIndex..<trimmed.endIndex, in: trimmed)
+            if let match = re.firstMatch(in: trimmed, options: [], range: range),
+               match.numberOfRanges >= 2,
+               let r = Range(match.range(at: 1), in: trimmed) {
+                let id = String(trimmed[r])
+                if !id.isEmpty { return id }
+            }
+        }
+        return nil
+    }
+
+    /// All `"id":"<...>"` tokens in the value, in order. Used by
+    /// `BarcodeSkill` to walk every candidate asset when the
+    /// search-photos upstream returned a list.
+    static func extractAllImageIds(from value: String) -> [String] {
+        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return [] }
+        let pattern = #""id"\s*:\s*"([^"]+)""#
+        guard let re = try? NSRegularExpression(pattern: pattern) else { return [] }
+        let range = NSRange(trimmed.startIndex..<trimmed.endIndex, in: trimmed)
+        return re.matches(in: trimmed, options: [], range: range).compactMap { m in
+            guard m.numberOfRanges >= 2,
+                  let r = Range(m.range(at: 1), in: trimmed) else { return nil }
+            let id = String(trimmed[r])
+            return id.isEmpty ? nil : id
         }
     }
 }

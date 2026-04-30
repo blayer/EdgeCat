@@ -85,6 +85,83 @@ final class StepArgRescueTests: XCTestCase {
         XCTAssertEqual(r, "literal value")
     }
 
+    // MARK: - URL extraction
+
+    func testUrlArgExtractsFirstHttpsFromSearchResults() {
+        // Mimics what search-web's output looks like when piped into a
+        // chained fetch-web-content step via "Output from s1".
+        let searchOutput = """
+        Search results for: weather in Tokyo
+
+        1. Tokyo weather - weather.com
+           https://weather.com/tokyo
+           Updated forecast.
+        2. AccuWeather Tokyo
+           https://accuweather.com/tokyo
+        """
+        let out = StepArgRescue.rescue(
+            args: ["url": "Output from s1"],
+            dependencies: ["s1": searchOutput],
+            now: referenceDate)
+        XCTAssertEqual(out["url"], "https://weather.com/tokyo")
+    }
+
+    func testUrlArgPassesCleanUrlThrough() {
+        let out = StepArgRescue.rescue(
+            args: ["url": "https://example.com/path"],
+            dependencies: [:],
+            now: referenceDate)
+        XCTAssertEqual(out["url"], "https://example.com/path")
+    }
+
+    func testUrlArgHandlesJsonEscapedSlashes() {
+        // Swift's JSONSerialization default emits `\/` for forward
+        // slashes, so search-web's wrapped output looks like
+        // `https:\/\/www.accuweather.com\/...`. Without un-escaping,
+        // the regex captures only `https:` and fetch-web-content
+        // fails with "invalid 'url' argument".
+        let jsonOutput =
+            #"{"results":"1. Tokyo - AccuWeather\n   https:\/\/www.accuweather.com\/en\/jp\/tokyo\n"}"#
+        let out = StepArgRescue.rescue(
+            args: ["url": "Output from s1"],
+            dependencies: ["s1": jsonOutput],
+            now: referenceDate)
+        XCTAssertEqual(out["url"], "https://www.accuweather.com/en/jp/tokyo")
+    }
+
+    func testUrlArgHandlesJsonEscapedNewline() {
+        // Real search-web output is JSON-serialized; newlines in the
+        // formatted `results` field come through as the literal two-char
+        // escape `\n`. The regex must stop at `\`, otherwise URL(string:)
+        // rejects the trailing `\n` and fetch-web-content sees
+        // `invalid 'url' argument`.
+        let jsonOutput =
+            #"{"status":"succeeded","results":"1. Tokyo\n   https://weather.com/tokyo\n   ..."}"#
+        let out = StepArgRescue.rescue(
+            args: ["url": "Output from s1"],
+            dependencies: ["s1": jsonOutput],
+            now: referenceDate)
+        XCTAssertEqual(out["url"], "https://weather.com/tokyo")
+    }
+
+    func testUrlArgStripsTrailingPunctuation() {
+        // URL captured from prose: "see https://example.com." → strip the period.
+        let out = StepArgRescue.rescue(
+            args: ["url": "Output from s1"],
+            dependencies: ["s1": "Visit https://example.com."],
+            now: referenceDate)
+        XCTAssertEqual(out["url"], "https://example.com")
+    }
+
+    func testNonUrlArgIgnoresUrlExtraction() {
+        // `text` arg should NOT have a URL scraped out of it.
+        let out = StepArgRescue.rescue(
+            args: ["text": "Visit https://example.com for more"],
+            dependencies: [:],
+            now: referenceDate)
+        XCTAssertEqual(out["text"], "Visit https://example.com for more")
+    }
+
     // MARK: - Full rescue pipeline
 
     func testRescueAppliesAllTransformsTogether() {

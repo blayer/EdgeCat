@@ -366,8 +366,14 @@ public final class ChatViewModel {
     /// Render the last `take` chat turns as a "role: text" string for the
     /// orchestrator's `conversationContextProvider` closure. Skips the
     /// in-flight assistant placeholder so the planner never sees an empty
-    /// trailing turn. Truncates each turn to 280 chars to keep the planner
-    /// prompt bounded — Phase 4's `Planner.bound` enforces an outer cap too.
+    /// trailing turn.
+    ///
+    /// Per-message truncation: 1000 chars, bumped up from 280. A 280-char
+    /// cap eats multi-paragraph assistant outputs (e.g. a generated trip
+    /// plan) after the first sentence — the next turn's planner then can't
+    /// "base on" the prior plan and asks the user to repeat themselves.
+    /// `Planner.bound` enforces an outer cap by `historyWindow * 1000` so
+    /// the total context still has a hard ceiling.
     nonisolated static func recentHistory(_ messages: [ChatMessage], take: Int) -> String {
         guard take > 0 else { return "" }
         // Drop trailing loading bubbles before slicing.
@@ -375,7 +381,7 @@ public final class ChatViewModel {
         let recent = stable.suffix(take)
         return recent.map { msg in
             let role = msg.role == .assistant ? "assistant" : "user"
-            let text = msg.text.count > 280 ? String(msg.text.prefix(280)) + "…" : msg.text
+            let text = msg.text.count > 1000 ? String(msg.text.prefix(1000)) + "…" : msg.text
             return "\(role): \(text)"
         }.joined(separator: "\n")
     }

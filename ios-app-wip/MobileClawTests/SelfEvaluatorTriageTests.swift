@@ -90,4 +90,39 @@ final class SelfEvaluatorTriageTests: XCTestCase {
             userMessage: "x", plan: p, results: [:])
         XCTAssertTrue(llm.called, "Empty plan should not triage to success")
     }
+
+    func testBareSearchResultsDoNotTriageAsSuccess() async throws {
+        // Token "tokyo" is in both goal and search-result titles, which
+        // would normally trigger the triage shortcut. But search results
+        // alone aren't an answer — must fall through to the LLM evaluator
+        // so it can ask for a fetch-web-content follow-up.
+        let llm = StubLLM()
+        let evaluator = SelfEvaluator(llm: llm, policy: ThinkingPolicy(mode: .off))
+        let p = plan(goal: "weather in Tokyo",
+                     steps: [PlanStep(id: "s1", description: "search",
+                                      skillName: "search-web")])
+        let results = ["s1": StepResult(
+            stepId: "s1", status: .completed,
+            output: "Search results for: weather in Tokyo\n\n1. Tokyo - weather.com")]
+        _ = try await evaluator.evaluate(
+            userMessage: "weather in Tokyo", plan: p, results: results)
+        XCTAssertTrue(llm.called,
+                      "Bare search-results output must not satisfy triage")
+    }
+
+    func testIsBareSearchResultsHelper() {
+        // No "Page content from" → bare list, must force replan.
+        XCTAssertTrue(SelfEvaluator.isBareSearchResults(
+            "Search results for: weather in Tokyo\n\n1. Tokyo - weather.com"))
+        // With fetched content → triage can apply normally.
+        XCTAssertFalse(SelfEvaluator.isBareSearchResults("""
+        Search results for: weather in Tokyo
+
+        Page content from https://weather.com/tokyo
+
+        Tokyo today: cloudy, 18°C.
+        """))
+        // Non-search outputs aren't affected.
+        XCTAssertFalse(SelfEvaluator.isBareSearchResults("the answer is 42"))
+    }
 }

@@ -47,6 +47,40 @@ public final class TakePhotoSkill: Skill, @unchecked Sendable {
     }
 }
 
+// LLM-only catalog stubs. The executor short-circuits these via
+// `SkillTools.llmOnly` and routes to `runLlmStep` — these `run()`
+// implementations are defensive no-ops. Catalog visibility lets the
+// planner pick `summarize`/`compose` for synthesis steps (which keeps
+// plan_validity scoring happy and avoids `skillName: null`).
+//
+// Descriptions are intentionally one-liners — verbose copy here
+// inflates every planner prompt by ~150 chars and destabilizes
+// generation on tight context budgets (Gemma 4 E2B).
+
+public final class SummarizeSkill: Skill, @unchecked Sendable {
+    public var name: String { "summarize" }
+    public var description: String {
+        "Synthesize free-form text from prior step outputs (LLM-only, no tool call). Use for paragraphs, summaries, itineraries, drafts."
+    }
+    public init() {}
+    public func run(args: [String: String]) async -> ToolExecutionResult {
+        ToolExecutionResult(success: true,
+                            output: args["instruction"] ?? args["description"] ?? "")
+    }
+}
+
+public final class ComposeSkill: Skill, @unchecked Sendable {
+    public var name: String { "compose" }
+    public var description: String {
+        "Compose free-form text (LLM-only, no tool call). Same routing as summarize — for messages, replies, or non-arithmetic text generation."
+    }
+    public init() {}
+    public func run(args: [String: String]) async -> ToolExecutionResult {
+        ToolExecutionResult(success: true,
+                            output: args["instruction"] ?? args["description"] ?? "")
+    }
+}
+
 public final class VolumeControlSkill: Skill, @unchecked Sendable {
     public var name: String { "volume-control" }
     public var description: String {

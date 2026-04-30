@@ -25,24 +25,48 @@ public struct SelfEvaluator {
         for step in plan.steps {
             guard let result = results[step.id], result.status == .completed else { return nil }
             if result.output.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { return nil }
-            let lower = result.output.lowercased()
-            for marker in ["error", "failed", "unable", "could not"] where lower.contains(marker) {
+            // search-web's output ("Search results for: ...") contains
+            // the user's query tokens as titles + snippets, which would
+            // make the goal-token check below trivially pass. But links
+            // are not an answer. Force a full LLM evaluation when the
+            // last step is a bare search with no fetch-web-content
+            // follow-up — the LLM evaluator will say "shouldReplan" so
+            // the planner can chain the fetch.
+            let isLastStep = step.id == plan.steps.last?.id
+            if isLastStep && Self.isBareSearchResults(result.output) {
                 return nil
             }
+            let lower = result.output.lowercased()
+            // Skip the marker-scan for outputs that are JSON envelopes
+            // declaring their own success — `{"status":"succeeded",...}`
+            // can legitimately contain the substring "error" inside an
+            // inner field name (e.g. `"error":null`) without meaning
+            // the step failed.
+            let isStructuredSuccess = lower.contains("\"status\"")
+                && (lower.contains("\"succeeded\"") || lower.contains("\"ok\""))
+            if !isStructuredSuccess {
+                for marker in ["error", "failed", "unable", "could not"] where lower.contains(marker) {
+                    return nil
+                }
+            }
         }
-        // At least one step output should mention a goal token or a
-        // success-criteria token so we know the work is on-target.
+        // At least one step output should mention a goal token, a
+        // success-criteria token, OR signal structured success — so we
+        // know the work is on-target without requiring substring
+        // overlap with the goal phrasing.
         let combinedOutput = plan.steps
             .compactMap { results[$0.id]?.output }
             .joined(separator: " ")
             .lowercased()
+        let structuredSuccess = combinedOutput.contains("\"status\"")
+            && (combinedOutput.contains("\"succeeded\"") || combinedOutput.contains("\"ok\""))
         let goalTokens = Self.tokens(from: plan.goal)
         let criteriaTokens = plan.successCriteria.flatMap { Self.tokens(from: $0) }
         let allTokens = goalTokens + criteriaTokens
-        let hit = allTokens.contains { token in
+        let tokenHit = allTokens.contains { token in
             !token.isEmpty && combinedOutput.contains(token)
         }
-        guard hit else { return nil }
+        guard tokenHit || structuredSuccess else { return nil }
 
         return EvaluationResult(
             goalAchieved: true,
@@ -50,6 +74,18 @@ public struct SelfEvaluator {
             missingItems: [],
             shouldReplan: false,
             failedCriteria: [])
+    }
+
+    /// `true` when the output is a search-web results listing with no
+    /// fetched page content. Search results contain query tokens that
+    /// would trivially satisfy the triage goal-token check, but they're
+    /// just links — not an answer. Detected by the formatted header
+    /// SearchWebSkill emits ("Search results for: …") combined with the
+    /// absence of "Page content from".
+    static func isBareSearchResults(_ output: String) -> Bool {
+        let lower = output.lowercased()
+        guard lower.contains("search results for") else { return false }
+        return !lower.contains("page content from")
     }
 
     private static func tokens(from text: String) -> [String] {

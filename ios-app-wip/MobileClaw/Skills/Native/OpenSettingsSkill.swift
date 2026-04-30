@@ -11,7 +11,9 @@ import UIKit
 public final class OpenSettingsSkill: Skill, @unchecked Sendable {
     public var name: String { "open-settings" }
     public var description: String {
-        "Open the iOS Settings app on this app's preferences page. " +
+        "USE THIS for any \"open settings\", \"go to settings\", \"open " +
+        "iOS settings\" request — DO NOT use launch-app for Settings. " +
+        "Opens the iOS Settings app on this app's preferences page. " +
         "iOS does not let third-party apps jump to other Settings panes."
     }
     public init() {}

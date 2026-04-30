@@ -55,7 +55,8 @@ public struct Planner {
         let raw = try await llm.generateResponse(
             prompt: prompt,
             enableThinking: policy.planner(userMessage: userMessage, iteration: iteration))
-        return try parsePlan(raw, defaultGoal: userMessage)
+        let parsed = try parsePlan(raw, defaultGoal: userMessage)
+        return Self.filterUnknownSkills(plan: parsed, available: availableSkills)
     }
 
     /// Re-plan after the evaluator says the prior plan didn't satisfy the
@@ -76,14 +77,18 @@ public struct Planner {
         let raw = try await llm.generateResponse(
             prompt: prompt,
             enableThinking: policy.replan(replanAttempt: context.replanAttempt))
-        return try parsePlan(raw, defaultGoal: userMessage)
+        let parsed = try parsePlan(raw, defaultGoal: userMessage)
+        return Self.filterUnknownSkills(plan: parsed, available: availableSkills)
     }
 
-    /// Cap conversation context to roughly `historyWindow` turns (~280 chars
-    /// per turn). Keeps the planner prompt within Gemma 4 E2B's working
-    /// window without an exact tokenizer dependency.
+    /// Cap conversation context to roughly `historyWindow` turns (~1000
+    /// chars per turn). Keeps the planner prompt within Gemma 4 E2B's
+    /// working window without an exact tokenizer dependency. Bumped from
+    /// 280 → 1000 so multi-paragraph assistant outputs (trip plans,
+    /// itineraries) survive into the next turn — at 280 the planner only
+    /// saw the first sentence and asked the user to repeat themselves.
     private func bound(_ context: String) -> String {
-        let limit = max(0, historyWindow) * 280
+        let limit = max(0, historyWindow) * 1000
         if context.count <= limit { return context }
         let start = context.index(context.endIndex, offsetBy: -limit)
         return String(context[start...])
@@ -302,6 +307,27 @@ public struct Planner {
           "successCriteria": ["Distance is on the clipboard."]
         }
 
+        Synthesis / drafting / "make a plan from this data" example — leave skillName NULL and put the instruction in the description. The executor synthesizes free-form text via the LLM. NEVER use calculator for text — calculator is ARITHMETIC ONLY:
+        {
+          "goal": "Draft a Tokyo trip itinerary from the fetched page",
+          "steps": [
+            {"id": "s1", "description": "Search the web for Tokyo sightseeing.", "skillName": "search-web", "toolArgs": {"query": "Tokyo famous sights itinerary"}, "dependsOn": []},
+            {"id": "s2", "description": "Fetch the top result for actual content.", "skillName": "fetch-web-content", "toolArgs": {"url": "Output from s1"}, "dependsOn": ["s1"]},
+            {"id": "s3", "description": "Synthesize a one-day Tokyo itinerary using the fetched details.", "skillName": null, "toolArgs": {}, "dependsOn": ["s2"]}
+          ],
+          "successCriteria": ["Reply contains a concrete itinerary."]
+        }
+
+        "Answer a question from the web" example — search-web alone returns a LINK LIST, not the answer. Chain fetch-web-content on the top URL so the formatter has the actual page text to extract from:
+        {
+          "goal": "Tell the user the weather in Tokyo today",
+          "steps": [
+            {"id": "s1", "description": "Search the web for today's Tokyo weather.", "skillName": "search-web", "toolArgs": {"query": "weather in Tokyo today"}, "dependsOn": []},
+            {"id": "s2", "description": "Fetch the top result's page to get the actual weather details.", "skillName": "fetch-web-content", "toolArgs": {"url": "Output from s1"}, "dependsOn": ["s1"]}
+          ],
+          "successCriteria": ["Reply states today's Tokyo temperature/conditions."]
+        }
+
         User request: \(userMessage)
         """
     }
@@ -472,13 +498,73 @@ public struct Planner {
                         repairCommas(s)))))
     }
 
+    /// Drop steps whose `skillName` doesn't exist in the registry. Small
+    /// models hallucinate plausible-sounding names ("weather-api-skill",
+    /// "query-wikipedia") that would route to `runJs` and fail with
+    /// "unknown skill: …", costing us an execute + replan round-trip per
+    /// hallucination. Pre-filter so the executor only sees real skills.
+    ///
+    /// Steps with empty / null `skillName` are LLM-only (summarize-style)
+    /// and pass through unchanged. Names matching `SkillTools.llmOnly`
+    /// also pass — they're synthesized by the executor's LLM lane, not
+    /// dispatched to the registry.
+    ///
+    /// Safety net: if filtering would empty a non-empty plan (every
+    /// step hallucinated), keep the original steps. An empty plan
+    /// cascades to a "(no result)" final output — better to let the
+    /// executor fail per-step so the replan has concrete error context
+    /// to react to. Mirrors Android's "prefer noisy failure to silent
+    /// no-op" heuristic in the Phase 7 planner-cleanup work.
+    static func filterUnknownSkills(plan: ExecutionPlan,
+                                    available: [SkillSummary]) -> ExecutionPlan {
+        let valid = Set(available.map { SkillTools.normalize($0.name).lowercased() })
+        let filtered = plan.steps.filter { step in
+            guard let name = step.skillName?.trimmingCharacters(in: .whitespaces),
+                  !name.isEmpty, name.lowercased() != "null" else {
+                return true   // LLM-only / description-only step.
+            }
+            let normalized = SkillTools.normalize(name).lowercased()
+            return valid.contains(normalized) || SkillTools.llmOnly.contains(normalized)
+        }
+        if filtered.count == plan.steps.count { return plan }
+        // Don't return an empty plan — pass the originals through so the
+        // executor's per-step "unknown skill" failures drive a productive
+        // replan. The expanded non-recoverable markers list catches the
+        // unrecoverable case (every step fails with `unknown skill:`).
+        if filtered.isEmpty { return plan }
+        return ExecutionPlan(goal: plan.goal,
+                             reasoning: plan.reasoning,
+                             steps: filtered,
+                             successCriteria: plan.successCriteria)
+    }
+
     /// Last-ditch parser: when no tier produces valid JSON, scrape the goal
     /// + skill names with regex so the orchestrator at least has something
     /// to feed to ExecutionOrchestrator (which will mostly fail-fast, but
     /// emits step-level traces that help debugging).
+    ///
+    /// Accepts multiple key spellings (`skillName`, `skill_name`, `skill`,
+    /// `tool_name`, `toolName`) because models drift across formats. We
+    /// deliberately do NOT add a synthetic LLM-only fallback for the
+    /// no-keys-found case: skill-dependent tasks (scan-barcode, search-
+    /// photos) would have the LLM hallucinate a plausible-sounding
+    /// answer ("No QR codes found in the image") without actually
+    /// running anything. Empty-plan + "(no result)" downstream is the
+    /// safer signal that the planner failed.
     private static func regexFallback(_ text: String, defaultGoal: String) -> ExecutionPlan {
         let goal = firstMatch(in: text, pattern: #""goal"\s*:\s*"([^"]+)""#) ?? defaultGoal
-        let skillNames = matches(in: text, pattern: #""skillName"\s*:\s*"([^"]+)""#)
+        let skillKeys = [
+            #""skillName"\s*:\s*"([^"]+)""#,
+            #""skill_name"\s*:\s*"([^"]+)""#,
+            #""skill"\s*:\s*"([^"]+)""#,
+            #""tool_name"\s*:\s*"([^"]+)""#,
+            #""toolName"\s*:\s*"([^"]+)""#,
+        ]
+        var skillNames: [String] = []
+        for pattern in skillKeys {
+            let hits = matches(in: text, pattern: pattern)
+            if !hits.isEmpty { skillNames = hits; break }
+        }
         let steps: [PlanStep] = skillNames.enumerated().map { idx, name in
             PlanStep(id: "s\(idx + 1)", description: "regex-fallback step", skillName: name)
         }

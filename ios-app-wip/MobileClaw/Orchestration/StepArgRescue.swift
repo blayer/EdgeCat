@@ -19,11 +19,57 @@ public enum StepArgRescue {
         for (key, value) in args {
             var v = value
             v = substitutePlaceholders(v, dependencies: dependencies)
+            v = extractUrlIfNeeded(v, key: key)
             v = normalizeDateTime(v, now: now)
             v = normalizePhoneNumber(v, key: key)
             out[key] = v
         }
         return out
+    }
+
+    /// When the arg key is URL-shaped (`url`, `link`, `href`) and the
+    /// substituted value isn't yet a clean URL, scrape the first
+    /// `https?://…` token out of it. Lets `fetch-web-content` chain
+    /// directly off `search-web`'s output — search-web returns the
+    /// full results JSON, but fetch-web-content needs just one URL.
+    static func extractUrlIfNeeded(_ value: String, key: String) -> String {
+        let urlishKeys: Set<String> = ["url", "link", "href"]
+        guard urlishKeys.contains(key) else { return value }
+        // Un-escape JSON slashes BEFORE the URL scan. Swift's
+        // `JSONSerialization.data(withJSONObject:)` defaults to
+        // emitting `\/` for forward slashes, so search-web's output
+        // contains `https:\/\/www.accuweather.com\/...`. Without this
+        // step the regex below would capture only `https:` and the
+        // chained fetch-web-content step fails with `invalid 'url'`.
+        let unescaped = value.replacingOccurrences(of: #"\/"#, with: "/")
+        let trimmed = unescaped.trimmingCharacters(in: .whitespacesAndNewlines)
+        // Already a clean URL? Pass through.
+        if let u = URL(string: trimmed), u.scheme == "http" || u.scheme == "https" {
+            return trimmed
+        }
+        // Scrape the first http(s) URL from the value. Stops at
+        // whitespace, quotes, brackets, AND backslash — search-web's
+        // output is JSON-serialized so newlines come through as the
+        // two-char escape `\n`, and including those would produce
+        // "https://example.com\n" which URL(string:) rejects.
+        let pattern = #"https?://[^\s"'<>\\]+"#
+        guard let re = try? NSRegularExpression(pattern: pattern) else { return value }
+        let range = NSRange(trimmed.startIndex..<trimmed.endIndex, in: trimmed)
+        guard let m = re.firstMatch(in: trimmed, options: [], range: range),
+              let r = Range(m.range, in: trimmed) else { return value }
+        // Strip trailing punctuation commonly attached to URLs in prose
+        // (sentence-ending . , ; : ! ?, closing brackets) — these aren't
+        // part of the URL but the regex would happily eat them.
+        var matched = String(trimmed[r])
+        let trailing: Set<Character> = [".", ",", ";", ":", "!", "?", ")", "]", "}"]
+        while let last = matched.last, trailing.contains(last) {
+            matched.removeLast()
+        }
+        // Validate — fall back to original if the scraped URL doesn't parse.
+        guard let u = URL(string: matched), u.scheme == "http" || u.scheme == "https" else {
+            return value
+        }
+        return u.absoluteString
     }
 
     /// Replace placeholder values that reference a prior step output. The

@@ -20,9 +20,13 @@ import LinkPresentation
 public final class PreviewUrlSkill: Skill, @unchecked Sendable {
     public var name: String { "preview-url" }
     public var description: String {
-        "Fetch rich preview metadata for a URL — title, description, " +
-        "image / icon URLs. Uses the same engine iMessage and Notes use " +
-        "to render link previews. " +
+        "Use this for any 'title / preview / what is at this URL' question. " +
+        "Returns the page title, description, and preview image URL (Open " +
+        "Graph + Twitter card metadata) using the same engine iMessage and " +
+        "Notes use to render link previews. " +
+        "PREFER this over fetch-web-content + an extraction step when the " +
+        "user just wants the title or summary of a URL. " +
+        "Works for any http(s) URL — GitHub repos, news articles, blog posts. " +
         "args: url=<http(s) URL>, timeout_s=<N, default 10>"
     }
     public init() {}

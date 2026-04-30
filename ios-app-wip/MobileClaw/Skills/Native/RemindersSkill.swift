@@ -10,7 +10,7 @@ public final class RemindersSkill: Skill, @unchecked Sendable {
     public var description: String {
         "Create a to-do item in the iOS Reminders app (NOT a calendar event). " +
         "Use this for shopping, follow-ups, and tasks the user wants to be nudged about later. " +
-        "For meetings / appointments / events that go on a calendar, use add-calendar-event. " +
+        "For meetings / appointments / events that go on a calendar, use calendar (action=add). " +
         "args: title, notes (optional), dueIso (optional ISO date)"
     }
     public init() {}
