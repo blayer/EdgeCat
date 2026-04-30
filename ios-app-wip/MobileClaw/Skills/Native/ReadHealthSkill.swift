@@ -99,8 +99,8 @@ public final class ReadHealthSkill: Skill, @unchecked Sendable {
     /// Idempotent auth request keyed by a string identifier so we can
     /// short-circuit the second time around.
     static func authorizeIfNeeded(store: HKHealthStore,
-                                   read: Set<HKObjectType>,
-                                   key: String) async throws {
+                                  read: Set<HKObjectType>,
+                                  key: String) async throws {
         if await authCache.contains(key) { return }
         try await store.requestAuthorization(toShare: [], read: read)
         await authCache.insert(key)
