@@ -153,6 +153,23 @@ final class StepArgRescueTests: XCTestCase {
         XCTAssertEqual(out["url"], "https://example.com")
     }
 
+    func testPhotoIdArgPreservesFullJsonForMultiPhotoRetry() {
+        // photo_id values are NOT shrunk to a single id — BarcodeSkill
+        // and RecognizeTextSkill walk the full search-photos JSON via
+        // `extractAllImageIds`, retrying each candidate until one
+        // decodes. Shrinking here would force a single asset and lose
+        // the retry behavior.
+        let searchOutput =
+            #"{"items":[{"id":"909617D3-056A-4425-AED9-EEC5836A9FE8/L0/001"},{"id":"4F32C73E-23F9-4C62-B343-E7E594D6146D/L0/001"}]}"#
+        let out = StepArgRescue.rescue(
+            args: ["photo_id": "Output from s1"],
+            dependencies: ["s1": searchOutput],
+            now: referenceDate)
+        XCTAssertTrue(out["photo_id"]?.contains("909617D3") == true)
+        XCTAssertTrue(out["photo_id"]?.contains("4F32C73E") == true,
+                      "Both candidate ids must survive into photo_id for the multi-photo retry")
+    }
+
     func testNonUrlArgIgnoresUrlExtraction() {
         // `text` arg should NOT have a URL scraped out of it.
         let out = StepArgRescue.rescue(

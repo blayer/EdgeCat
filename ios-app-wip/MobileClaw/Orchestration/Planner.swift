@@ -544,13 +544,10 @@ public struct Planner {
     /// emits step-level traces that help debugging).
     ///
     /// Accepts multiple key spellings (`skillName`, `skill_name`, `skill`,
-    /// `tool_name`, `toolName`) because models drift across formats. We
-    /// deliberately do NOT add a synthetic LLM-only fallback for the
-    /// no-keys-found case: skill-dependent tasks (scan-barcode, search-
-    /// photos) would have the LLM hallucinate a plausible-sounding
-    /// answer ("No QR codes found in the image") without actually
-    /// running anything. Empty-plan + "(no result)" downstream is the
-    /// safer signal that the planner failed.
+    /// `tool_name`, `toolName`) because models drift across formats. If
+    /// no skill-shaped key turns up, falls back to a goal-keyword heuristic
+    /// (`infersSkillsFromGoal`) — better to attempt the most likely skill
+    /// chain than to dump "(no result)" on the user.
     private static func regexFallback(_ text: String, defaultGoal: String) -> ExecutionPlan {
         let goal = firstMatch(in: text, pattern: #""goal"\s*:\s*"([^"]+)""#) ?? defaultGoal
         let skillKeys = [
@@ -565,10 +562,141 @@ public struct Planner {
             let hits = matches(in: text, pattern: pattern)
             if !hits.isEmpty { skillNames = hits; break }
         }
+        // No skill keys at all — infer from goal keywords. Saves
+        // skill-dependent tasks (scan-barcode, search-photos) from
+        // dumping "(no result)" when the planner output is too
+        // mangled even for the regex parser. Inferred chains get
+        // sequential dependsOn + best-guess toolArgs so a multi-step
+        // chain (e.g. search-photos → scan-barcode) actually wires
+        // outputs together — without that, batch.start runs them in
+        // parallel and the dependent step gets empty args.
+        if skillNames.isEmpty {
+            return ExecutionPlan(goal: goal,
+                                 reasoning: "regex-fallback",
+                                 steps: inferredSteps(goal: goal))
+        }
         let steps: [PlanStep] = skillNames.enumerated().map { idx, name in
             PlanStep(id: "s\(idx + 1)", description: "regex-fallback step", skillName: name)
         }
         return ExecutionPlan(goal: goal, reasoning: "regex-fallback", steps: steps)
+    }
+
+    /// Build a sequentially-chained step list from the goal-keyword
+    /// heuristic. Each step's args + `dependsOn` are filled in based
+    /// on the prior step in the chain — so e.g. `search-photos →
+    /// scan-barcode` properly threads photo_id through.
+    static func inferredSteps(goal: String) -> [PlanStep] {
+        let names = inferSkillsFromGoal(goal)
+        var steps: [PlanStep] = []
+        for (idx, name) in names.enumerated() {
+            let id = "s\(idx + 1)"
+            let prev = idx > 0 ? "s\(idx)" : nil
+            let args = inferredArgs(for: name, goal: goal, priorStepId: prev)
+            steps.append(PlanStep(
+                id: id,
+                description: "regex-fallback step",
+                skillName: name,
+                toolArgs: args,
+                dependsOn: prev.map { [$0] } ?? []))
+        }
+        return steps
+    }
+
+    /// Best-effort args for an inferred step. Pulls a name-shaped token
+    /// from the goal for `search-photos`, threads prior outputs via the
+    /// `Output from <id>` placeholder so StepArgRescue can substitute.
+    private static func inferredArgs(for skill: String,
+                                     goal: String,
+                                     priorStepId: String?) -> [String: String] {
+        switch skill {
+        case "search-photos":
+            return ["query": photoQueryHint(from: goal)]
+        case "scan-barcode":
+            // Pass the name hint as photo_id when there's no upstream
+            // step. BarcodeSkill's `looksLikePhotoAssetId` returns false
+            // for plain names, so it falls through to
+            // `scanRecentLibrary(maxAssets: 30)` and walks 30 recent
+            // photos — the most-reliable path for "find the photo
+            // named X and scan it" prompts.
+            return ["photo_id": priorStepId.map { "Output from \($0)" } ?? photoQueryHint(from: goal)]
+        case "recognize-text":
+            return ["photo_id": priorStepId.map { "Output from \($0)" } ?? ""]
+        case "search-web":
+            return ["query": goal]
+        case "fetch-web-content":
+            return ["url": priorStepId.map { "Output from \($0)" } ?? ""]
+        default:
+            return [:]
+        }
+    }
+
+    /// Extract a `test_qr_claude`-style identifier from the goal text
+    /// (longest underscore/dash token), falling back to the goal itself.
+    /// Pattern needs a capture group because `matches(in:pattern:)`
+    /// reads range(at: 1) — without one we'd get back nothing and
+    /// always fall through to the full goal.
+    private static func photoQueryHint(from goal: String) -> String {
+        let pattern = #"(\b[a-z][a-z0-9_-]{4,}\b)"#
+        let lower = goal.lowercased()
+        let tokens = Self.matches(in: lower, pattern: pattern)
+        let identifierish = tokens.filter {
+            $0.contains("_") || $0.contains("-")
+        }
+        return identifierish.max(by: { $0.count < $1.count })
+            ?? tokens.max(by: { $0.count < $1.count })
+            ?? goal
+    }
+
+    /// Goal-keyword → skill-name heuristic for the catastrophic regex-
+    /// fallback case (raw model output had no skill-shaped fields).
+    /// Returns an empty array for goals that don't match any known
+    /// keyword, in which case the executor sees zero steps and the
+    /// formatter says "(no result)" — the user-facing equivalent of
+    /// "I couldn't generate a plan for that".
+    static func inferSkillsFromGoal(_ goal: String) -> [String] {
+        let g = goal.lowercased()
+        // Order matters: more specific patterns before more general ones.
+        // Each entry is (predicate, ordered skill chain).
+        let rules: [(check: (String) -> Bool, skills: [String])] = [
+            // QR / barcode → scan-barcode alone. Its built-in
+            // `scanRecentLibrary` fallback walks 30 recent photos, which
+            // is faster + more reliable than chaining off search-photos
+            // (search-photos's fallback is capped at 10, so the QR
+            // photo can fall outside the candidate set).
+            ({ $0.contains("qr") || $0.contains("barcode") },
+             ["scan-barcode"]),
+            // Photo + text/OCR → find the photo, then read text.
+            ({ $0.contains("photo") && ($0.contains("text") || $0.contains("ocr") || $0.contains("read")) },
+             ["search-photos", "recognize-text"]),
+            // Plain photo lookup.
+            ({ $0.contains("photo") || $0.contains("gallery") || $0.contains("picture") },
+             ["search-photos"]),
+            // Web fact-finding (weather, news, "what is", "who is", "find me").
+            ({ $0.contains("weather") || $0.contains("news") || $0.contains("temperature")
+                 || $0.contains("what is") || $0.contains("who is") },
+             ["search-web", "fetch-web-content"]),
+            // Calendar / reminder / event creation.
+            ({ $0.contains("calendar") || $0.contains("event") || $0.contains("appointment") },
+             ["calendar"]),
+            ({ $0.contains("reminder") || $0.contains("remind me") },
+             ["reminders"]),
+            ({ $0.contains("timer") },
+             ["timer"]),
+            // Health.
+            ({ $0.contains("step") || $0.contains("heart") || $0.contains("activity") || $0.contains("workout") },
+             ["read-health"]),
+            // Directions.
+            ({ $0.contains("walk") || $0.contains("drive") || $0.contains("directions") || $0.contains("nearest") },
+             ["directions"]),
+            // Calculator (only after we've ruled out everything else).
+            ({ $0.contains("calculate") || $0.contains("how much is") || $0.contains("plus")
+                 || $0.contains("times") || $0.contains("divided") },
+             ["calculator"]),
+        ]
+        for rule in rules where rule.check(g) {
+            return rule.skills
+        }
+        return []
     }
 
     private static func firstMatch(in text: String, pattern: String) -> String? {

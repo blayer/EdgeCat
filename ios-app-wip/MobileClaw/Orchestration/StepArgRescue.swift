@@ -20,6 +20,13 @@ public enum StepArgRescue {
             var v = value
             v = substitutePlaceholders(v, dependencies: dependencies)
             v = extractUrlIfNeeded(v, key: key)
+            // NOTE: photo_id / asset_id values are NOT extracted here —
+            // BarcodeSkill and RecognizeTextSkill already iterate the
+            // full search-photos JSON envelope via
+            // `RecognizeTextSkill.extractAllImageIds` to walk every
+            // candidate. Picking just the first id here would defeat
+            // that multi-photo retry on tasks like qr-scan where the
+            // matching asset isn't always #1 in the recents list.
             v = normalizeDateTime(v, now: now)
             v = normalizePhoneNumber(v, key: key)
             out[key] = v
@@ -87,7 +94,14 @@ public enum StepArgRescue {
                 || v.lowercased().contains(normalizedId.lowercased())
                 || v.lowercased().hasPrefix("output from")
                 || v.lowercased().hasPrefix("<output of") {
-                v = String(output.prefix(500))
+                // Bumped 500 → 1500. search-photos' fallback envelope
+                // (note text + 3 items × ~80 chars) totals ~400-600
+                // chars; at the old 500 cap the trailing photo ids
+                // got truncated, breaking scan-barcode's multi-photo
+                // retry. fetch-web-content / search-web outputs are
+                // already truncated to 4000 chars so 1500 here is well
+                // under the upstream skill cap.
+                v = String(output.prefix(1500))
                 break
             }
         }

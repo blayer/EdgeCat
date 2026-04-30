@@ -128,20 +128,22 @@ public final class SearchPhotosSkill: Skill, @unchecked Sendable {
         // `recognize-text` / `scan-barcode` step still operate on the
         // right asset on a freshly seeded sim.
         //
-        // Capping the fallback at 3 (vs. the user's `maxResults`) keeps
-        // the formatter's job small when no name match was found —
-        // previously this dumped 20 photos into the format prompt and
-        // the LLM spent ~40s summarizing them. We also flag the result
-        // (`matched_by_query: false`) so downstream steps and the
-        // evaluator can tell "actually found" from "best-effort recent".
+        // Capping the fallback at 10 (vs. the user's `maxResults`) gives
+        // a downstream scan-barcode / recognize-text enough candidates
+        // to walk through (the named photo is rarely #1 in date order)
+        // without dumping 20 photos into the formatter prompt. We also
+        // flag the result (`matched_by_query: false`) so downstream
+        // steps and the evaluator can tell "actually found" from
+        // "best-effort recent".
         var matchedByQuery = !matchedAssets.isEmpty
+        let fallbackCap = 10
         if matchedAssets.isEmpty {
             let opts = PHFetchOptions()
             opts.sortDescriptors = [NSSortDescriptor(key: "creationDate", ascending: false)]
             if !datePredicates.isEmpty {
                 opts.predicate = NSCompoundPredicate(type: .and, subpredicates: datePredicates)
             }
-            opts.fetchLimit = min(3, maxResults)
+            opts.fetchLimit = min(fallbackCap, maxResults)
             let recent = PHAsset.fetchAssets(with: mediaType, options: opts)
             recent.enumerateObjects { asset, _, _ in
                 matchedAssets.append(asset)
@@ -149,7 +151,7 @@ public final class SearchPhotosSkill: Skill, @unchecked Sendable {
             matchedByQuery = false
         }
         return formatResults(assets: matchedAssets,
-                             maxResults: matchedByQuery ? maxResults : min(3, maxResults),
+                             maxResults: matchedByQuery ? maxResults : min(fallbackCap, maxResults),
                              matchedByQuery: matchedByQuery,
                              query: query)
     }
