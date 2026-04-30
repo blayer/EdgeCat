@@ -39,7 +39,7 @@ public final class PreviewUrlSkill: Skill, @unchecked Sendable {
               let scheme = url.scheme?.lowercased(),
               scheme == "http" || scheme == "https" else {
             return ToolExecutionResult(success: false,
-                                        error: "url must be http(s): \(raw)")
+                                       error: "url must be http(s): \(raw)")
         }
         let timeout = max(1, min(args["timeout_s"].flatMap(Int.init) ?? 10, 30))
         let provider = LPMetadataProvider()
@@ -66,7 +66,7 @@ public final class PreviewUrlSkill: Skill, @unchecked Sendable {
             return ToolExecutionResult(success: true, output: json)
         } catch {
             return ToolExecutionResult(success: false,
-                                        error: "couldn't fetch metadata: \(error.localizedDescription)")
+                                       error: "couldn't fetch metadata: \(error.localizedDescription)")
         }
     }
 

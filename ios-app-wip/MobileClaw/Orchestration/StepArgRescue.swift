@@ -12,14 +12,21 @@ public enum StepArgRescue {
     /// Normalize a single arg dictionary, given prior step outputs to use
     /// for placeholder substitution. Returns a new dictionary; does not
     /// mutate the input.
+    ///
+    /// `goal` is the planner's restated goal — used as a fallback source
+    /// when title-shaped args are empty/placeholder after substitution.
+    /// Pass empty string when no goal is available; the title rescue is
+    /// a no-op then.
     public static func rescue(args: [String: String],
                               dependencies: [String: String],
-                              now: Date = Date()) -> [String: String] {
+                              now: Date = Date(),
+                              goal: String = "") -> [String: String] {
         var out: [String: String] = [:]
         for (key, value) in args {
             var v = value
             v = substitutePlaceholders(v, dependencies: dependencies)
             v = extractUrlIfNeeded(v, key: key)
+            v = extractTitleHintIfNeeded(v, key: key, goal: goal)
             // NOTE: photo_id / asset_id values are NOT extracted here —
             // BarcodeSkill and RecognizeTextSkill already iterate the
             // full search-photos JSON envelope via
@@ -32,6 +39,44 @@ public enum StepArgRescue {
             out[key] = v
         }
         return out
+    }
+
+    /// When the arg key is title-shaped (`title`, `name`, `subject`,
+    /// `label`) and the value after substitution is empty, a placeholder,
+    /// or the raw JSON envelope from a prior step, fall back to a quoted
+    /// string in the goal text. The planner often gets the title right
+    /// in the user-message echo (e.g. "add a calendar event for 'Call mom'
+    /// tomorrow at 6pm") but emits an empty `title` arg or leaves
+    /// `Output from s1` in there, which downstream calendar/reminder
+    /// skills reject as `missing 'title' argument`.
+    static func extractTitleHintIfNeeded(_ value: String, key: String, goal: String) -> String {
+        let titleKeys: Set<String> = ["title", "name", "subject", "label"]
+        guard titleKeys.contains(key) else { return value }
+        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        // Real-looking value? Pass through.
+        if !trimmed.isEmpty
+            && !trimmed.lowercased().hasPrefix("output from")
+            && !trimmed.lowercased().hasPrefix("<output of")
+            && !trimmed.hasPrefix("{")  // raw JSON envelope from upstream
+            && !trimmed.hasPrefix("[") {
+            return value
+        }
+        // Pull a quoted phrase out of the goal — single quotes preferred
+        // since the user/eval prompts use them around proper-noun titles
+        // ('Call mom', 'iOS Eval Test'). Falls back to double quotes.
+        guard !goal.isEmpty else { return value }
+        let patterns = [#"'([^']{1,80})'"#, #""([^"]{1,80})""#]
+        for pattern in patterns {
+            guard let re = try? NSRegularExpression(pattern: pattern) else { continue }
+            let range = NSRange(goal.startIndex..<goal.endIndex, in: goal)
+            if let m = re.firstMatch(in: goal, options: [], range: range),
+               m.numberOfRanges >= 2,
+               let r = Range(m.range(at: 1), in: goal) {
+                let candidate = String(goal[r]).trimmingCharacters(in: .whitespacesAndNewlines)
+                if !candidate.isEmpty { return candidate }
+            }
+        }
+        return value
     }
 
     /// When the arg key is URL-shaped (`url`, `link`, `href`) and the

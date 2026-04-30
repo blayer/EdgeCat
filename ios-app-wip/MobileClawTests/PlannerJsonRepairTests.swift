@@ -177,16 +177,146 @@ final class PlannerJsonRepairTests: XCTestCase {
         XCTAssertEqual(steps[1].toolArgs["url"], "Output from s1")
     }
 
+    // MARK: - Health-summarize chain (health-summarize-001 regression)
+
+    func testInferSkillsForHealthSummarize() {
+        // "summarize my activity" → read-health then summarize so the
+        // synthesis step has data to operate on. Without the chain the
+        // regex-fallback would emit just `read-health` and the formatter
+        // would produce "(no result)" because the planner can't synthesize
+        // from raw HealthKit JSON without an LLM-only step.
+        XCTAssertEqual(
+            Planner.inferSkillsFromGoal("Summarize my activity from the last 7 days."),
+            ["read-health", "summarize"])
+        XCTAssertEqual(
+            Planner.inferSkillsFromGoal("Give me a summary of my workouts this week"),
+            ["read-health", "summarize"])
+    }
+
+    func testInferSkillsForHealthQueryWithoutSummarizeStaysSingleStep() {
+        // No summary keyword → single read-health step is fine; the
+        // formatter already handles a single read-health output.
+        XCTAssertEqual(
+            Planner.inferSkillsFromGoal("How many steps have I taken today?"),
+            ["read-health"])
+        XCTAssertEqual(
+            Planner.inferSkillsFromGoal("What is my latest heart rate reading?"),
+            ["read-health"])
+    }
+
+    func testInferredStepsChainHealthSummarize() {
+        let steps = Planner.inferredSteps(
+            goal: "Summarize my activity from the last 7 days.")
+        XCTAssertEqual(steps.count, 2)
+        XCTAssertEqual(steps[0].skillName, "read-health")
+        XCTAssertEqual(steps[0].toolArgs["windowDays"], "7")
+        XCTAssertEqual(steps[1].skillName, "summarize")
+        XCTAssertEqual(steps[1].dependsOn, ["s1"])
+        // Synthesis step references the upstream output via the
+        // `Output from s1` placeholder so StepArgRescue can substitute.
+        XCTAssertEqual(steps[1].toolArgs["text"], "Output from s1")
+        XCTAssertNotNil(steps[1].toolArgs["instruction"])
+    }
+
     func testRegexFallbackUsesGoalHeuristicWhenNoKeysFound() {
         // Raw output has a goal-shaped substring but is not valid JSON
-        // and has no skill-shaped key — heuristic kicks in and emits
-        // search-photos + scan-barcode for the QR task.
+        // and has no skill-shaped key — heuristic kicks in. The QR rule
+        // emits scan-barcode alone (its built-in scanRecentLibrary
+        // walks 30 recent photos, more reliable than chaining off
+        // search-photos's 10-photo fallback).
         let raw = #"""
         thinking out loud: "goal":"Find the QR code photo and scan it" but I'm not sure how
         """#
         let r = planner.parsePlanWithStatus(raw, defaultGoal: "x")
         XCTAssertEqual(r.repairTier, "regex-fallback")
-        XCTAssertEqual(r.plan.steps.map { $0.skillName }, ["search-photos", "scan-barcode"])
+        XCTAssertEqual(r.plan.steps.map { $0.skillName }, ["scan-barcode"])
+    }
+
+    // MARK: - dependsOn normalization (composite-directions-share-001 regression)
+
+    func testCanonicalStepIdCollapsesVariants() {
+        // All of these reference "step 1" in the LLM's head.
+        XCTAssertEqual(Planner.canonicalStepId("s1"), "1")
+        XCTAssertEqual(Planner.canonicalStepId("s_1"), "1")
+        XCTAssertEqual(Planner.canonicalStepId("step_1"), "1")
+        XCTAssertEqual(Planner.canonicalStepId("step1"), "1")
+        XCTAssertEqual(Planner.canonicalStepId("Step 1"), "1")
+        XCTAssertEqual(Planner.canonicalStepId("STEP_01"), "01")
+        // Non-numeric ids reduce to alphanumeric form (no special "s"
+        // stripping when the rest isn't numeric — would corrupt e.g.
+        // "search" into "earch").
+        XCTAssertEqual(Planner.canonicalStepId("search-step"), "searchstep")
+    }
+
+    func testParsePlanRewritesDependsOnToMatchStepIds() {
+        // Planner emitted `dependsOn:["step_1"]` while step ids are "s1"
+        // — without normalization the executor's strict priorResults
+        // lookup would skip s2 with `dependency unmet`. After the fix,
+        // dependsOn must be rewritten to ["s1"].
+        let json = #"""
+        {
+          "goal": "use s1 then s2",
+          "reasoning": "test",
+          "steps": [
+            {"id": "s1", "description": "first", "skillName": "search-web", "toolArgs": {"query": "x"}, "dependsOn": []},
+            {"id": "s2", "description": "second", "skillName": "compose", "toolArgs": {"text": "Output from step_1"}, "dependsOn": ["step_1"]}
+          ]
+        }
+        """#
+        let r = planner.parsePlanWithStatus(json, defaultGoal: "x")
+        XCTAssertEqual(r.plan.steps.count, 2)
+        XCTAssertEqual(r.plan.steps[1].dependsOn, ["s1"],
+                       "dependsOn must be normalized to match the step's id field")
+    }
+
+    func testParsePlanDropsDependsOnReferencesThatHaveNoStepMatch() {
+        // LLM hallucinates `dependsOn:["s99"]` referencing a step that
+        // doesn't exist. Drop the reference rather than skipping the
+        // step forever — running it is a better failure mode than
+        // permanent SKIPPED.
+        let json = #"""
+        {
+          "goal": "x",
+          "reasoning": "r",
+          "steps": [
+            {"id": "s1", "description": "first", "skillName": "calculator", "toolArgs": {}, "dependsOn": []},
+            {"id": "s2", "description": "second", "skillName": "compose", "toolArgs": {}, "dependsOn": ["s99"]}
+          ]
+        }
+        """#
+        let r = planner.parsePlanWithStatus(json, defaultGoal: "x")
+        XCTAssertEqual(r.plan.steps[1].dependsOn, [],
+                       "Hallucinated dep references must be dropped")
+    }
+
+    func testNormalizeDependsOnPreservesAlreadyValidIds() {
+        // No-op when dependsOn entries already match step ids verbatim.
+        let steps = [
+            PlanStep(id: "s1", description: "x", skillName: "calculator"),
+            PlanStep(id: "s2", description: "y", skillName: "compose",
+                     toolArgs: [:], dependsOn: ["s1"]),
+        ]
+        let normalized = Planner.normalizeDependsOn(steps)
+        XCTAssertEqual(normalized[1].dependsOn, ["s1"])
+    }
+
+    func testNormalizeDependsOnHandlesMixedVariants() {
+        // 4-step plan where each dep entry uses a different id shape —
+        // the kind of mess the planner sometimes emits when iterating
+        // its own output. All must collapse to the canonical "sN".
+        let steps = [
+            PlanStep(id: "s1", description: "a", skillName: "calc"),
+            PlanStep(id: "s2", description: "b", skillName: "calc",
+                     toolArgs: [:], dependsOn: ["step_1"]),
+            PlanStep(id: "s3", description: "c", skillName: "calc",
+                     toolArgs: [:], dependsOn: ["s_1", "Step 2"]),
+            PlanStep(id: "s4", description: "d", skillName: "calc",
+                     toolArgs: [:], dependsOn: ["step3"]),
+        ]
+        let normalized = Planner.normalizeDependsOn(steps)
+        XCTAssertEqual(normalized[1].dependsOn, ["s1"])
+        XCTAssertEqual(normalized[2].dependsOn, ["s1", "s2"])
+        XCTAssertEqual(normalized[3].dependsOn, ["s3"])
     }
 
     // MARK: - Repair tier unit checks (raw transformation)

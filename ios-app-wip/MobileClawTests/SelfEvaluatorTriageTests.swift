@@ -125,4 +125,122 @@ final class SelfEvaluatorTriageTests: XCTestCase {
         // Non-search outputs aren't affected.
         XCTAssertFalse(SelfEvaluator.isBareSearchResults("the answer is 42"))
     }
+
+    // MARK: - Write-side gate (state-calendar-001 regression)
+
+    func testCalendarAddDoesNotTriageAsSuccess() async throws {
+        // CalendarSkill.add returns a structured success envelope echoing
+        // title/calendar — its tokens trivially overlap goal tokens. But
+        // the OS-level EKEvent.save() can silently fail on the sim. Force
+        // the LLM judge so the eval verifier discrepancy gets caught.
+        let llm = StubLLM()
+        let evaluator = SelfEvaluator(llm: llm, policy: ThinkingPolicy(mode: .off))
+        let p = plan(goal: "Add a calendar event called 'iOS Eval Test'",
+                     steps: [PlanStep(id: "s1", description: "add event",
+                                      skillName: "calendar",
+                                      toolArgs: ["action": "add",
+                                                 "title": "iOS Eval Test",
+                                                 "startIso": "2026-04-30T14:00"])])
+        let results = ["s1": StepResult(
+            stepId: "s1", status: .completed,
+            output: #"{"status":"succeeded","title":"iOS Eval Test","calendar":"Calendar"}"#)]
+        _ = try await evaluator.evaluate(
+            userMessage: "x", plan: p, results: results)
+        XCTAssertTrue(llm.called, "calendar action=add must force LLM judge")
+    }
+
+    func testCalendarReadDefaultStillTriages() async throws {
+        // Read-only calendar invocations should still hit the fast path.
+        let llm = StubLLM()
+        let evaluator = SelfEvaluator(llm: llm, policy: ThinkingPolicy(mode: .off))
+        let p = plan(goal: "what's on my calendar tomorrow",
+                     steps: [PlanStep(id: "s1", description: "read",
+                                      skillName: "calendar")],
+                     criteria: ["upcoming events listed"])
+        let results = ["s1": StepResult(
+            stepId: "s1", status: .completed,
+            output: "1. Team Meeting tomorrow at 10:00 (Calendar)")]
+        let r = try await evaluator.evaluate(
+            userMessage: "what's on my calendar tomorrow",
+            plan: p, results: results)
+        XCTAssertEqual(r.assessment, "triage-shortcut",
+                       "Default-read calendar should keep the shortcut")
+        XCTAssertFalse(llm.called)
+    }
+
+    func testRemindersAlwaysWriteSide() async throws {
+        let llm = StubLLM()
+        let evaluator = SelfEvaluator(llm: llm, policy: ThinkingPolicy(mode: .off))
+        let p = plan(goal: "remind me to call mom",
+                     steps: [PlanStep(id: "s1", description: "create reminder",
+                                      skillName: "reminders",
+                                      toolArgs: ["title": "Call mom"])])
+        let results = ["s1": StepResult(
+            stepId: "s1", status: .completed,
+            output: #"{"status":"ok","reminderId":"abc","title":"Call mom"}"#)]
+        _ = try await evaluator.evaluate(
+            userMessage: "remind me to call mom", plan: p, results: results)
+        XCTAssertTrue(llm.called, "reminders is always write-side")
+    }
+
+    func testTimerStartIsWriteSide() async throws {
+        let llm = StubLLM()
+        let evaluator = SelfEvaluator(llm: llm, policy: ThinkingPolicy(mode: .off))
+        // No `action` arg → defaults to start (TimerSkill.swift:35).
+        let p = plan(goal: "set a 10 minute timer",
+                     steps: [PlanStep(id: "s1", description: "start",
+                                      skillName: "timer",
+                                      toolArgs: ["minutes": "10"])])
+        let results = ["s1": StepResult(
+            stepId: "s1", status: .completed,
+            output: #"{"status":"ok","label":"timer","seconds":600}"#)]
+        _ = try await evaluator.evaluate(
+            userMessage: "set a 10 minute timer", plan: p, results: results)
+        XCTAssertTrue(llm.called, "timer start must force LLM judge")
+    }
+
+    func testTimerListStillTriages() async throws {
+        let llm = StubLLM()
+        let evaluator = SelfEvaluator(llm: llm, policy: ThinkingPolicy(mode: .off))
+        let p = plan(goal: "what timers are running",
+                     steps: [PlanStep(id: "s1", description: "list",
+                                      skillName: "timer",
+                                      toolArgs: ["action": "list"])],
+                     criteria: ["timers listed"])
+        let results = ["s1": StepResult(
+            stepId: "s1", status: .completed,
+            output: "1. workout (running, 5m left)")]
+        let r = try await evaluator.evaluate(
+            userMessage: "what timers are running", plan: p, results: results)
+        XCTAssertEqual(r.assessment, "triage-shortcut",
+                       "timer action=list is read-side; shortcut should apply")
+        XCTAssertFalse(llm.called)
+    }
+
+    func testIsWriteSideStepHelper() {
+        XCTAssertTrue(SelfEvaluator.isWriteSideStep(
+            PlanStep(id: "s1", description: "x", skillName: "send-sms")))
+        XCTAssertTrue(SelfEvaluator.isWriteSideStep(
+            PlanStep(id: "s1", description: "x", skillName: "reminders")))
+        XCTAssertTrue(SelfEvaluator.isWriteSideStep(
+            PlanStep(id: "s1", description: "x", skillName: "share-content")))
+        XCTAssertTrue(SelfEvaluator.isWriteSideStep(
+            PlanStep(id: "s1", description: "x", skillName: "calendar",
+                     toolArgs: ["action": "add"])))
+        XCTAssertFalse(SelfEvaluator.isWriteSideStep(
+            PlanStep(id: "s1", description: "x", skillName: "calendar",
+                     toolArgs: ["action": "read"])))
+        XCTAssertFalse(SelfEvaluator.isWriteSideStep(
+            PlanStep(id: "s1", description: "x", skillName: "calendar")))  // default = read
+        XCTAssertTrue(SelfEvaluator.isWriteSideStep(
+            PlanStep(id: "s1", description: "x", skillName: "clipboard",
+                     toolArgs: ["action": "write", "text": "x"])))
+        XCTAssertFalse(SelfEvaluator.isWriteSideStep(
+            PlanStep(id: "s1", description: "x", skillName: "clipboard",
+                     toolArgs: ["action": "read"])))
+        XCTAssertFalse(SelfEvaluator.isWriteSideStep(
+            PlanStep(id: "s1", description: "x", skillName: "calculator")))
+        XCTAssertFalse(SelfEvaluator.isWriteSideStep(
+            PlanStep(id: "s1", description: "x", skillName: "search-web")))
+    }
 }

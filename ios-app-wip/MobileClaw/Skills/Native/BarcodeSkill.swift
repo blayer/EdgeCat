@@ -48,7 +48,7 @@ public final class BarcodeSkill: Skill {
         guard DataScannerViewController.isSupported,
               DataScannerViewController.isAvailable else {
             return ToolExecutionResult(success: false,
-                                        error: "barcode scanning not available on this device")
+                                       error: "barcode scanning not available on this device")
         }
         guard let scene = UIApplication.shared.connectedScenes.compactMap({ $0 as? UIWindowScene }).first,
               let root = scene.keyWindow?.rootViewController else {
@@ -100,7 +100,7 @@ public final class BarcodeSkill: Skill {
         if !path.isEmpty {
             guard let img = UIImage(contentsOfFile: path), let cg = img.cgImage else {
                 return ToolExecutionResult(success: false,
-                                            error: "couldn't load image at: \(path)")
+                                           error: "couldn't load image at: \(path)")
             }
             cgImage = cg
         } else if Self.looksLikePhotoAssetId(photoId) {
@@ -108,7 +108,7 @@ public final class BarcodeSkill: Skill {
                 cgImage = try await Self.loadAssetCGImage(photoId: photoId)
             } catch {
                 return ToolExecutionResult(success: false,
-                                            error: "couldn't load asset: \(error.localizedDescription)")
+                                           error: "couldn't load asset: \(error.localizedDescription)")
             }
         } else {
             // Planner sometimes hallucinates a "name-style" id like
@@ -132,7 +132,7 @@ public final class BarcodeSkill: Skill {
             return ToolExecutionResult(success: true, output: payload)
         }
         return ToolExecutionResult(success: false,
-                                    error: "no barcode found in image")
+                                   error: "no barcode found in image")
     }
 
     private static func detectViaVision(cgImage: CGImage) -> String? {

@@ -37,7 +37,7 @@ public final class CalculatorSkill: Skill, @unchecked Sendable {
         let expr = Self.cleanExpression(normalized)
         guard !expr.isEmpty else {
             return ToolExecutionResult(success: false,
-                                        error: "could not extract numeric expression from: \(raw.prefix(60))")
+                                       error: "could not extract numeric expression from: \(raw.prefix(60))")
         }
         let sanitized = expr
         let allowed = CharacterSet(charactersIn: "0123456789.+-*/() \t")

@@ -37,11 +37,11 @@ public final class AddCalendarEventSkill: Skill, @unchecked Sendable {
         }
         guard let startIso = args["startIso"], !startIso.isEmpty else {
             return ToolExecutionResult(success: false,
-                                        error: "missing 'startIso' argument (ISO 8601 datetime)")
+                                       error: "missing 'startIso' argument (ISO 8601 datetime)")
         }
         guard let startDate = parseIso(startIso) else {
             return ToolExecutionResult(success: false,
-                                        error: "couldn't parse startIso: '\(startIso)' (expected ISO 8601)")
+                                       error: "couldn't parse startIso: '\(startIso)' (expected ISO 8601)")
         }
         let durationMin = max(1, Int(args["durationMin"] ?? "30") ?? 30)
         let endDate = Calendar.current.date(byAdding: .minute,
@@ -57,7 +57,7 @@ public final class AddCalendarEventSkill: Skill, @unchecked Sendable {
         }
         guard let cal = store.defaultCalendarForNewEvents else {
             return ToolExecutionResult(success: false,
-                                        error: "no default calendar available")
+                                       error: "no default calendar available")
         }
 
         let event = EKEvent(eventStore: store)
@@ -72,7 +72,7 @@ public final class AddCalendarEventSkill: Skill, @unchecked Sendable {
             try store.save(event, span: .thisEvent, commit: true)
         } catch {
             return ToolExecutionResult(success: false,
-                                        error: "couldn't save event: \(error.localizedDescription)")
+                                       error: "couldn't save event: \(error.localizedDescription)")
         }
         let payload: [String: Any] = [
             "status": "succeeded",

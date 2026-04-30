@@ -21,6 +21,18 @@ public struct SelfEvaluator {
                        plan: ExecutionPlan,
                        results: [String: StepResult]) -> EvaluationResult? {
         guard !plan.steps.isEmpty else { return nil }
+        // Write-side state changes (calendar add, reminders create, timer
+        // start, send-sms/email, share, clipboard write, etc.) must NOT
+        // be rubber-stamped by the goal-token check below — the step
+        // emits a structured success envelope containing the user's
+        // requested title/text, which trivially overlaps goal tokens
+        // even when the OS-level write didn't actually persist (the
+        // failure mode that hit state-calendar-001 in v1_ios_skills).
+        // Force the LLM evaluator so it reads success criteria + step
+        // output and either confirms or asks for replan.
+        for step in plan.steps where Self.isWriteSideStep(step) {
+            return nil
+        }
         // Every planned step must have a result and be COMPLETED.
         for step in plan.steps {
             guard let result = results[step.id], result.status == .completed else { return nil }
@@ -86,6 +98,54 @@ public struct SelfEvaluator {
         let lower = output.lowercased()
         guard lower.contains("search results for") else { return false }
         return !lower.contains("page content from")
+    }
+
+    /// `true` when the step performs a write-side state change that
+    /// shouldn't be rubber-stamped by the triage goal-token check.
+    /// These skills emit structured-success envelopes echoing the
+    /// user's requested values, so token overlap with the goal is
+    /// trivial — but the OS write may still have silently failed
+    /// (sim TCC, denied notification permission downstream of a
+    /// "success" return, etc.). Force the LLM judge for these.
+    static func isWriteSideStep(_ step: PlanStep) -> Bool {
+        guard let raw = step.skillName, !raw.isEmpty else { return false }
+        let skill = raw.lowercased()
+        // Always write-side: any invocation creates a side effect.
+        let alwaysWrite: Set<String> = [
+            "reminders",
+            "set-reminder",
+            "send-sms",
+            "send-email",
+            "share-content",
+            "phone-call",
+            "set-alarm",
+            "add-calendar-event",
+            "open-url",
+            "open-settings",
+            "launch-app",
+            "take-photo",
+            "flashlight",
+            "volume-control",
+            "do-not-disturb",
+        ]
+        if alwaysWrite.contains(skill) { return true }
+        // Action-gated skills: write-side only when args["action"] picks a
+        // mutating mode. Default action is read-side for these so we don't
+        // over-trigger the gate on plain "what's on my calendar" runs.
+        let action = (step.toolArgs["action"] ?? "").lowercased()
+        switch skill {
+        case "calendar":
+            return ["add", "create", "write"].contains(action)
+        case "clipboard":
+            return action == "write"
+        case "timer":
+            // Default action is "start" (TimerSkill.swift). Treat
+            // anything except `list` as write-side — `cancel` also
+            // mutates pending notifications.
+            return action != "list"
+        default:
+            return false
+        }
     }
 
     private static func tokens(from text: String) -> [String] {

@@ -31,7 +31,7 @@ public final class DirectionsSkill: Skill, @unchecked Sendable {
     public func run(args: [String: String]) async -> ToolExecutionResult {
         guard let toRaw = args["to"], !toRaw.isEmpty else {
             return ToolExecutionResult(success: false,
-                                        error: "missing 'to' argument")
+                                       error: "missing 'to' argument")
         }
         let modeStr = (args["mode"] ?? "walking").lowercased()
         let transportType = mapTransportType(modeStr)
@@ -43,7 +43,7 @@ public final class DirectionsSkill: Skill, @unchecked Sendable {
                 fromItem = try await geocode(fromRaw)
             } catch {
                 return ToolExecutionResult(success: false,
-                                            error: "couldn't geocode 'from': \(error.localizedDescription)")
+                                           error: "couldn't geocode 'from': \(error.localizedDescription)")
             }
         } else {
             do {
@@ -52,7 +52,7 @@ public final class DirectionsSkill: Skill, @unchecked Sendable {
                 fromItem.name = "Current Location"
             } catch {
                 return ToolExecutionResult(success: false,
-                                            error: "couldn't read current location: \(error.localizedDescription)")
+                                           error: "couldn't read current location: \(error.localizedDescription)")
             }
         }
 
@@ -61,7 +61,7 @@ public final class DirectionsSkill: Skill, @unchecked Sendable {
             toItem = try await geocode(toRaw)
         } catch {
             return ToolExecutionResult(success: false,
-                                        error: "couldn't geocode 'to': \(error.localizedDescription)")
+                                       error: "couldn't geocode 'to': \(error.localizedDescription)")
         }
 
         let request = MKDirections.Request()
@@ -76,11 +76,11 @@ public final class DirectionsSkill: Skill, @unchecked Sendable {
             response = try await directions.calculate()
         } catch {
             return ToolExecutionResult(success: false,
-                                        error: "no route: \(error.localizedDescription)")
+                                       error: "no route: \(error.localizedDescription)")
         }
         guard let route = response.routes.first else {
             return ToolExecutionResult(success: false,
-                                        error: "no route found")
+                                       error: "no route found")
         }
 
         let steps = route.steps.compactMap { step -> [String: Any]? in
