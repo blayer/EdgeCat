@@ -177,6 +177,47 @@ final class PlannerJsonRepairTests: XCTestCase {
         XCTAssertEqual(steps[1].toolArgs["url"], "Output from s1")
     }
 
+    // MARK: - Health-summarize chain (health-summarize-001 regression)
+
+    func testInferSkillsForHealthSummarize() {
+        // "summarize my activity" → read-health then summarize so the
+        // synthesis step has data to operate on. Without the chain the
+        // regex-fallback would emit just `read-health` and the formatter
+        // would produce "(no result)" because the planner can't synthesize
+        // from raw HealthKit JSON without an LLM-only step.
+        XCTAssertEqual(
+            Planner.inferSkillsFromGoal("Summarize my activity from the last 7 days."),
+            ["read-health", "summarize"])
+        XCTAssertEqual(
+            Planner.inferSkillsFromGoal("Give me a summary of my workouts this week"),
+            ["read-health", "summarize"])
+    }
+
+    func testInferSkillsForHealthQueryWithoutSummarizeStaysSingleStep() {
+        // No summary keyword → single read-health step is fine; the
+        // formatter already handles a single read-health output.
+        XCTAssertEqual(
+            Planner.inferSkillsFromGoal("How many steps have I taken today?"),
+            ["read-health"])
+        XCTAssertEqual(
+            Planner.inferSkillsFromGoal("What is my latest heart rate reading?"),
+            ["read-health"])
+    }
+
+    func testInferredStepsChainHealthSummarize() {
+        let steps = Planner.inferredSteps(
+            goal: "Summarize my activity from the last 7 days.")
+        XCTAssertEqual(steps.count, 2)
+        XCTAssertEqual(steps[0].skillName, "read-health")
+        XCTAssertEqual(steps[0].toolArgs["windowDays"], "7")
+        XCTAssertEqual(steps[1].skillName, "summarize")
+        XCTAssertEqual(steps[1].dependsOn, ["s1"])
+        // Synthesis step references the upstream output via the
+        // `Output from s1` placeholder so StepArgRescue can substitute.
+        XCTAssertEqual(steps[1].toolArgs["text"], "Output from s1")
+        XCTAssertNotNil(steps[1].toolArgs["instruction"])
+    }
+
     func testRegexFallbackUsesGoalHeuristicWhenNoKeysFound() {
         // Raw output has a goal-shaped substring but is not valid JSON
         // and has no skill-shaped key — heuristic kicks in and emits

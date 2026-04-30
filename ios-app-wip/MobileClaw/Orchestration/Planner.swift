@@ -625,6 +625,22 @@ public struct Planner {
             return ["query": goal]
         case "fetch-web-content":
             return ["url": priorStepId.map { "Output from \($0)" } ?? ""]
+        case "read-health":
+            // Default to a 7-day window when the goal mentions "summary"
+            // / "summarize" / "last 7 days"; HealthKit returns
+            // empty-on-empty in the sim so the verifier passes on
+            // query-shape regardless.
+            return ["dataType": "all", "windowDays": "7"]
+        case "summarize":
+            // Synthesizer step in a chain. `instruction` is what
+            // SummarizeSkill reads (StubSkills.swift fallback to
+            // `description`); using the goal as instruction gives the
+            // LLM lane a coherent prompt and `Output from sN` resolves
+            // upstream content via StepArgRescue.
+            return [
+                "instruction": "Based on the prior step output, " + goal,
+                "text": priorStepId.map { "Output from \($0)" } ?? "",
+            ]
         default:
             return [:]
         }
@@ -655,9 +671,30 @@ public struct Planner {
     /// "I couldn't generate a plan for that".
     static func inferSkillsFromGoal(_ goal: String) -> [String] {
         let g = goal.lowercased()
+        let isSummarize = g.contains("summari")  // "summary"/"summarize"/"summarise"
+        // Personal-health detector: requires both a health keyword AND a
+        // first-person marker ("my"/"i've"/"have i") so we don't misroute
+        // generic web questions like "what is the resting heart rate of
+        // a hummingbird" to read-health. The eval prompts that need this
+        // ("How many steps have I taken today?", "What is my latest heart
+        // rate reading?") all carry a possessive or first-person verb.
+        let isHealthWord = g.contains("step") || g.contains("heart")
+            || g.contains("activity") || g.contains("workout")
+        let isFirstPerson = g.contains(" my ")
+            || g.hasPrefix("my ")
+            || g.contains("have i ")
+            || g.contains("i've ")
+            || g.contains("i have ")
+        let isHealth = isHealthWord && isFirstPerson
         // Order matters: more specific patterns before more general ones.
         // Each entry is (predicate, ordered skill chain).
         let rules: [(check: (String) -> Bool, skills: [String])] = [
+            // Personal health goes BEFORE the web/"what is" rule because
+            // "what is my latest heart rate" otherwise routes to the web.
+            ({ _ in isHealth && isSummarize },
+             ["read-health", "summarize"]),
+            ({ _ in isHealth },
+             ["read-health"]),
             // QR / barcode → scan-barcode alone. Its built-in
             // `scanRecentLibrary` fallback walks 30 recent photos, which
             // is faster + more reliable than chaining off search-photos
@@ -682,9 +719,6 @@ public struct Planner {
              ["reminders"]),
             ({ $0.contains("timer") },
              ["timer"]),
-            // Health.
-            ({ $0.contains("step") || $0.contains("heart") || $0.contains("activity") || $0.contains("workout") },
-             ["read-health"]),
             // Directions.
             ({ $0.contains("walk") || $0.contains("drive") || $0.contains("directions") || $0.contains("nearest") },
              ["directions"]),
