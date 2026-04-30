@@ -129,6 +129,66 @@ final class PlannerJsonRepairTests: XCTestCase {
         XCTAssertEqual(r.plan.steps.first?.skillName, "calculator")
     }
 
+    // MARK: - Goal-keyword heuristic (regex-fallback rescue)
+
+    func testInferSkillsForQrPhotoGoal() {
+        // QR goals route to scan-barcode alone — its built-in
+        // scanRecentLibrary walks 30 photos, more reliable than
+        // chaining off search-photos's 10-photo fallback.
+        XCTAssertEqual(
+            Planner.inferSkillsFromGoal("Find the photo named test_qr_claude in my gallery and scan it for QR codes"),
+            ["scan-barcode"])
+    }
+
+    func testInferSkillsForWeatherGoal() {
+        XCTAssertEqual(
+            Planner.inferSkillsFromGoal("What is the weather in Tokyo today?"),
+            ["search-web", "fetch-web-content"])
+    }
+
+    func testInferSkillsForCalendarGoal() {
+        XCTAssertEqual(
+            Planner.inferSkillsFromGoal("Add a calendar event for tomorrow at 3pm called Team Meeting"),
+            ["calendar"])
+    }
+
+    func testInferSkillsReturnsEmptyForUnknownGoal() {
+        XCTAssertTrue(
+            Planner.inferSkillsFromGoal("frobnicate the widget mainly").isEmpty)
+    }
+
+    func testInferredStepsForQrUseSingleScanBarcode() {
+        // QR rule emits scan-barcode alone with the name hint as
+        // photo_id. BarcodeSkill recognizes the non-asset-id shape
+        // and walks 30 recent photos via scanRecentLibrary.
+        let steps = Planner.inferredSteps(
+            goal: "Find the photo named test_qr_claude in my gallery and scan it for QR codes")
+        XCTAssertEqual(steps.count, 1)
+        XCTAssertEqual(steps[0].skillName, "scan-barcode")
+        XCTAssertEqual(steps[0].toolArgs["photo_id"], "test_qr_claude")
+    }
+
+    func testInferredStepsChainWebSequentially() {
+        let steps = Planner.inferredSteps(goal: "What is the weather in Tokyo today?")
+        XCTAssertEqual(steps.count, 2)
+        XCTAssertEqual(steps[0].skillName, "search-web")
+        XCTAssertEqual(steps[1].skillName, "fetch-web-content")
+        XCTAssertEqual(steps[1].dependsOn, ["s1"])
+        XCTAssertEqual(steps[1].toolArgs["url"], "Output from s1")
+    }
+
+    func testRegexFallbackUsesGoalHeuristicWhenNoKeysFound() {
+        // Raw output has a goal-shaped substring but is not valid JSON
+        // and has no skill-shaped key — heuristic kicks in and emits
+        // search-photos + scan-barcode for the QR task.
+        let raw = #"""
+        thinking out loud: "goal":"Find the QR code photo and scan it" but I'm not sure how
+        """#
+        let r = planner.parsePlanWithStatus(raw, defaultGoal: "x")
+        XCTAssertEqual(r.repairTier, "regex-fallback")
+        XCTAssertEqual(r.plan.steps.map { $0.skillName }, ["search-photos", "scan-barcode"])
+    }
+
     // MARK: - Repair tier unit checks (raw transformation)
 
     func testRepairCommasDropsTrailingCommas() {

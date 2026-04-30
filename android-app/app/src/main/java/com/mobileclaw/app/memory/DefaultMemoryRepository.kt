@@ -10,13 +10,16 @@ import org.json.JSONObject
 
 private const val TAG = "AGMemory"
 
-// Context budget: ~2048 tokens ≈ 8192 chars
-private const val DEVICE_FACTS_BUDGET = 800
-private const val REPAIR_BUDGET = 2400
-private const val EPISODE_BUDGET = 4800
+// Conservative chars-per-token estimate (English prose with light punctuation).
+// Used to convert the tokenBudget caller arg into a hard char cap on recall output.
+private const val CHARS_PER_TOKEN = 3
 private const val MAX_DEVICE_FACTS = 10
 private const val MAX_REPAIRS = 3
 private const val MAX_EPISODES = 5
+// Soft per-section share of the total budget (priority order: facts → repairs → episodes).
+// Any section that finishes under-budget rolls its remainder forward to the next.
+private const val FACTS_SHARE = 0.20
+private const val REPAIRS_SHARE = 0.30
 
 class DefaultMemoryRepository(
   private val dao: MemoryDao,
@@ -92,26 +95,36 @@ class DefaultMemoryRepository(
     val now = System.currentTimeMillis()
     val sections = mutableListOf<String>()
 
+    // Single hard char cap derived from tokenBudget. Any unused share rolls forward to
+    // the next section, so a request with no repairs still gets the full episode allowance.
+    val totalCharBudget = (tokenBudget.coerceAtLeast(0)) * CHARS_PER_TOKEN
+    var remaining = totalCharBudget
+    val factsCap = (totalCharBudget * FACTS_SHARE).toInt()
+    val repairsCap = (totalCharBudget * REPAIRS_SHARE).toInt()
+
     // Priority 1: Device facts (always included)
-    val facts = dao.getAllDeviceFacts().take(MAX_DEVICE_FACTS)
-    if (facts.isNotEmpty()) {
-      val factsBlock = buildString {
-        append("[Device Knowledge]")
-        var budget = DEVICE_FACTS_BUDGET
-        for (fact in facts) {
-          val line = "\n- ${fact.factValue}"
-          if (line.length > budget) break
-          append(line)
-          budget -= line.length
-          dao.touchDeviceFact(fact.id, now)
+    if (remaining > 0) {
+      val facts = dao.getAllDeviceFacts().take(MAX_DEVICE_FACTS)
+      if (facts.isNotEmpty()) {
+        var budget = minOf(factsCap, remaining)
+        val factsBlock = buildString {
+          append("[Device Knowledge]")
+          for (fact in facts) {
+            val line = "\n- ${fact.factValue}"
+            if (line.length > budget) break
+            append(line)
+            budget -= line.length
+            dao.touchDeviceFact(fact.id, now)
+          }
         }
+        sections.add(factsBlock)
+        remaining -= factsBlock.length
       }
-      sections.add(factsBlock)
     }
 
     // Priority 2: Repair patterns (matching keywords from user message)
     val queryTerms = extractKeywords(userMessage)
-    if (queryTerms.isNotEmpty()) {
+    if (queryTerms.isNotEmpty() && remaining > 0) {
       val repairs = try {
         dao.searchRepairsFts(queryTerms, MAX_REPAIRS)
       } catch (e: Exception) {
@@ -120,9 +133,9 @@ class DefaultMemoryRepository(
         emptyList()
       }
       if (repairs.isNotEmpty()) {
+        var budget = minOf(repairsCap, remaining)
         val repairsBlock = buildString {
           append("[Past Repairs]")
-          var budget = REPAIR_BUDGET
           for (repair in repairs) {
             val fix = when (repair.fixType) {
               "use_alternative_skill" -> "Use ${repair.alternativeSkill ?: "alternative"} instead"
@@ -139,11 +152,12 @@ class DefaultMemoryRepository(
           }
         }
         sections.add(repairsBlock)
+        remaining -= repairsBlock.length
       }
     }
 
-    // Priority 3: Similar past episodes
-    if (queryTerms.isNotEmpty()) {
+    // Priority 3: Similar past episodes — gets whatever budget is left
+    if (queryTerms.isNotEmpty() && remaining > 0) {
       val episodes = try {
         dao.searchEpisodesFts(queryTerms, MAX_EPISODES)
       } catch (e: Exception) {
@@ -151,9 +165,9 @@ class DefaultMemoryRepository(
         emptyList()
       }
       if (episodes.isNotEmpty()) {
+        var budget = remaining
         val episodesBlock = buildString {
           append("[Similar Past Tasks]")
-          var budget = EPISODE_BUDGET
           for (ep in episodes) {
             val skills = if (ep.skillsUsed.isNotBlank()) ep.skillsUsed else "none"
             val line = "\n- \"${ep.userMessage.take(80)}\" -> skills: $skills, outcome: ${ep.outcome}"
@@ -164,12 +178,13 @@ class DefaultMemoryRepository(
           }
         }
         sections.add(episodesBlock)
+        remaining -= episodesBlock.length
       }
     }
 
     val result = sections.joinToString("\n\n")
     if (result.isNotEmpty()) {
-      Log.d(TAG, "Recalled ${result.length} chars of memory context for planning")
+      Log.d(TAG, "Recalled ${result.length} chars of memory context (budget=${totalCharBudget}, tokens≈$tokenBudget)")
     }
     return result
   }

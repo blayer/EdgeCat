@@ -161,7 +161,9 @@ public final class RecognizeTextSkill: Skill, @unchecked Sendable {
             }
         }
         // Truncation fallback: pull out the first `"id":"<...>"` value
-        // without depending on the JSON closing cleanly.
+        // without depending on the JSON closing cleanly. Un-escape `\/`
+        // since the regex captures the JSON-encoded form (`UUID\/L0\/001`)
+        // but PHAsset expects the unescaped path (`UUID/L0/001`).
         let pattern = #""id"\s*:\s*"([^"]+)""#
         if let re = try? NSRegularExpression(pattern: pattern) {
             let range = NSRange(trimmed.startIndex..<trimmed.endIndex, in: trimmed)
@@ -169,6 +171,7 @@ public final class RecognizeTextSkill: Skill, @unchecked Sendable {
                match.numberOfRanges >= 2,
                let r = Range(match.range(at: 1), in: trimmed) {
                 let id = String(trimmed[r])
+                    .replacingOccurrences(of: #"\/"#, with: "/")
                 if !id.isEmpty { return id }
             }
         }
@@ -178,6 +181,11 @@ public final class RecognizeTextSkill: Skill, @unchecked Sendable {
     /// All `"id":"<...>"` tokens in the value, in order. Used by
     /// `BarcodeSkill` to walk every candidate asset when the
     /// search-photos upstream returned a list.
+    ///
+    /// Un-escapes JSON `\/` slashes — Swift's `JSONSerialization`
+    /// emits `\/` for forward slashes by default, so the captured ids
+    /// look like `UUID\/L0\/001`. PHAsset expects them as `UUID/L0/001`,
+    /// so the lookup fails silently without this cleanup.
     static func extractAllImageIds(from value: String) -> [String] {
         let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return [] }
@@ -188,6 +196,7 @@ public final class RecognizeTextSkill: Skill, @unchecked Sendable {
             guard m.numberOfRanges >= 2,
                   let r = Range(m.range(at: 1), in: trimmed) else { return nil }
             let id = String(trimmed[r])
+                .replacingOccurrences(of: #"\/"#, with: "/")
             return id.isEmpty ? nil : id
         }
     }

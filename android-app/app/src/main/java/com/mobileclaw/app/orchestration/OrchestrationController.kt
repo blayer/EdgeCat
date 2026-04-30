@@ -28,6 +28,19 @@ import kotlinx.coroutines.flow.asStateFlow
 
 private const val TAG = "AGOrchestrationController"
 
+/**
+ * True when [output] is a search-web results listing with no fetched page content.
+ * Search results contain query tokens that would trivially satisfy the triage
+ * goal-token check, but they're just links — not an answer. Detected by the
+ * formatted header `OrchestrationBridge` emits ("Search results for: …")
+ * combined with the absence of "Page content from" (emitted by fetch-web-content).
+ */
+internal fun isBareSearchResults(output: String): Boolean {
+  val lower = output.lowercase()
+  if (!lower.contains("search results for")) return false
+  return !lower.contains("page content from")
+}
+
 // Common English stop words filtered when extracting goal-relevance tokens for triage.
 private val STOP_WORDS = setOf(
   "about", "after", "again", "also", "been", "before", "could", "does", "doing", "from",
@@ -470,6 +483,17 @@ class OrchestrationController(
       val relevant = goalTokens.isEmpty() || goalTokens.any { combined.contains(it) }
       if (!relevant) {
         Log.d(TAG, "Triage: clean steps but no goal tokens in output — deferring to LLM judge")
+        return null
+      }
+      // Bare-search guard: search-web's output ("Search results for: …") contains
+      // the user's query tokens as titles + snippets, so the goal-token check above
+      // trivially passes. But links are not an answer. When the last step's output
+      // is a search-results listing with no fetch-web-content follow-up, defer to
+      // the LLM judge so it can say shouldReplan=true and the planner can chain
+      // the fetch step.
+      val lastOutput = plan.steps.lastOrNull()?.let { results[it.id]?.output }.orEmpty()
+      if (isBareSearchResults(lastOutput)) {
+        Log.d(TAG, "Triage: last step is bare search results — deferring to LLM judge")
         return null
       }
       return EvaluationResult(

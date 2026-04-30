@@ -169,6 +169,14 @@ Steps: [
   {"id":"step_3","description":"Write itinerary from step_1 and step_2","skillName":"compose","toolArgs":{"instruction":"Produce a 3-day Tokyo itinerary with hour-by-hour blocks, referencing step_1 weather and step_2 events."},"dependsOn":["step_1","step_2"]}
 ]
 
+Example — answer a question from the web:
+search-web alone returns a LINK LIST, not the answer. Chain fetch-web-content on the top URL so the formatter has the actual page text to extract from.
+Request: "Weather in Tokyo today"
+Steps: [
+  {"id":"step_1","description":"Search the web for today's Tokyo weather.","skillName":"search-web","toolArgs":{"query":"weather in Tokyo today"},"dependsOn":[]},
+  {"id":"step_2","description":"Fetch the top result's page to get the actual weather details.","skillName":"fetch-web-content","toolArgs":{"url":"Output from step_1"},"dependsOn":["step_1"]}
+]
+
 User request: "$userMessage"
 
 Respond with ONLY valid JSON:
