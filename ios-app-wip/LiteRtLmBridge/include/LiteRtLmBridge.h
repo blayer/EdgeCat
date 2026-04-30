@@ -206,7 +206,7 @@ typedef NS_ENUM(NSInteger, LRTLMLogLevel) {
 //   this would duplicate state.
 // - `litert_lm_engine_settings_enable_benchmark` /
 //   `..._set_num_prefill_tokens` / `..._set_num_decode_tokens` — eval-only
-//   knobs surfaced through `mobileclaw://eval` instead.
+//   knobs surfaced through `edgecat://eval` instead.
 // - `litert_lm_engine_tokenize` / `..._detokenize` /
 //   `..._get_start_token` / `..._get_stop_tokens` — power-user introspection,
 //   no Settings UI.

@@ -1,11 +1,11 @@
 #!/bin/bash
-# Mobile-Claw Orchestration On-Device Test — XML-based (device-independent)
+# EdgeCat Orchestration On-Device Test — XML-based (device-independent)
 # Usage: ./orchestration.sh [-d <device-serial>] [scenario-name]
 #
 # Runs orchestration-specific scenarios on a connected device.
 # If no scenario is given, runs all scenarios from TEST-PLAN.md.
 #
-# Uses helpers.sh for ADB/UI helpers (Mobile-Claw package).
+# Uses helpers.sh for ADB/UI helpers (EdgeCat package).
 # No hardcoded coordinates — works on any device resolution.
 
 DEVICE_SERIAL=""

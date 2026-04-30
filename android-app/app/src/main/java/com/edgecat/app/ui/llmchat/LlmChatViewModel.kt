@@ -1,0 +1,601 @@
+/*
+ * Copyright 2025 Google LLC
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+package com.edgecat.app.ui.llmchat
+
+import android.content.Context
+import android.graphics.Bitmap
+import android.util.Log
+import androidx.lifecycle.viewModelScope
+import com.edgecat.app.conversations.ConversationRepository
+import com.edgecat.app.conversations.ROLE_ASSISTANT
+import com.edgecat.app.conversations.ROLE_USER
+import com.edgecat.app.data.ConfigKeys
+import com.edgecat.app.data.DataStoreRepository
+import com.edgecat.app.data.Model
+import com.edgecat.app.data.Task
+import com.edgecat.app.runtime.runtimeHelper
+import com.edgecat.app.ui.common.chat.ChatMessageAudioClip
+import com.edgecat.app.ui.common.chat.ChatMessageError
+import com.edgecat.app.ui.common.chat.ChatMessageLoading
+import com.edgecat.app.ui.common.chat.ChatMessageText
+import com.edgecat.app.ui.common.chat.ChatMessageThinking
+import com.edgecat.app.ui.common.chat.ChatMessageType
+import com.edgecat.app.ui.common.chat.ChatMessageWarning
+import com.edgecat.app.ui.common.chat.ChatSide
+import com.edgecat.app.ui.common.chat.ChatViewModel
+import com.edgecat.app.ui.modelmanager.ModelManagerViewModel
+import com.google.ai.edge.litertlm.Content
+import com.google.ai.edge.litertlm.Contents
+import com.google.ai.edge.litertlm.ExperimentalApi
+import com.google.ai.edge.litertlm.Message
+import com.google.ai.edge.litertlm.MessageCallback
+import com.google.ai.edge.litertlm.ToolProvider
+import dagger.hilt.android.lifecycle.HiltViewModel
+import javax.inject.Inject
+import kotlin.coroutines.resume
+import kotlin.coroutines.resumeWithException
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.suspendCancellableCoroutine
+
+private const val TAG = "AGLlmChatViewModel"
+
+@OptIn(ExperimentalApi::class)
+open class LlmChatViewModelBase(
+  private val conversationRepository: ConversationRepository? = null,
+  private val dataStoreRepository: DataStoreRepository? = null,
+) : ChatViewModel() {
+
+  var currentConversationId: Long? = null
+
+  fun loadConversation(model: Model, id: Long) {
+    val repo = conversationRepository ?: return
+    currentConversationId = id
+    viewModelScope.launch(Dispatchers.IO) {
+      val messages = repo.getMessages(id)
+      clearAllMessages(model = model)
+      for (m in messages) {
+        val side = if (m.role == ROLE_USER) ChatSide.USER else ChatSide.AGENT
+        addMessage(
+          model = model,
+          message = ChatMessageText(content = m.content, side = side),
+        )
+      }
+
+      // Inject user portrait + sliding-window history into the model's KV cache
+      // so the model remembers context across app/session reloads.
+      val portrait = dataStoreRepository?.getUserPortrait().orEmpty()
+      val windowSize = (dataStoreRepository?.getAgentHistoryWindowSize() ?: 0).coerceIn(0, 6)
+      val seed = buildHistorySeed(portrait, messages, windowSize)
+      if (seed.isNotBlank()) {
+        try {
+          // Wait briefly for the model instance to be ready.
+          var waits = 0
+          while (model.instance == null && waits < 100) { delay(100); waits++ }
+          if (model.instance != null) {
+            prefillConversation(model, seed)
+          }
+        } catch (e: Exception) {
+          Log.w(TAG, "Prefill on conversation open failed: ${e.message}")
+        }
+      }
+    }
+  }
+
+  private fun buildHistorySeed(
+    portrait: String,
+    messages: List<com.edgecat.app.conversations.db.MessageEntity>,
+    windowSize: Int,
+  ): String = buildString {
+    if (portrait.isNotBlank()) {
+      appendLine("About the user:")
+      appendLine(portrait.trim())
+      appendLine()
+    }
+    if (windowSize > 0) {
+      val recent = messages
+        .filter { it.role == ROLE_USER || it.role == ROLE_ASSISTANT }
+        .takeLast(windowSize * 2)
+      if (recent.isNotEmpty()) {
+        appendLine("Our recent conversation:")
+        for (m in recent) {
+          val who = if (m.role == ROLE_USER) "User" else "Assistant"
+          appendLine("$who: ${m.content.trim()}")
+        }
+        appendLine()
+      }
+    }
+    if (isNotEmpty()) {
+      append("Acknowledge with just \"Ready.\" and await the user's next message.")
+    }
+  }
+
+  private suspend fun prefillConversation(model: Model, seedText: String) {
+    val instance = model.instance as? LlmModelInstance ?: return
+    val conversation = instance.conversation
+    suspendCancellableCoroutine<Unit> { continuation ->
+      conversation.sendMessageAsync(
+        Contents.of(listOf(Content.Text(seedText))),
+        object : MessageCallback {
+          override fun onMessage(message: Message) { /* discard model's ack */ }
+          override fun onDone() {
+            if (continuation.isActive) continuation.resume(Unit)
+          }
+          override fun onError(throwable: Throwable) {
+            if (!continuation.isActive) return
+            if (throwable is java.util.concurrent.CancellationException) {
+              continuation.resume(Unit)
+            } else {
+              continuation.resumeWithException(Exception(throwable.message))
+            }
+          }
+        },
+        emptyMap(),
+      )
+    }
+  }
+
+  fun persistUserMessage(content: String) {
+    val repo = conversationRepository ?: return
+    val id = currentConversationId ?: return
+    if (content.isBlank()) return
+    viewModelScope.launch(Dispatchers.IO) {
+      repo.appendMessage(conversationId = id, role = ROLE_USER, content = content)
+    }
+  }
+
+  fun persistAssistantMessage(content: String) {
+    val repo = conversationRepository ?: return
+    val id = currentConversationId ?: return
+    if (content.isBlank()) return
+    viewModelScope.launch(Dispatchers.IO) {
+      repo.appendMessage(conversationId = id, role = ROLE_ASSISTANT, content = content)
+    }
+  }
+
+  fun generateResponse(
+    model: Model,
+    input: String,
+    images: List<Bitmap> = listOf(),
+    audioMessages: List<ChatMessageAudioClip> = listOf(),
+    onFirstToken: (Model) -> Unit = {},
+    onDone: () -> Unit = {},
+    onError: (String) -> Unit,
+    allowThinking: Boolean = false,
+  ) {
+    val accelerator = model.getStringConfigValue(key = ConfigKeys.ACCELERATOR, defaultValue = "")
+    viewModelScope.launch(Dispatchers.Default) {
+      setInProgress(true)
+      setPreparing(true)
+
+      // Loading.
+      addMessage(model = model, message = ChatMessageLoading(accelerator = accelerator))
+
+      // Wait for instance to be initialized.
+      while (model.instance == null) {
+        delay(100)
+      }
+      delay(500)
+
+      // Run inference.
+      val audioClips: MutableList<ByteArray> = mutableListOf()
+      for (audioMessage in audioMessages) {
+        audioClips.add(audioMessage.genByteArrayForWav())
+      }
+
+      var firstRun = true
+      val start = System.currentTimeMillis()
+
+      // Resolve whether this call is allowed to surface a thinking bubble. Reasoning-tuned
+      // models (Gemma 3 E2B) emit a `thought` channel even when the caller asked for a plain
+      // response, so we must also suppress the UI here — otherwise the thought stream leaks
+      // into non-agentic chat and into the agentic "chat-intent" fast-path.
+      val enableThinking =
+        allowThinking &&
+          model.getBooleanConfigValue(key = ConfigKeys.ENABLE_THINKING, defaultValue = false)
+
+      try {
+        val resultListener: (String, Boolean, String?) -> Unit =
+          { partialResult, done, partialThinkingResult ->
+            // When thinking is disabled, we hide the thought channel from the UI — but the
+            // runtime is still emitting those tokens and the real answer hasn't started yet.
+            // Swallow these chunks instead of tearing down the loading bubble to an empty text
+            // message; otherwise the user sees a silent blank reply until the model stops
+            // thinking and real text begins.
+            val isThinkingOnlyChunk =
+              !enableThinking &&
+                partialResult.isEmpty() &&
+                !done &&
+                partialThinkingResult != null &&
+                partialThinkingResult.isNotEmpty()
+            if (partialResult.startsWith("<ctrl")) {
+              // Do nothing. Ignore control tokens.
+            } else if (isThinkingOnlyChunk) {
+              // Keep the loading indicator visible; the real answer will follow.
+            } else {
+              // Remove the last message if it is a "loading" message.
+              // This will only be done once.
+              val lastMessage = getLastMessage(model = model)
+              val wasLoading = lastMessage?.type == ChatMessageType.LOADING
+              if (wasLoading) {
+                removeLastMessage(model = model)
+              }
+
+              val thinkingText = if (enableThinking) partialThinkingResult else null
+              val isThinking = thinkingText != null && thinkingText.isNotEmpty()
+              var currentLastMessage = getLastMessage(model = model)
+
+              // If thinking is enabled, add a thinking message.
+              if (isThinking) {
+                if (currentLastMessage?.type != ChatMessageType.THINKING) {
+                  addMessage(
+                    model = model,
+                    message =
+                      ChatMessageThinking(
+                        content = "",
+                        inProgress = true,
+                        side = ChatSide.AGENT,
+                        accelerator = accelerator,
+                        hideSenderLabel =
+                          currentLastMessage?.type == ChatMessageType.COLLAPSABLE_PROGRESS_PANEL,
+                      ),
+                  )
+                }
+                updateLastThinkingMessageContentIncrementally(
+                  model = model,
+                  partialContent = thinkingText!!,
+                )
+              } else {
+                if (currentLastMessage?.type == ChatMessageType.THINKING) {
+                  val thinkingMsg = currentLastMessage as ChatMessageThinking
+                  if (thinkingMsg.inProgress) {
+                    replaceLastMessage(
+                      model = model,
+                      message =
+                        ChatMessageThinking(
+                          content = thinkingMsg.content,
+                          inProgress = false,
+                          side = thinkingMsg.side,
+                          accelerator = thinkingMsg.accelerator,
+                          hideSenderLabel = thinkingMsg.hideSenderLabel,
+                        ),
+                      type = ChatMessageType.THINKING,
+                    )
+                  }
+                }
+                currentLastMessage = getLastMessage(model = model)
+                if (
+                  currentLastMessage?.type != ChatMessageType.TEXT ||
+                    currentLastMessage.side != ChatSide.AGENT
+                ) {
+                  // Add an empty message that will receive streaming results.
+                  addMessage(
+                    model = model,
+                    message =
+                      ChatMessageText(
+                        content = "",
+                        side = ChatSide.AGENT,
+                        accelerator = accelerator,
+                        hideSenderLabel =
+                          currentLastMessage?.type == ChatMessageType.COLLAPSABLE_PROGRESS_PANEL ||
+                            currentLastMessage?.type == ChatMessageType.THINKING,
+                      ),
+                  )
+                }
+
+                // Incrementally update the streamed partial results.
+                val latencyMs: Long = if (done) System.currentTimeMillis() - start else -1
+                if (partialResult.isNotEmpty() || wasLoading || done) {
+                  updateLastTextMessageContentIncrementally(
+                    model = model,
+                    partialContent = partialResult,
+                    latencyMs = latencyMs.toFloat(),
+                  )
+                }
+              }
+
+              if (firstRun) {
+                firstRun = false
+                setPreparing(false)
+                onFirstToken(model)
+              }
+
+              if (done) {
+                val finalLastMessage = getLastMessage(model = model)
+                if (finalLastMessage is ChatMessageText && finalLastMessage.side == ChatSide.AGENT) {
+                  persistAssistantMessage(finalLastMessage.content)
+                }
+                if (finalLastMessage?.type == ChatMessageType.THINKING) {
+                  val thinkingMsg = finalLastMessage as ChatMessageThinking
+                  if (thinkingMsg.inProgress) {
+                    replaceLastMessage(
+                      model = model,
+                      message =
+                        ChatMessageThinking(
+                          content = thinkingMsg.content,
+                          inProgress = false,
+                          side = thinkingMsg.side,
+                          accelerator = thinkingMsg.accelerator,
+                          hideSenderLabel = thinkingMsg.hideSenderLabel,
+                        ),
+                      type = ChatMessageType.THINKING,
+                    )
+                  }
+                }
+                setInProgress(false)
+                onDone()
+              }
+            }
+          }
+
+        val cleanUpListener: () -> Unit = {
+          setInProgress(false)
+          setPreparing(false)
+        }
+
+        val errorListener: (String) -> Unit = { message ->
+          Log.e(TAG, "Error occurred while running inference")
+          setInProgress(false)
+          setPreparing(false)
+          onError(message)
+        }
+
+        val enableThinking =
+          allowThinking &&
+            model.getBooleanConfigValue(key = ConfigKeys.ENABLE_THINKING, defaultValue = false)
+        // Always pass the flag explicitly. Omitting it lets reasoning-tuned models (e.g. Gemma 3
+        // E2B) default to thinking-on, and the runtime keeps the last value if a prior turn in the
+        // same session set it — so after a round of agentic inference with thinking=true, a plain
+        // "say hi" in non-agentic mode would still emit a thought channel.
+        val extraContext =
+          mapOf("enable_thinking" to if (enableThinking) "true" else "false")
+
+        model.runtimeHelper.runInference(
+          model = model,
+          input = input,
+          images = images,
+          audioClips = audioClips,
+          resultListener = resultListener,
+          cleanUpListener = cleanUpListener,
+          onError = errorListener,
+          coroutineScope = viewModelScope,
+          extraContext = extraContext,
+        )
+      } catch (e: Exception) {
+        Log.e(TAG, "Error occurred while running inference", e)
+        setInProgress(false)
+        setPreparing(false)
+        onError(e.message ?: "")
+      }
+    }
+  }
+
+  /**
+   * Run inference and return the complete response as a String, without adding any messages to the
+   * chat UI. Used by the orchestration module for internal LLM calls (planning, evaluation).
+   */
+  suspend fun generateInternalResponse(model: Model, input: String): String {
+    // Wait for model instance to be ready.
+    while (model.instance == null) {
+      delay(100)
+    }
+
+    return suspendCancellableCoroutine { continuation ->
+      val buffer = StringBuilder()
+      model.runtimeHelper.runInference(
+        model = model,
+        input = input,
+        resultListener = { partialResult, done, _ ->
+          if (!partialResult.startsWith("<ctrl")) {
+            buffer.append(partialResult)
+          }
+          if (done) {
+            continuation.resume(buffer.toString())
+          }
+        },
+        cleanUpListener = {},
+        onError = { message ->
+          continuation.resumeWithException(Exception(message))
+        },
+      )
+    }
+  }
+
+  /**
+   * Run inference for orchestration planning/evaluation. Resets the conversation before each
+   * call to avoid context accumulation, since the engine only supports one session and
+   * on-device models have limited context windows.
+   */
+  suspend fun generatePlanningResponse(
+    model: Model,
+    input: String,
+    enableThinking: Boolean = false,
+  ): String {
+    Log.d(TAG, "generatePlanningResponse called, input length=${input.length}, thinking=$enableThinking")
+    while (model.instance == null) { delay(100) }
+
+    val instance = model.instance as? LlmModelInstance
+      ?: throw IllegalStateException("Model instance is not LlmModelInstance")
+
+    // Close the current conversation and create a fresh tool-free one for this single inference.
+    val engine = instance.engine
+    instance.conversation.close()
+
+    val freshConversation = engine.createConversation(
+      com.google.ai.edge.litertlm.ConversationConfig(
+        samplerConfig = com.google.ai.edge.litertlm.SamplerConfig(
+          topK = 40, topP = 0.95, temperature = 1.0,
+        ),
+        tools = emptyList(),
+        automaticToolCalling = false,
+      )
+    )
+    instance.conversation = freshConversation
+
+    val extraContext =
+      mapOf("enable_thinking" to if (enableThinking) "true" else "false")
+
+    return suspendCancellableCoroutine { continuation ->
+      val buffer = StringBuilder()
+      freshConversation.sendMessageAsync(
+        com.google.ai.edge.litertlm.Contents.of(
+          listOf(com.google.ai.edge.litertlm.Content.Text(input))
+        ),
+        object : com.google.ai.edge.litertlm.MessageCallback {
+          override fun onMessage(message: com.google.ai.edge.litertlm.Message) {
+            // When thinking is enabled, skip thinking tokens — only collect the final response.
+            val text = message.toString()
+            if (!text.startsWith("<ctrl")) {
+              buffer.append(text)
+            }
+          }
+          override fun onDone() {
+            Log.d(TAG, "generatePlanningResponse done, length=${buffer.length}")
+            continuation.resume(buffer.toString())
+          }
+          override fun onError(throwable: Throwable) {
+            Log.e(TAG, "generatePlanningResponse error", throwable)
+            if (throwable is java.util.concurrent.CancellationException) {
+              continuation.resume(buffer.toString())
+            } else {
+              continuation.resumeWithException(Exception(throwable.message))
+            }
+          }
+        },
+        extraContext,
+      )
+    }
+  }
+
+  fun stopResponse(model: Model) {
+    Log.d(TAG, "Stopping response for model ${model.name}...")
+    if (getLastMessage(model = model) is ChatMessageLoading) {
+      removeLastMessage(model = model)
+    }
+    setInProgress(false)
+    model.runtimeHelper.stopResponse(model)
+    Log.d(TAG, "Done stopping response")
+  }
+
+  fun resetSession(
+    task: Task,
+    model: Model,
+    systemInstruction: Contents? = null,
+    tools: List<ToolProvider> = listOf(),
+    supportImage: Boolean = false,
+    supportAudio: Boolean = false,
+    onDone: () -> Unit = {},
+    enableConversationConstrainedDecoding: Boolean = false,
+  ) {
+    viewModelScope.launch(Dispatchers.Default) {
+      setIsResettingSession(true)
+      clearAllMessages(model = model)
+      stopResponse(model = model)
+
+      while (true) {
+        try {
+          model.runtimeHelper.resetConversation(
+            model = model,
+            supportImage = supportImage,
+            supportAudio = supportAudio,
+            systemInstruction = systemInstruction,
+            tools = tools,
+            enableConversationConstrainedDecoding = enableConversationConstrainedDecoding,
+          )
+          break
+        } catch (e: Exception) {
+          Log.d(TAG, "Failed to reset session. Trying again")
+        }
+        delay(200)
+      }
+      setIsResettingSession(false)
+      onDone()
+    }
+  }
+
+  fun runAgain(
+    model: Model,
+    message: ChatMessageText,
+    onError: (String) -> Unit,
+    allowThinking: Boolean = false,
+  ) {
+    viewModelScope.launch(Dispatchers.Default) {
+      // Wait for model to be initialized.
+      while (model.instance == null) {
+        delay(100)
+      }
+
+      // Clone the clicked message and add it.
+      addMessage(model = model, message = message.clone())
+
+      // Run inference.
+      generateResponse(
+        model = model,
+        input = message.content,
+        onError = onError,
+        allowThinking = allowThinking,
+      )
+    }
+  }
+
+  fun handleError(
+    context: Context,
+    task: Task,
+    model: Model,
+    modelManagerViewModel: ModelManagerViewModel,
+    errorMessage: String,
+  ) {
+    // Remove the "loading" message.
+    if (getLastMessage(model = model) is ChatMessageLoading) {
+      removeLastMessage(model = model)
+    }
+
+    // Show error message.
+    addMessage(model = model, message = ChatMessageError(content = errorMessage))
+
+    // Clean up and re-initialize.
+    viewModelScope.launch(Dispatchers.Default) {
+      modelManagerViewModel.cleanupModel(
+        context = context,
+        task = task,
+        model = model,
+        onDone = {
+          modelManagerViewModel.initializeModel(context = context, task = task, model = model)
+
+          // Add a warning message for re-initializing the session.
+          addMessage(
+            model = model,
+            message = ChatMessageWarning(content = "Session re-initialized"),
+          )
+        },
+      )
+    }
+  }
+}
+
+@HiltViewModel
+class LlmChatViewModel
+@Inject
+constructor(
+  conversationRepository: ConversationRepository,
+  dataStoreRepository: DataStoreRepository,
+) : LlmChatViewModelBase(conversationRepository, dataStoreRepository)
+
+@HiltViewModel class LlmAskImageViewModel @Inject constructor() : LlmChatViewModelBase()
+
+@HiltViewModel class LlmAskAudioViewModel @Inject constructor() : LlmChatViewModelBase()

@@ -27,6 +27,6 @@ dependencyResolutionManagement {
   }
 }
 
-rootProject.name = "Mobile-Claw"
+rootProject.name = "EdgeCat"
 
 include(":app")

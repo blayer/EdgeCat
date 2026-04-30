@@ -1,5 +1,5 @@
 #!/bin/bash
-# Mobile-Claw: Unified Test Runner
+# EdgeCat: Unified Test Runner
 # Runs all 3 test levels in order. Stops on first failure.
 #
 # Usage: ./android-app/test/run-all.sh [-d <device-serial>] [--skip-device]
@@ -50,7 +50,7 @@ if [ "$SKIP_DEVICE" = true ]; then
 fi
 
 echo "=========================================="
-echo "Mobile-Claw Test Runner"
+echo "EdgeCat Test Runner"
 echo "=========================================="
 echo "Levels to run: $TOTAL_LEVELS"
 echo ""
@@ -64,8 +64,8 @@ echo ""
 
 cd "$PROJECT_DIR"
 if ./gradlew testDebugUnitTest \
-  --tests "com.mobileclaw.app.orchestration.*" \
-  --tests "com.mobileclaw.app.customtasks.*" \
+  --tests "com.edgecat.app.orchestration.*" \
+  --tests "com.edgecat.app.customtasks.*" \
   --no-daemon -q 2>&1; then
   echo ""
   echo "LEVEL 1: PASS"
@@ -87,7 +87,7 @@ echo ""
 
 cd "$PROJECT_DIR"
 if ./gradlew testDebugUnitTest \
-  --tests "com.mobileclaw.app.integration.*" \
+  --tests "com.edgecat.app.integration.*" \
   --no-daemon -q 2>&1; then
   echo ""
   echo "LEVEL 2: PASS"

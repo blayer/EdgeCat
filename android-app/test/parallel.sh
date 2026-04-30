@@ -1,5 +1,5 @@
 #!/bin/bash
-# Mobile-Claw: Multi-Device Parallel Skill Test Runner
+# EdgeCat: Multi-Device Parallel Skill Test Runner
 # Usage: ./parallel.sh [-s <skills-dir>] [skill1 skill2 ...]
 #
 # Detects all connected & authorized ADB devices, splits the skill list

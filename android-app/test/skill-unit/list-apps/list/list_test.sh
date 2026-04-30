@@ -1,3 +1,3 @@
 PROMPT="List my installed apps"
-PASS_PATTERN="Mobile-Claw"
+PASS_PATTERN="EdgeCat"
 TIMEOUT=20

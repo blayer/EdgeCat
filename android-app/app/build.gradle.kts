@@ -10,11 +10,11 @@ plugins {
 }
 
 android {
-  namespace = "com.mobileclaw.app"
+  namespace = "com.edgecat.app"
   compileSdk = 35
 
   defaultConfig {
-    applicationId = "com.mobileclaw.app"
+    applicationId = "com.edgecat.app"
     minSdk = 31
     targetSdk = 35
     versionCode = 1
@@ -22,7 +22,7 @@ android {
 
     manifestPlaceholders["appAuthRedirectScheme"] =
         "REPLACE_WITH_YOUR_REDIRECT_SCHEME_IN_HUGGINGFACE_APP"
-    manifestPlaceholders["applicationName"] = "com.mobileclaw.app.MobileClawApplication"
+    manifestPlaceholders["applicationName"] = "com.edgecat.app.EdgeCatApplication"
 
     testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
   }

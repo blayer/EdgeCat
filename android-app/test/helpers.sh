@@ -1,5 +1,5 @@
 #!/bin/bash
-# Shared ADB/UI helpers for Mobile-Claw on-device tests.
+# Shared ADB/UI helpers for EdgeCat on-device tests.
 # Ensure ADB is on PATH
 export PATH="$PATH:$HOME/Library/Android/sdk/platform-tools"
 # Sourced by device.sh, orchestration.sh, etc.
@@ -10,9 +10,9 @@ export PATH="$PATH:$HOME/Library/Android/sdk/platform-tools"
 #   SKILL_NAME   — skill folder name (for import_skill)
 #   SKILL_PATH   — local path to skill folder (for import_skill)
 
-# Mobile-Claw package/activity
-PKG="com.mobileclaw.app"
-ACTIVITY="com.mobileclaw.app.MobileClawActivity"
+# EdgeCat package/activity
+PKG="com.edgecat.app"
+ACTIVITY="com.edgecat.app.EdgeCatActivity"
 
 # =============================================
 # Low-level ADB helpers

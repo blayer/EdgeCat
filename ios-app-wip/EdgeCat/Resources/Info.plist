@@ -1,0 +1,84 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>CFBundleDevelopmentRegion</key>
+	<string>$(DEVELOPMENT_LANGUAGE)</string>
+	<key>CFBundleDisplayName</key>
+	<string>EdgeCat</string>
+	<key>CFBundleExecutable</key>
+	<string>$(EXECUTABLE_NAME)</string>
+	<key>CFBundleIdentifier</key>
+	<string>$(PRODUCT_BUNDLE_IDENTIFIER)</string>
+	<key>CFBundleInfoDictionaryVersion</key>
+	<string>6.0</string>
+	<key>CFBundleName</key>
+	<string>$(PRODUCT_NAME)</string>
+	<key>CFBundlePackageType</key>
+	<string>APPL</string>
+	<key>CFBundleShortVersionString</key>
+	<string>0.1.0</string>
+	<key>CFBundleURLTypes</key>
+	<array>
+		<dict>
+			<key>CFBundleURLName</key>
+			<string>com.edgecat.app.url</string>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>edgecat</string>
+			</array>
+		</dict>
+	</array>
+	<key>CFBundleVersion</key>
+	<string>1</string>
+	<key>LSSupportsOpeningDocumentsInPlace</key>
+	<true/>
+	<key>NSCalendarsUsageDescription</key>
+	<string>EdgeCat reads and creates calendar events at your request.</string>
+	<key>NSCameraUsageDescription</key>
+	<string>EdgeCat uses the camera for barcode scanning and photo input to the assistant.</string>
+	<key>NSContactsUsageDescription</key>
+	<string>EdgeCat uses your contacts when you ask the assistant to call or message someone.</string>
+	<key>NSFaceIDUsageDescription</key>
+	<string>EdgeCat can use Face ID to protect saved conversations.</string>
+	<key>NSHealthShareUsageDescription</key>
+	<string>EdgeCat reads health metrics (steps, heart rate, distance, sleep, workouts) when you ask the assistant about your activity.</string>
+	<key>NSHealthUpdateUsageDescription</key>
+	<string>EdgeCat does not write to HealthKit; this entry is required by iOS only when the read entitlement is present.</string>
+	<key>NSLocationWhenInUseUsageDescription</key>
+	<string>EdgeCat reads your location when the assistant needs nearby context.</string>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>EdgeCat uses the microphone for voice input to the assistant.</string>
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>EdgeCat reads photos when you ask the assistant to find or share images.</string>
+	<key>NSRemindersUsageDescription</key>
+	<string>EdgeCat creates reminders at your request.</string>
+	<key>UIAppFonts</key>
+	<array>
+		<string>MaterialSymbolsRounded.ttf</string>
+		<string>nunito_regular.ttf</string>
+		<string>nunito_medium.ttf</string>
+		<string>nunito_semibold.ttf</string>
+		<string>nunito_bold.ttf</string>
+		<string>nunito_extrabold.ttf</string>
+		<string>nunito_light.ttf</string>
+		<string>nunito_extralight.ttf</string>
+		<string>nunito_black.ttf</string>
+	</array>
+	<key>UIApplicationSceneManifest</key>
+	<dict>
+		<key>UIApplicationSupportsMultipleScenes</key>
+		<false/>
+	</dict>
+	<key>UIFileSharingEnabled</key>
+	<true/>
+	<key>UILaunchScreen</key>
+	<dict/>
+	<key>UISupportedInterfaceOrientations</key>
+	<array>
+		<string>UIInterfaceOrientationPortrait</string>
+		<string>UIInterfaceOrientationLandscapeLeft</string>
+		<string>UIInterfaceOrientationLandscapeRight</string>
+	</array>
+</dict>
+</plist>

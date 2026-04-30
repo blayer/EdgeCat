@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Mobile-Claw eval runner (UI-free).
+"""EdgeCat eval runner (UI-free).
 
 Drives an ADB-connected device through a dataset of tasks by invoking the hidden
 EvalActivity directly — no uiautomator, no coordinate taps, no chat UI. Pulls the
@@ -48,9 +48,9 @@ from scorers import structural as s_struct  # noqa: E402
 from scorers import state as s_state  # noqa: E402
 from scorers import perf as s_perf  # noqa: E402
 
-PKG = "com.mobileclaw.app"
+PKG = "com.edgecat.app"
 EVAL_ACTIVITY = f"{PKG}/.eval.EvalActivity"
-EVAL_ACTION = "com.mobileclaw.app.EVAL_RUN"
+EVAL_ACTION = "com.edgecat.app.EVAL_RUN"
 # EvalActivity writes to app-private external files dir so the app can write on
 # scoped-storage Android without MANAGE_EXTERNAL_STORAGE. adb can still read it.
 TRACE_DIR_ON_DEVICE = f"/sdcard/Android/data/{PKG}/files/claw-traces"

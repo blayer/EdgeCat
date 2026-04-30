@@ -1,4 +1,4 @@
-# Mobile-Claw iOS (work-in-progress)
+# EdgeCat iOS (work-in-progress)
 
 Native iOS Swift port of the Android Kotlin app at `../android-app/`. Same on-device LLM engine
 ([LiteRT-LM](https://github.com/google-ai-edge/LiteRT-LM)), same feature set, same screens.
@@ -12,7 +12,7 @@ Native iOS Swift port of the Android Kotlin app at `../android-app/`. Same on-de
 ios-app-wip/
 ├── project.yml                 # XcodeGen spec — single source of truth for the .xcodeproj
 ├── scripts/fetch-litertlm.sh   # Pulls C headers + iOS dylibs from the LiteRT-LM repo (LFS)
-├── MobileClaw/                 # iOS app target (Swift / SwiftUI)
+├── EdgeCat/                 # iOS app target (Swift / SwiftUI)
 │   ├── App/                    # @main + navigation
 │   ├── UI/                     # Screens + ViewModels (mirror android-app/.../ui)
 │   ├── Runtime/                # LLM runtime facade (mirrors android-app/.../runtime)
@@ -40,19 +40,19 @@ ios-app-wip/
 ```bash
 cd ios-app-wip
 ./scripts/fetch-litertlm.sh        # downloads C headers + iOS dylibs into LiteRtLmBridge/Vendor/
-xcodegen                            # generates MobileClaw.xcodeproj from project.yml
-open MobileClaw.xcodeproj
+xcodegen                            # generates EdgeCat.xcodeproj from project.yml
+open EdgeCat.xcodeproj
 ```
 
-> **Bundle ID + signing.** Bundle ID is `com.mobileclaw.app` (matches Android). Set your team
-> in Xcode → MobileClaw target → Signing & Capabilities before running on device.
+> **Bundle ID + signing.** Bundle ID is `com.edgecat.app` (matches Android). Set your team
+> in Xcode → EdgeCat target → Signing & Capabilities before running on device.
 
 ## Sideloading a model
 
 Phase A uses manual sideload (matches the Android `/data/local/tmp` flow):
 
 1. Build & run the app once on a device — this creates the app's Documents directory.
-2. In Finder → device → Files → MobileClaw → drop a `.litertlm` model (e.g. `gemma-3n-E2B-it-int4.litertlm`)
+2. In Finder → device → Files → EdgeCat → drop a `.litertlm` model (e.g. `gemma-3n-E2B-it-int4.litertlm`)
    into the `Models/` folder. (`UIFileSharingEnabled` is set in Info.plist.)
 3. Restart the app and the picker will list it.
 

@@ -1,5 +1,5 @@
 #!/bin/bash
-# Mobile-Claw On-Device Skill Test — XML-based (device-independent)
+# EdgeCat On-Device Skill Test — XML-based (device-independent)
 # Usage: ./device.sh [-d <device-serial>] [-s <skills-dir>] <skill-name>
 #
 # Uses uiautomator XML dumps to find UI elements dynamically.

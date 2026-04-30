@@ -1,4 +1,4 @@
-# Mobile-Claw Test Plan
+# EdgeCat Test Plan
 
 Every change must pass all 3 test levels before merging.
 Run them in order — if a level fails, fix before proceeding.
@@ -11,8 +11,8 @@ Run them in order — if a level fails, fix before proceeding.
 ./android-app/test/run-all.sh --skip-device
 
 # Individual levels:
-./gradlew testDebugUnitTest --tests "com.mobileclaw.app.orchestration.*" --tests "com.mobileclaw.app.customtasks.*"   # Level 1
-./gradlew testDebugUnitTest --tests "com.mobileclaw.app.integration.*"                                                # Level 2
+./gradlew testDebugUnitTest --tests "com.edgecat.app.orchestration.*" --tests "com.edgecat.app.customtasks.*"   # Level 1
+./gradlew testDebugUnitTest --tests "com.edgecat.app.integration.*"                                                # Level 2
 ./test/orchestration.sh [-d <serial>]                                                                                 # Level 3
 ```
 
@@ -22,7 +22,7 @@ Run them in order — if a level fails, fix before proceeding.
 
 Fast, no device required. Tests individual functions in isolation.
 
-**Run:** `./gradlew testDebugUnitTest --tests "com.mobileclaw.app.orchestration.*" --tests "com.mobileclaw.app.customtasks.*"`
+**Run:** `./gradlew testDebugUnitTest --tests "com.edgecat.app.orchestration.*" --tests "com.edgecat.app.customtasks.*"`
 
 | # | Test Class | Area | What It Covers |
 |---|-----------|------|----------------|
@@ -35,7 +35,7 @@ Fast, no device required. Tests individual functions in isolation.
 | 7 | `HtmlExtractorTest` | Utility | HTML-to-text extraction, search result parsing |
 | 8 | `DateTimeParsingTest` | Utility | Flexible date/time format parsing, garbled LLM output handling |
 
-**Test files:** `app/src/test/java/com/mobileclaw/app/orchestration/` and `app/src/test/java/com/mobileclaw/app/customtasks/agentchat/`
+**Test files:** `app/src/test/java/com/edgecat/app/orchestration/` and `app/src/test/java/com/edgecat/app/customtasks/agentchat/`
 
 ---
 
@@ -43,7 +43,7 @@ Fast, no device required. Tests individual functions in isolation.
 
 No device required. Tests end-to-end flows with mock LLM responses.
 
-**Run:** `./gradlew testDebugUnitTest --tests "com.mobileclaw.app.integration.*"`
+**Run:** `./gradlew testDebugUnitTest --tests "com.edgecat.app.integration.*"`
 
 | # | Test Class | Area | What It Covers |
 |---|-----------|------|----------------|
@@ -51,7 +51,7 @@ No device required. Tests end-to-end flows with mock LLM responses.
 | 2 | `SkillCreatorIntegrationTest` | Skill creation | Skill creation prompt context, realistic LLM output parsing, saved skill reuse in planner, skill name normalization |
 | 3 | `AutoRepairFlowTest` | Auto-repair | Full repair loop: fail, diagnose, replan with fixed args; skill swap after intent failure; partial success replan |
 
-**Test files:** `app/src/test/java/com/mobileclaw/app/integration/`
+**Test files:** `app/src/test/java/com/edgecat/app/integration/`
 
 ---
 
@@ -116,13 +116,13 @@ Per-skill unit tests live in `android-app/test/skill-unit/<skill>/<action>.sh`.
 ## Prerequisites
 
 - **Levels 1-2:** JDK 17+, Android SDK (for Robolectric)
-- **Level 3:** macOS with ADB (`brew install android-platform-tools`), Android device connected via USB with USB debugging enabled, Mobile-Claw app installed (`com.mobileclaw.app`), LLM model downloaded (e.g., Gemma-4-2B-it)
+- **Level 3:** macOS with ADB (`brew install android-platform-tools`), Android device connected via USB with USB debugging enabled, EdgeCat app installed (`com.edgecat.app`), LLM model downloaded (e.g., Gemma-4-2B-it)
 
 ## App Details
 
-- Package: `com.mobileclaw.app`
-- Activity: `com.mobileclaw.app.MobileClawActivity`
-- Launch: `adb shell am start -n com.mobileclaw.app/.MobileClawActivity`
+- Package: `com.edgecat.app`
+- Activity: `com.edgecat.app.EdgeCatActivity`
+- Launch: `adb shell am start -n com.edgecat.app/.EdgeCatActivity`
 
 ---
 

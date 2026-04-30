@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Mobile-Claw iOS eval harness.
+"""EdgeCat iOS eval harness.
 
 Mirrors `android-app/test/eval/run.py` but drives an iPhone simulator via
 `xcrun simctl` instead of `adb`. Schema-compatible with the Android scorers
@@ -11,7 +11,7 @@ Quickstart:
     xcrun simctl boot 80A09B97-...
 
     # 2) install the app (built from xcodegen + xcodebuild)
-    xcrun simctl install 80A09B97-... .../MobileClaw.app
+    xcrun simctl install 80A09B97-... .../EdgeCat.app
 
     # 3) pre-flight permissions (one-time per sim)
     test/eval/scripts/preflight.sh 80A09B97-...
@@ -21,7 +21,7 @@ Quickstart:
         --dataset datasets/v1_basic.jsonl \\
         --label main \\
         --udid 80A09B97-... \\
-        --bundle-id com.mobileclawapp.app \\
+        --bundle-id com.edgecat.app \\
         --model gemma-4-E2B-it.litertlm \\
         --model-source ~/Models/gemma-4-E2B-it.litertlm
 
@@ -49,7 +49,7 @@ ROOT = Path(__file__).resolve().parent
 sys.path.insert(0, str(ROOT))
 from scorers import structural, perf, state  # noqa: E402
 
-DEFAULT_BUNDLE_ID = "com.mobileclawapp.app"
+DEFAULT_BUNDLE_ID = "com.edgecat.app"
 DEFAULT_TIMEOUT_S = 180
 PRIVACY_SERVICES = [
     "calendar", "contacts", "photos-add", "photos",
@@ -182,14 +182,14 @@ def wait_for_app_dead(udid: str, bundle_id: str, timeout_s: int = 15) -> None:
 
 
 def launch_app(udid: str, bundle_id: str) -> None:
-    """Launch with MOBILECLAW_EVAL_MODE=1 so MobileClawApp renders the
+    """Launch with EDGECAT_EVAL_MODE=1 so EdgeCatApp renders the
     headless EvalRunnerView instead of AppRouter.
 
     `simctl launch` doesn't take `--setenv` directly — it inherits any
     `SIMCTL_CHILD_<VARNAME>` from the calling environment and passes them
     into the launched app stripped of the `SIMCTL_CHILD_` prefix.
     """
-    env = {**os.environ, "SIMCTL_CHILD_MOBILECLAW_EVAL_MODE": "1"}
+    env = {**os.environ, "SIMCTL_CHILD_EDGECAT_EVAL_MODE": "1"}
     try:
         result = subprocess.run(
             ["xcrun", "simctl", "launch", udid, bundle_id],
@@ -203,10 +203,10 @@ def launch_app(udid: str, bundle_id: str) -> None:
 
 def open_eval_url(udid: str, prompt: str, run_id: str, model_filename: str | None,
                   agentic: bool) -> None:
-    """Send `mobileclaw://eval?...` to the app. Matches the URL contract
+    """Send `edgecat://eval?...` to the app. Matches the URL contract
     in `EvalEntryPoint.swift`."""
     from urllib.parse import quote
-    url = (f"mobileclaw://eval?prompt={quote(prompt, safe='')}"
+    url = (f"edgecat://eval?prompt={quote(prompt, safe='')}"
            f"&runId={quote(run_id, safe='')}")
     if model_filename:
         url += f"&model={quote(model_filename, safe='')}"
@@ -218,7 +218,7 @@ def open_eval_url(udid: str, prompt: str, run_id: str, model_filename: str | Non
 
 
 def open_verify_url(udid: str, run_id: str, kind: str, params: dict[str, Any]) -> None:
-    """Send `mobileclaw://verify?...` so the in-app `StateVerifiers` can
+    """Send `edgecat://verify?...` so the in-app `StateVerifiers` can
     query an iOS framework (EventKit, EKReminder, UNUserNotificationCenter,
     Contacts, Photos, HealthKit, …) and emit a `kind=verify` span the
     scorer reads. Mirrors `open_eval_url` shape."""
@@ -226,7 +226,7 @@ def open_verify_url(udid: str, run_id: str, kind: str, params: dict[str, Any]) -
     qs = [f"runId={quote(run_id, safe='')}", f"kind={quote(kind, safe='')}"]
     for k, v in params.items():
         qs.append(f"{quote(str(k), safe='')}={quote(str(v), safe='')}")
-    url = "mobileclaw://verify?" + "&".join(qs)
+    url = "edgecat://verify?" + "&".join(qs)
     code, out = sh(["xcrun", "simctl", "openurl", udid, url], timeout=15)
     if code != 0:
         raise SystemExit(f"simctl openurl (verify) failed: {out}")
@@ -494,7 +494,7 @@ def compute_summary(rows: list[dict[str, Any]], skipped: list[dict[str, Any]]) -
 def render_report_md(label: str, summary: dict[str, Any],
                      rows: list[dict[str, Any]], skipped: list[dict[str, Any]]) -> str:
     out: list[str] = []
-    out.append(f"# Mobile-Claw iOS eval — {label}")
+    out.append(f"# EdgeCat iOS eval — {label}")
     out.append("")
     out.append(f"- **TSR:** {summary['tsr'] * 100:.1f}%  ({summary['n_tasks']} tasks)")
     out.append(f"- **OQI:** {summary['oqi']:.3f}")

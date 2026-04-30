@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "title": "MobileClawTask",
-  "description": "A single eval task for Mobile-Claw orchestration. One JSONL line per task.",
+  "title": "EdgeCatTask",
+  "description": "A single eval task for EdgeCat orchestration. One JSONL line per task.",
   "type": "object",
   "required": ["id", "prompt", "category", "complexity"],
   "additionalProperties": false,
@@ -12,7 +12,7 @@
     },
     "prompt": {
       "type": "string",
-      "description": "The user message sent to Mobile-Claw"
+      "description": "The user message sent to EdgeCat"
     },
     "category": {
       "type": "string",

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""A/B diff between two Mobile-Claw eval runs.
+"""A/B diff between two EdgeCat eval runs.
 
 Usage:
     python ios-app-wip/test/eval/compare.py <baseline_run_dir> <candidate_run_dir>
