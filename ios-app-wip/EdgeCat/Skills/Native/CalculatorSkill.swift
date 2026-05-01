@@ -5,6 +5,15 @@ import Foundation
 
 public final class CalculatorSkill: Skill, @unchecked Sendable {
     public var name: String { "calculator" }
+    // Demoted to deferred: small models kept routing date arithmetic
+    // ("DATE_ADD(2026-05-01, 1, 'day')", "TODAY + 7 days") through
+    // calculator and dying with "could not extract numeric expression".
+    // Set-reminder/add-calendar-event now accept whenText/dueWhen for
+    // natural-language dates, and the DATE CONTEXT block in the planner
+    // prompt provides ISO substitutions for TODAY/TOMORROW/etc — so
+    // legitimate date paths don't need calculator at all. Plain
+    // arithmetic queries can still load it via `search-skills`.
+    public var tier: String { "deferred" }
     public var description: String {
         "Evaluate a NUMERIC arithmetic expression like \"3 * (4 + 5)\". " +
         "Supports +, -, *, /, %, parentheses, and standard math functions. " +
