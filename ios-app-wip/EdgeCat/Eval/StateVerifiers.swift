@@ -280,11 +280,23 @@ public enum StateVerifiers {
         let match = reminders.first { r in
             let titleOk = titleSub.isEmpty
                 || (r.title?.localizedCaseInsensitiveContains(titleSub) ?? false)
+            // Location can appear either as a structured alarm location
+            // (rare — requires the skill to construct an EKAlarm with a
+            // structuredLocation) or, more commonly, embedded in the
+            // reminder's title or notes since the skill doesn't split
+            // location out automatically. Accept any of these so a
+            // reminder titled "Buy chocolate milk at Whole Foods on
+            // Stevens Creek" passes the location check too.
             let locOk: Bool
-            if locSub.isEmpty { locOk = true }
-            else {
-                let locTitle = r.alarms?.compactMap({ $0.structuredLocation?.title }).first ?? ""
-                locOk = locTitle.localizedCaseInsensitiveContains(locSub)
+            if locSub.isEmpty {
+                locOk = true
+            } else {
+                let alarmLoc = r.alarms?.compactMap({ $0.structuredLocation?.title }).first ?? ""
+                let titleStr = r.title ?? ""
+                let notesStr = r.notes ?? ""
+                locOk = alarmLoc.localizedCaseInsensitiveContains(locSub)
+                    || titleStr.localizedCaseInsensitiveContains(locSub)
+                    || notesStr.localizedCaseInsensitiveContains(locSub)
             }
             guard titleOk && locOk,
                   let due = r.dueDateComponents,
