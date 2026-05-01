@@ -50,18 +50,96 @@ public final class CalendarSkill: Skill, @unchecked Sendable {
         }
         let days = Int(args["days"] ?? "7") ?? 7
         let now = Date()
-        let end = Calendar.current.date(byAdding: .day, value: days, to: now) ?? now
+        let cal = Calendar.current
+        let end = cal.date(byAdding: .day, value: days, to: now) ?? now
         let predicate = store.predicateForEvents(withStart: now, end: end, calendars: nil)
-        let events = store.events(matching: predicate).prefix(25)
+        let events = Array(store.events(matching: predicate).prefix(25))
+
+        let dtFmt = DateFormatter()
+        dtFmt.dateFormat = "yyyy-MM-dd HH:mm"
+        dtFmt.timeZone = .current
+
+        var sections: [String] = []
         if events.isEmpty {
-            return ToolExecutionResult(success: true, output: "no upcoming events")
+            sections.append("EVENTS: (none in next \(days) days)")
+        } else {
+            let evLines = events.map { ev -> String in
+                let s = dtFmt.string(from: ev.startDate)
+                let e = dtFmt.string(from: ev.endDate)
+                return "- \(s) – \(e) — \(ev.title ?? "(untitled)")"
+            }
+            sections.append("EVENTS (start – end — title):")
+            sections.append(evLines.joined(separator: "\n"))
         }
-        let formatter = DateFormatter()
-        formatter.dateStyle = .short; formatter.timeStyle = .short
-        let out = events.map { ev in
-            "\(formatter.string(from: ev.startDate)) — \(ev.title ?? "(untitled)")"
-        }.joined(separator: "\n")
-        return ToolExecutionResult(success: true, output: out)
+
+        // Surface FREE morning slots for tomorrow + the next two days
+        // so the planner doesn't have to reason about gaps from raw
+        // events. Window: 08:00–12:00 local, slots ≥ 30 min. The
+        // free-slot output is what unblocks "find a free slot before
+        // noon and add X" requests on small models — they were
+        // concluding "no slots available" from the events list alone.
+        let freeBlocks = morningFreeSlots(
+            store: store, daysAhead: min(3, max(1, days)), cal: cal, now: now)
+        if !freeBlocks.isEmpty {
+            sections.append("")
+            sections.append("FREE MORNING SLOTS (≥30 min, 08:00–12:00 local):")
+            sections.append(freeBlocks.joined(separator: "\n"))
+        }
+        return ToolExecutionResult(success: true,
+                                    output: sections.joined(separator: "\n"))
+    }
+
+    /// Compute free morning windows (≥30 min, 08:00–12:00 local) for
+    /// each of the next `daysAhead` days. Returns one line per gap as
+    /// "yyyy-MM-dd HH:mm – HH:mm (Nm free)" — agent can lift the start
+    /// time directly into add-calendar-event's startIso/whenText.
+    private func morningFreeSlots(store: EKEventStore,
+                                   daysAhead: Int,
+                                   cal: Calendar,
+                                   now: Date) -> [String] {
+        let dayFmt = DateFormatter()
+        dayFmt.dateFormat = "yyyy-MM-dd"
+        dayFmt.timeZone = .current
+        let hmFmt = DateFormatter()
+        hmFmt.dateFormat = "HH:mm"
+        hmFmt.timeZone = .current
+
+        var lines: [String] = []
+        for offset in 1...max(1, daysAhead) {
+            guard let day = cal.date(byAdding: .day, value: offset, to: now) else { continue }
+            let dayStart = cal.startOfDay(for: day)
+            guard let windowStart = cal.date(bySettingHour: 8, minute: 0, second: 0,
+                                              of: dayStart),
+                  let windowEnd = cal.date(bySettingHour: 12, minute: 0, second: 0,
+                                            of: dayStart) else { continue }
+            let predicate = store.predicateForEvents(
+                withStart: windowStart, end: windowEnd, calendars: nil)
+            let dayEvents = store.events(matching: predicate)
+                .sorted { $0.startDate < $1.startDate }
+            // Walk gaps between [windowStart, e1.start), (e1.end, e2.start), …, (eN.end, windowEnd]
+            var cursor = windowStart
+            for ev in dayEvents {
+                let evStart = max(ev.startDate, windowStart)
+                if cursor < evStart {
+                    let mins = Int(evStart.timeIntervalSince(cursor) / 60)
+                    if mins >= 30 {
+                        lines.append("- \(dayFmt.string(from: dayStart)) "
+                                     + "\(hmFmt.string(from: cursor)) – "
+                                     + "\(hmFmt.string(from: evStart)) (\(mins)m free)")
+                    }
+                }
+                cursor = max(cursor, ev.endDate)
+            }
+            if cursor < windowEnd {
+                let mins = Int(windowEnd.timeIntervalSince(cursor) / 60)
+                if mins >= 30 {
+                    lines.append("- \(dayFmt.string(from: dayStart)) "
+                                 + "\(hmFmt.string(from: cursor)) – "
+                                 + "\(hmFmt.string(from: windowEnd)) (\(mins)m free)")
+                }
+            }
+        }
+        return lines
     }
 
     // MARK: - Add
