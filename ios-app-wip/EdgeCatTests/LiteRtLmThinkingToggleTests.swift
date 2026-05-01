@@ -73,19 +73,28 @@ final class LiteRtLmThinkingToggleTests: XCTestCase {
     /// construct the orchestration policy. Test the full storage →
     /// mode → policy → enableThinking chain so a renamed key or a
     /// changed enum order would break here, not at runtime.
-    func testSettingsPickerValuesRoundTripThroughThinkingPolicy() {
+    private struct PickerCase {
+        let rawSetting: Int
+        let expectedMode: ThinkingMode
+        let plannerOnSimpleMsg: Bool
+        let plannerOnComplexMsg: Bool
+    }
+
+    func testSettingsPickerValuesRoundTripThroughThinkingPolicy() throws {
         let suiteName = "com.edgecat.tests.thinkingPicker"
-        let defaults = UserDefaults(suiteName: suiteName)!
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
         defer { defaults.removePersistentDomain(forName: suiteName) }
 
         // Picker writes raw int values; SamplerSettings reads via
         // `agentThinkingModeKey`. Verify each picker option resolves
         // to the documented policy behavior.
-        let cases: [(rawSetting: Int, expectedMode: ThinkingMode,
-                      plannerOnSimpleMsg: Bool, plannerOnComplexMsg: Bool)] = [
-            (0, .auto,       false, true),
-            (1, .off,        false, false),
-            (2, .aggressive, true,  true),
+        let cases: [PickerCase] = [
+            PickerCase(rawSetting: 0, expectedMode: .auto,
+                       plannerOnSimpleMsg: false, plannerOnComplexMsg: true),
+            PickerCase(rawSetting: 1, expectedMode: .off,
+                       plannerOnSimpleMsg: false, plannerOnComplexMsg: false),
+            PickerCase(rawSetting: 2, expectedMode: .aggressive,
+                       plannerOnSimpleMsg: true, plannerOnComplexMsg: true),
         ]
         for c in cases {
             defaults.set(c.rawSetting, forKey: SamplerSettings.agentThinkingModeKey)
