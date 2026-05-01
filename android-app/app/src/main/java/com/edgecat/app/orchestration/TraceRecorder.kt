@@ -21,17 +21,17 @@ import org.json.JSONArray
 import org.json.JSONObject
 
 private const val TAG = "AGTraceRecorder"
-private const val FLAG_FILE = "claw-trace-enabled"
-private const val TRACE_DIR = "claw-traces"
+private const val FLAG_FILE = "edgecat-trace-enabled"
+private const val TRACE_DIR = "edgecat-traces"
 
 /**
  * Per-run trace recorder for EdgeCat orchestration.
  *
  * Records one span per subsystem call (planner, step, evaluator, formatter) with latency,
  * thermal state, memory, and domain payload. Writes one JSONL file per run to
- * /sdcard/claw-traces/<runId>.jsonl.
+ * /sdcard/edgecat-traces/<runId>.jsonl.
  *
- * No-op unless /sdcard/claw-traces/claw-trace-enabled (or a matching file under the app's
+ * No-op unless /sdcard/edgecat-traces/edgecat-trace-enabled (or a matching file under the app's
  * external files dir) exists. This keeps production runs free of I/O cost.
  *
  * Not a library — plain Kotlin + org.json. Emits a stable schema the Python eval harness
@@ -214,7 +214,7 @@ class TraceRecorder private constructor(
   companion object {
     /**
      * Returns a new recorder if tracing is enabled on this device, else null.
-     * Tracing is enabled by creating /sdcard/claw-traces/claw-trace-enabled
+     * Tracing is enabled by creating /sdcard/edgecat-traces/edgecat-trace-enabled
      * (any content, even empty). The Python eval harness creates this flag file
      * before each scenario run.
      */
@@ -236,7 +236,7 @@ class TraceRecorder private constructor(
 
     /**
      * Returns a recorder that writes to the app's external files dir:
-     *   /sdcard/Android/data/com.edgecat.app/files/claw-traces/<runId>.jsonl
+     *   /sdcard/Android/data/com.edgecat.app/files/edgecat-traces/<runId>.jsonl
      *
      * Bypasses the flag-file gate — used by the UI-free eval harness (EvalActivity).
      * We use the app-specific external dir (not top-level /sdcard/) because Android 11+

@@ -93,7 +93,7 @@ final class StateVerifiersTests: XCTestCase {
                                                     in: .userDomainMask).first else {
             fatalError("no documents directory in test target")
         }
-        return docs.appendingPathComponent("claw-traces", isDirectory: true)
+        return docs.appendingPathComponent("edgecat-traces", isDirectory: true)
             .appendingPathComponent("\(runId).jsonl")
     }
 }

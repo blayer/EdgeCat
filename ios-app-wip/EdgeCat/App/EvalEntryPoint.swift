@@ -12,7 +12,7 @@ import UIKit
 // EvalRunnerView (rendered when EDGECAT_EVAL_MODE=1) shows a minimal
 // status pill backed by `EvalRunStatus`. This entry point spawns the
 // orchestrator headlessly, writes a JSONL trace + run-summary line to
-// `Documents/claw-traces/<runId>.jsonl`, then emits an `eval-complete`
+// `Documents/edgecat-traces/<runId>.jsonl`, then emits an `eval-complete`
 // sentinel so the off-device file-stability poller knows the file is
 // final.
 

@@ -95,7 +95,7 @@ Exit codes: `0` = no regression, `1` = OQI dropped, `2` = error.
 3. Delete the previous trace file (if any) so the file-stability poll has a clean start.
 4. `xcrun simctl launch --setenv EDGECAT_EVAL_MODE=1 <udid> <bundle>` — the env var makes `EdgeCatApp` render `EvalRunnerView` (a headless status surface) instead of the normal `AppRouter`. Mirrors Android's `EvalActivity` `noHistory=true` semantics.
 5. `xcrun simctl openurl <udid> "edgecat://eval?prompt=…&runId=…&agentic=1"` — the URL handler in `EvalEntryPoint.swift` runs the orchestrator with an `EmptyMemoryProvider` (no SwiftData write-back) and a 90s model-init deadline.
-6. Poll `Documents/claw-traces/<runId>.jsonl` size; treat 2 consecutive equal reads as final.
+6. Poll `Documents/edgecat-traces/<runId>.jsonl` size; treat 2 consecutive equal reads as final.
 7. Copy the trace to `runs/<label>-<ts>/traces/<runId>.jsonl`.
 8. Score it (six structural scorers + perf metrics + state verifier).
 9. Save `results.partial.json` after each task — Ctrl-C survives.
