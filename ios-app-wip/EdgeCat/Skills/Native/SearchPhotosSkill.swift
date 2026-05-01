@@ -21,8 +21,6 @@ public final class SearchPhotosSkill: Skill, @unchecked Sendable {
         "\"recent photos\", \"a photo from yesterday\" — pass from/to " +
         "as yyyy-MM-dd dates from the DATE CONTEXT block at the top of " +
         "the prompt (TODAY, TOMORROW, etc.). " +
-        "DO NOT pick calculator for date math — calculator can't handle " +
-        "yyyy-MM-dd arithmetic and will crash. " +
         "iOS doesn't expose Spotlight-style text search of photos; pick " +
         "from these filters only. " +
         "args: query=<album name>, from=yyyy-MM-dd, to=yyyy-MM-dd, " +

@@ -13,8 +13,19 @@ local.properties
 __pycache__/
 *.pyc
 
-# Eval run artifacts (generated per-run by android-app/test/eval/run.py)
+# Eval run artifacts (generated per-run by run.py — both platforms)
 android-app/test/eval/runs/
+ios-app-wip/test/eval/runs/
+
+# Aggregate eval-results log appended after each run.py invocation
+android-app/test/eval/results.log
+ios-app-wip/test/eval/results.log
+
+# Per-run human-readable transcript logs (one .md per run.py invocation,
+# named <timestamp>_<label>.md, with per-task per-turn user prompt /
+# plan reasoning / step execution / assistant response)
+android-app/test/eval/logs/
+ios-app-wip/test/eval/logs/
 
 # Claude Code session-local state (loop progress, per-machine settings)
 .claude/

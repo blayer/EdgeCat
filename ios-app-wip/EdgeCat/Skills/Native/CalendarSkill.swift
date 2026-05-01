@@ -15,11 +15,12 @@ public final class CalendarSkill: Skill, @unchecked Sendable {
         "Read upcoming events or add a new event in the user's calendar. " +
         "args (read, default): action=read, days=7 (how many days ahead to look). " +
         "args (add): action=add, title=<required>, " +
-        "startIso=<ISO 8601 e.g. 2026-04-29T14:00>, durationMin=<N, default 30>, " +
-        "notes=<optional>, location=<optional>. " +
-        "Use action=add for 'add an event / schedule a meeting' tasks; " +
-        "use the default action=read for 'what's on my calendar' tasks. " +
-        "For Reminders-app to-dos use set-reminder, NOT this skill."
+        "startIso=<ISO 8601 e.g. 2026-04-29T14:00> OR " +
+        "whenText=<natural language like 'tomorrow at 10am', 'next Friday 3pm'>, " +
+        "durationMin=<N, default 30>, notes=<optional>, location=<optional>. " +
+        "Use action=add for 'add an event / schedule a meeting / book / put on " +
+        "calendar / find a slot' tasks; use the default action=read for 'what's " +
+        "on my calendar' tasks. For Reminders-app to-dos use set-reminder, NOT this skill."
     }
     public init() {}
 
@@ -48,18 +49,112 @@ public final class CalendarSkill: Skill, @unchecked Sendable {
         }
         let days = Int(args["days"] ?? "7") ?? 7
         let now = Date()
-        let end = Calendar.current.date(byAdding: .day, value: days, to: now) ?? now
+        let cal = Calendar.current
+        let end = cal.date(byAdding: .day, value: days, to: now) ?? now
         let predicate = store.predicateForEvents(withStart: now, end: end, calendars: nil)
-        let events = store.events(matching: predicate).prefix(25)
+        let events = Array(store.events(matching: predicate).prefix(25))
+
+        let dtFmt = DateFormatter()
+        dtFmt.dateFormat = "yyyy-MM-dd HH:mm"
+        dtFmt.timeZone = .current
+
+        var sections: [String] = []
         if events.isEmpty {
-            return ToolExecutionResult(success: true, output: "no upcoming events")
+            sections.append("EVENTS: (none in next \(days) days)")
+        } else {
+            let evLines = events.map { ev -> String in
+                let s = dtFmt.string(from: ev.startDate)
+                let e = dtFmt.string(from: ev.endDate)
+                return "- \(s) – \(e) — \(ev.title ?? "(untitled)")"
+            }
+            sections.append("EVENTS (start – end — title):")
+            sections.append(evLines.joined(separator: "\n"))
         }
-        let formatter = DateFormatter()
-        formatter.dateStyle = .short; formatter.timeStyle = .short
-        let out = events.map { ev in
-            "\(formatter.string(from: ev.startDate)) — \(ev.title ?? "(untitled)")"
-        }.joined(separator: "\n")
-        return ToolExecutionResult(success: true, output: out)
+
+        // Surface FREE morning slots for tomorrow + the next two days
+        // so the planner doesn't have to reason about gaps from raw
+        // events. Window: 08:00–12:00 local, slots ≥ 30 min. The
+        // free-slot output is what unblocks "find a free slot before
+        // noon and add X" requests on small models — they were
+        // concluding "no slots available" from the events list alone.
+        let freeBlocks = morningFreeSlots(
+            store: store, daysAhead: min(3, max(1, days)), cal: cal, now: now)
+        if !freeBlocks.isEmpty {
+            sections.append("")
+            sections.append("FREE MORNING SLOTS (≥30 min, 08:00–12:00 local):")
+            sections.append(freeBlocks.joined(separator: "\n"))
+        }
+        return ToolExecutionResult(success: true,
+                                    output: sections.joined(separator: "\n"))
+    }
+
+    /// Compute free morning windows (≥30 min, 08:00–12:00 local) for
+    /// each of the next `daysAhead` days. Each line surfaces a
+    /// ready-to-paste `startIso=yyyy-MM-ddTHH:mm` so the planner
+    /// doesn't have to assemble a timestamp itself — small models
+    /// were fabricating the start arg ("now-ish") even when the gap
+    /// was visible in the human-readable form.
+    private func morningFreeSlots(store: EKEventStore,
+                                  daysAhead: Int,
+                                  cal: Calendar,
+                                  now: Date) -> [String] {
+        let dayFmt = DateFormatter()
+        dayFmt.dateFormat = "yyyy-MM-dd"
+        dayFmt.timeZone = .current
+        let hmFmt = DateFormatter()
+        hmFmt.dateFormat = "HH:mm"
+        hmFmt.timeZone = .current
+        let isoFmt = DateFormatter()
+        isoFmt.dateFormat = "yyyy-MM-dd'T'HH:mm"
+        isoFmt.timeZone = .current
+
+        var lines: [String] = []
+        for offset in 1...max(1, daysAhead) {
+            guard let day = cal.date(byAdding: .day, value: offset, to: now) else { continue }
+            let dayStart = cal.startOfDay(for: day)
+            guard let windowStart = cal.date(bySettingHour: 8, minute: 0, second: 0,
+                                              of: dayStart),
+                  let windowEnd = cal.date(bySettingHour: 12, minute: 0, second: 0,
+                                            of: dayStart) else { continue }
+            let predicate = store.predicateForEvents(
+                withStart: windowStart, end: windowEnd, calendars: nil)
+            let dayEvents = store.events(matching: predicate)
+                .sorted { $0.startDate < $1.startDate }
+            var cursor = windowStart
+            for ev in dayEvents {
+                let evStart = max(ev.startDate, windowStart)
+                if cursor < evStart {
+                    let mins = Int(evStart.timeIntervalSince(cursor) / 60)
+                    if mins >= 30 {
+                        lines.append(formatSlot(start: cursor, end: evStart,
+                                                 dayFmt: dayFmt, hmFmt: hmFmt, isoFmt: isoFmt))
+                    }
+                }
+                cursor = max(cursor, ev.endDate)
+            }
+            if cursor < windowEnd {
+                let mins = Int(windowEnd.timeIntervalSince(cursor) / 60)
+                if mins >= 30 {
+                    lines.append(formatSlot(start: cursor, end: windowEnd,
+                                             dayFmt: dayFmt, hmFmt: hmFmt, isoFmt: isoFmt))
+                }
+            }
+        }
+        return lines
+    }
+
+    private func formatSlot(start: Date, end: Date,
+                            dayFmt: DateFormatter,
+                            hmFmt: DateFormatter,
+                            isoFmt: DateFormatter) -> String {
+        let mins = Int(end.timeIntervalSince(start) / 60)
+        // Format: "- 2026-05-02 08:00–10:00 (120m free) → startIso=2026-05-02T08:00"
+        // The arrow + key=value pair gives the planner a literal
+        // string to lift into toolArgs; the leading human-readable
+        // form keeps the trace readable.
+        return "- \(dayFmt.string(from: start)) "
+             + "\(hmFmt.string(from: start))–\(hmFmt.string(from: end)) "
+             + "(\(mins)m free) → startIso=\(isoFmt.string(from: start))"
     }
 
     // MARK: - Add
@@ -68,13 +163,9 @@ public final class CalendarSkill: Skill, @unchecked Sendable {
         guard let title = args["title"], !title.isEmpty else {
             return ToolExecutionResult(success: false, error: "missing 'title' argument")
         }
-        guard let startIso = args["startIso"], !startIso.isEmpty else {
+        guard let startDate = resolveStartDate(args: args) else {
             return ToolExecutionResult(success: false,
-                                       error: "missing 'startIso' argument (ISO 8601 datetime)")
-        }
-        guard let startDate = parseIso(startIso) else {
-            return ToolExecutionResult(success: false,
-                                       error: "couldn't parse startIso: '\(startIso)' (expected ISO 8601)")
+                                       error: "missing or unparseable start time (need startIso ISO 8601 or whenText natural-language)")
         }
         let durationMin = max(1, Int(args["durationMin"] ?? "30") ?? 30)
         let endDate = Calendar.current.date(byAdding: .minute,
@@ -107,16 +198,38 @@ public final class CalendarSkill: Skill, @unchecked Sendable {
             return ToolExecutionResult(success: false,
                                        error: "couldn't save event: \(error.localizedDescription)")
         }
+        let isoOut = ISO8601DateFormatter().string(from: startDate)
         let payload: [String: Any] = [
             "status": "succeeded",
             "title": title,
-            "start": startIso,
+            "start": isoOut,
             "duration_min": durationMin,
             "calendar": cal.title,
         ]
         let json = (try? JSONSerialization.data(withJSONObject: payload, options: []))
             .flatMap { String(data: $0, encoding: .utf8) } ?? "{}"
         return ToolExecutionResult(success: true, output: json)
+    }
+
+    /// Pick a start date from `startIso` (preferred) or `whenText`
+    /// (natural-language fallback parsed by NSDataDetector). Mirrors
+    /// AddCalendarEventSkill so both calendar entry-points accept the
+    /// same args.
+    private func resolveStartDate(args: [String: String]) -> Date? {
+        if let iso = args["startIso"], !iso.isEmpty,
+           let d = parseIso(iso) {
+            return d
+        }
+        if let when = args["whenText"], !when.isEmpty,
+           let detector = try? NSDataDetector(
+             types: NSTextCheckingResult.CheckingType.date.rawValue) {
+            let range = NSRange(when.startIndex..., in: when)
+            if let match = detector.firstMatch(in: when, options: [], range: range),
+               let date = match.date {
+                return date
+            }
+        }
+        return nil
     }
 
     private func parseIso(_ s: String) -> Date? {
