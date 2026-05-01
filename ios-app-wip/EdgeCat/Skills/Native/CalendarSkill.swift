@@ -90,9 +90,11 @@ public final class CalendarSkill: Skill, @unchecked Sendable {
     }
 
     /// Compute free morning windows (≥30 min, 08:00–12:00 local) for
-    /// each of the next `daysAhead` days. Returns one line per gap as
-    /// "yyyy-MM-dd HH:mm – HH:mm (Nm free)" — agent can lift the start
-    /// time directly into add-calendar-event's startIso/whenText.
+    /// each of the next `daysAhead` days. Each line surfaces a
+    /// ready-to-paste `startIso=yyyy-MM-ddTHH:mm` so the planner
+    /// doesn't have to assemble a timestamp itself — small models
+    /// were fabricating the start arg ("now-ish") even when the gap
+    /// was visible in the human-readable form.
     private func morningFreeSlots(store: EKEventStore,
                                    daysAhead: Int,
                                    cal: Calendar,
@@ -103,6 +105,9 @@ public final class CalendarSkill: Skill, @unchecked Sendable {
         let hmFmt = DateFormatter()
         hmFmt.dateFormat = "HH:mm"
         hmFmt.timeZone = .current
+        let isoFmt = DateFormatter()
+        isoFmt.dateFormat = "yyyy-MM-dd'T'HH:mm"
+        isoFmt.timeZone = .current
 
         var lines: [String] = []
         for offset in 1...max(1, daysAhead) {
@@ -116,16 +121,14 @@ public final class CalendarSkill: Skill, @unchecked Sendable {
                 withStart: windowStart, end: windowEnd, calendars: nil)
             let dayEvents = store.events(matching: predicate)
                 .sorted { $0.startDate < $1.startDate }
-            // Walk gaps between [windowStart, e1.start), (e1.end, e2.start), …, (eN.end, windowEnd]
             var cursor = windowStart
             for ev in dayEvents {
                 let evStart = max(ev.startDate, windowStart)
                 if cursor < evStart {
                     let mins = Int(evStart.timeIntervalSince(cursor) / 60)
                     if mins >= 30 {
-                        lines.append("- \(dayFmt.string(from: dayStart)) "
-                                     + "\(hmFmt.string(from: cursor)) – "
-                                     + "\(hmFmt.string(from: evStart)) (\(mins)m free)")
+                        lines.append(formatSlot(start: cursor, end: evStart,
+                                                 dayFmt: dayFmt, hmFmt: hmFmt, isoFmt: isoFmt))
                     }
                 }
                 cursor = max(cursor, ev.endDate)
@@ -133,13 +136,26 @@ public final class CalendarSkill: Skill, @unchecked Sendable {
             if cursor < windowEnd {
                 let mins = Int(windowEnd.timeIntervalSince(cursor) / 60)
                 if mins >= 30 {
-                    lines.append("- \(dayFmt.string(from: dayStart)) "
-                                 + "\(hmFmt.string(from: cursor)) – "
-                                 + "\(hmFmt.string(from: windowEnd)) (\(mins)m free)")
+                    lines.append(formatSlot(start: cursor, end: windowEnd,
+                                             dayFmt: dayFmt, hmFmt: hmFmt, isoFmt: isoFmt))
                 }
             }
         }
         return lines
+    }
+
+    private func formatSlot(start: Date, end: Date,
+                             dayFmt: DateFormatter,
+                             hmFmt: DateFormatter,
+                             isoFmt: DateFormatter) -> String {
+        let mins = Int(end.timeIntervalSince(start) / 60)
+        // Format: "- 2026-05-02 08:00–10:00 (120m free) → startIso=2026-05-02T08:00"
+        // The arrow + key=value pair gives the planner a literal
+        // string to lift into toolArgs; the leading human-readable
+        // form keeps the trace readable.
+        return "- \(dayFmt.string(from: start)) "
+             + "\(hmFmt.string(from: start))–\(hmFmt.string(from: end)) "
+             + "(\(mins)m free) → startIso=\(isoFmt.string(from: start))"
     }
 
     // MARK: - Add

@@ -330,6 +330,8 @@ public struct Planner {
 
         MULTI-TURN CONTINUATION: if "Recent conversation:" is non-empty AND the new user request is a bare detail (time/date/location/name) without its own verb, treat it as supplying missing info for the most recent prior request — re-emit that action with the new detail merged in. Pass bare time/date strings (e.g. "Next Friday at 5pm") straight to the skill's natural-language arg (set-reminder's `dueWhen`); do NOT route them through calculator.
 
+        FIND-SLOT-AND-ADD: when the user says "find a free slot and add X" or "schedule X in a free time", emit TWO steps — (s1) calendar action=read to surface gaps, then (s2) calendar action=add with `whenText` set to a start time picked from s1's "FREE MORNING SLOTS" output. Do NOT stop after the read — the read is informational; the add is the action.
+
         User request: \(userMessage)
         """
     }
