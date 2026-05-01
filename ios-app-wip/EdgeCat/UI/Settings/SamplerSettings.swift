@@ -67,8 +67,16 @@ public enum SamplerSettings {
     public static let agentHistoryWindowKey    = "EDGECAT_AGENT_HISTORY_WINDOW"
     public static let agentTracesKey           = "EDGECAT_AGENT_TRACES"
     public static let userPortraitKey          = "EDGECAT_USER_PORTRAIT"
+    // thinkingMode default = 1 (.off). Until the LiteRtLm bridge gained
+    // the `extra_context` toggle, every LLM call was effectively
+    // "thinking off" because the flag never reached the engine. Now
+    // that the toggle is live, .auto would start emitting CoT
+    // preambles on non-trivial prompts and double per-turn latency
+    // on the small Gemma E2B target. Defaulting to .off preserves
+    // the prior real-world behavior; users who want CoT opt in via
+    // Settings → Thinking Mode.
     public static let agentDefaults = (maxLoops: 3, maxRepair: 2, skillTimeoutSecs: 60,
-                                       thinkingMode: 0, historyWindow: 6,
+                                       thinkingMode: 1, historyWindow: 6,
                                        traces: true)
 
     /// Defaults match the Gemma 4 E2B metadata block (TOP_P, k=1, p=0.95,

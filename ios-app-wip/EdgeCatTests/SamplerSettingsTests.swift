@@ -30,7 +30,12 @@ final class SamplerSettingsTests: XCTestCase {
         XCTAssertEqual(SamplerSettings.agentDefaults.maxLoops, 3)
         XCTAssertEqual(SamplerSettings.agentDefaults.maxRepair, 2)
         XCTAssertEqual(SamplerSettings.agentDefaults.skillTimeoutSecs, 60)
-        XCTAssertEqual(SamplerSettings.agentDefaults.thinkingMode, 0)
+        // 1 (.off) matches the prior real-world behavior — until the
+        // LiteRtLm bridge gained `extra_context` plumbing, the
+        // thinking flag never reached the engine, so every call ran
+        // without CoT regardless of mode. Defaulting to .off preserves
+        // that latency baseline; users opt into CoT via Settings.
+        XCTAssertEqual(SamplerSettings.agentDefaults.thinkingMode, 1)
         XCTAssertEqual(SamplerSettings.agentDefaults.historyWindow, 6)
         XCTAssertEqual(SamplerSettings.agentDefaults.traces, true)
     }
