@@ -623,6 +623,13 @@ def run_one(
     enforce_latency_budget: bool = False,
 ) -> dict[str, Any]:
     task_id = task["id"]
+    if task.get("turns"):
+        print(f"\n[{task_id}] multi-turn — skipped (runtime not yet supported)")
+        return _failure_row(
+            {**task, "prompt": "(multi-turn)"},
+            "skip_multi_turn",
+            "multi-turn runtime not yet supported (schema-only encoding)",
+        )
     print(f"\n[{task_id}] {task['prompt']}")
     timeout = int(task.get("timeout_s", 180))
 

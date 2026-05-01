@@ -561,6 +561,9 @@ def run_one(args: argparse.Namespace, task: dict[str, Any], traces_dir: Path) ->
     if task.get("skip_on_ios"):
         return {"id": run_id, "skipped": True,
                 "reason": task.get("skip_on_ios_reason", "skip_on_ios")}
+    if task.get("turns"):
+        return {"id": run_id, "skipped": True,
+                "reason": "multi-turn runtime not yet supported (schema-only)"}
 
     print(f"[runner] {run_id} — {task.get('prompt', '')[:80]}")
 
