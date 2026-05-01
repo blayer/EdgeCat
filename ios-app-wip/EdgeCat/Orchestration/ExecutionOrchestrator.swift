@@ -303,7 +303,7 @@ public final class ExecutionOrchestrator: @unchecked Sendable {
         }
         prompt += "Task: \(taskText)"
         if isLlmSkill {
-            prompt += "\n\nIMPORTANT: Output ONLY the result text. Do not add explanations or preamble. Do not ask the user for information already present in the prior turns or step results above."
+            prompt += "\n\nIMPORTANT: Output ONLY the result text. Do not add explanations or preamble. Do not ask the user for information already present in the prior turns or step results above. If the task references 'that', 'it', 'them', or 'there', resolve the referent from the prior conversation — NEVER ask the user to clarify a referent that a prior turn already established."
         }
 
         let llmRef = self.llm
