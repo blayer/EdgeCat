@@ -110,12 +110,13 @@ public enum EvalEntryPoint {
     /// *different* runId while a session is in flight is rejected with
     /// an `eval-busy` span. A *same*-runId URL is accepted as the next
     /// turn of the active session.
+    private enum InFlightOutcome { case acquired, continued, busy }
+
     private actor InFlight {
         private var current: ActiveSession?
-        enum Outcome { case acquired, continued, busy }
         func acquireOrContinue(runId: String,
                                make: @Sendable () -> ActiveSession)
-                              -> (Outcome, ActiveSession) {
+                              -> (InFlightOutcome, ActiveSession) {
             if let cur = current {
                 if cur.runId == runId { return (.continued, cur) }
                 return (.busy, cur)

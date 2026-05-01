@@ -96,9 +96,9 @@ public final class CalendarSkill: Skill, @unchecked Sendable {
     /// were fabricating the start arg ("now-ish") even when the gap
     /// was visible in the human-readable form.
     private func morningFreeSlots(store: EKEventStore,
-                                   daysAhead: Int,
-                                   cal: Calendar,
-                                   now: Date) -> [String] {
+                                  daysAhead: Int,
+                                  cal: Calendar,
+                                  now: Date) -> [String] {
         let dayFmt = DateFormatter()
         dayFmt.dateFormat = "yyyy-MM-dd"
         dayFmt.timeZone = .current
@@ -145,9 +145,9 @@ public final class CalendarSkill: Skill, @unchecked Sendable {
     }
 
     private func formatSlot(start: Date, end: Date,
-                             dayFmt: DateFormatter,
-                             hmFmt: DateFormatter,
-                             isoFmt: DateFormatter) -> String {
+                            dayFmt: DateFormatter,
+                            hmFmt: DateFormatter,
+                            isoFmt: DateFormatter) -> String {
         let mins = Int(end.timeIntervalSince(start) / 60)
         // Format: "- 2026-05-02 08:00–10:00 (120m free) → startIso=2026-05-02T08:00"
         // The arrow + key=value pair gives the planner a literal
