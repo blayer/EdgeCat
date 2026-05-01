@@ -55,14 +55,22 @@ public final class ExecutionOrchestrator: @unchecked Sendable {
 
     /// Execute a plan in dependency-respecting batches. Tool-only steps
     /// within a batch run in parallel; LLM-only steps are serialized via
-    /// `LlmStepLane`. Batches execute sequentially.
-    public func execute(plan: ExecutionPlan) async -> [String: StepResult] {
+    /// `LlmStepLane`. Batches execute sequentially. `conversationContext`
+    /// (when non-empty) is forwarded to every LLM-only step prompt so
+    /// turn-N synthesis can reason over turn-1..N-1 outputs — without
+    /// it, compose/summarize/null-skill steps would only see the
+    /// current-turn prior step results and ask the user for data
+    /// already established in an earlier turn.
+    public func execute(plan: ExecutionPlan,
+                        conversationContext: String = "") async -> [String: StepResult] {
         let batches = SkillTools.batches(for: plan)
         var results: [String: StepResult] = [:]
         for batch in batches {
             await trace?.event(kind: "batch.start", name: "batch",
                                 payload: ["size": String(batch.count)])
-            let batchResults = await runBatch(batch, results: results, goal: plan.goal)
+            let batchResults = await runBatch(batch, results: results,
+                                              goal: plan.goal,
+                                              conversationContext: conversationContext)
             for (id, res) in batchResults { results[id] = res }
             await trace?.event(kind: "batch.end", name: "batch", payload: [:])
         }
@@ -71,12 +79,15 @@ public final class ExecutionOrchestrator: @unchecked Sendable {
 
     private func runBatch(_ batch: [PlanStep],
                           results: [String: StepResult],
-                          goal: String) async -> [String: StepResult] {
+                          goal: String,
+                          conversationContext: String) async -> [String: StepResult] {
         let snapshot = results
         return await withTaskGroup(of: (String, StepResult).self) { group in
             for step in batch {
                 group.addTask { [self] in
-                    let r = await runStep(step, priorResults: snapshot, goal: goal)
+                    let r = await runStep(step, priorResults: snapshot,
+                                          goal: goal,
+                                          conversationContext: conversationContext)
                     return (step.id, r)
                 }
             }
@@ -88,7 +99,8 @@ public final class ExecutionOrchestrator: @unchecked Sendable {
 
     private func runStep(_ step: PlanStep,
                          priorResults: [String: StepResult],
-                         goal: String = "") async -> StepResult {
+                         goal: String = "",
+                         conversationContext: String = "") async -> StepResult {
         // Dependency check — failed dep means skip.
         if step.dependsOn.contains(where: { priorResults[$0]?.status != .completed }) {
             return StepResult(stepId: step.id, status: .skipped, error: "dependency unmet")
@@ -106,7 +118,9 @@ public final class ExecutionOrchestrator: @unchecked Sendable {
         // prior step outputs as context (mirrors Android's executeLlmStep).
         // Falls back to echoing the description if no LLM was provided.
         guard let tool = resolved, !tool.isEmpty else {
-            let result = await runLlmStep(step, priorResults: priorResults, start: start)
+            let result = await runLlmStep(step, priorResults: priorResults,
+                                           start: start,
+                                           conversationContext: conversationContext)
             return result
         }
 
@@ -142,7 +156,9 @@ public final class ExecutionOrchestrator: @unchecked Sendable {
            err.contains("unknown skill:") {
             await trace?.event(kind: "step.fallback_llm", name: step.id,
                                 payload: ["from_skill": tool])
-            return await runLlmStep(step, priorResults: priorResults, start: start)
+            return await runLlmStep(step, priorResults: priorResults,
+                                     start: start,
+                                     conversationContext: conversationContext)
         }
         var attempt = 0
         while !res.success && attempt < maxRepair {
@@ -217,7 +233,8 @@ public final class ExecutionOrchestrator: @unchecked Sendable {
     /// Mirrors android-app/.../ExecutionOrchestrator.executeLlmStep.
     private func runLlmStep(_ step: PlanStep,
                             priorResults: [String: StepResult],
-                            start: DispatchTime) async -> StepResult {
+                            start: DispatchTime,
+                            conversationContext: String = "") async -> StepResult {
         let isLlmSkill = step.skillName.map(SkillTools.normalize)
             .map { SkillTools.llmOnly.contains($0) } ?? false
         let maxOutputLen = isLlmSkill ? 3000 : 500
@@ -243,14 +260,28 @@ public final class ExecutionOrchestrator: @unchecked Sendable {
         }
 
         var prompt = ""
+        // Multi-turn grounding: when the orchestrator was invoked from
+        // a continued session (e.g. "Based on that, what should I
+        // wear?"), the planner already factored prior turns into its
+        // plan, but the executor's compose/summarize/null-skill steps
+        // were running blind. Surfacing the conversation history here
+        // lets a single-step plan ("just synthesize the answer") see
+        // turn-1's fetched data instead of asking the user to re-paste
+        // it. Truncated to keep the prompt within the model's window.
+        let trimmedHistory = conversationContext.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !trimmedHistory.isEmpty {
+            prompt += "Recent conversation (prior turns; treat as established context, do NOT ask the user to re-supply this info):\n"
+            prompt += String(trimmedHistory.suffix(2000))
+            prompt += "\n\n"
+        }
         if !contextParts.isEmpty {
-            prompt += "Context from previous steps:\n"
+            prompt += "Context from previous steps (this turn):\n"
             prompt += contextParts.joined(separator: "\n")
             prompt += "\n\n"
         }
         prompt += "Task: \(taskText)"
         if isLlmSkill {
-            prompt += "\n\nIMPORTANT: Output ONLY the result text. Do not add explanations or preamble."
+            prompt += "\n\nIMPORTANT: Output ONLY the result text. Do not add explanations or preamble. Do not ask the user for information already present in the prior turns or step results above."
         }
 
         let llmRef = self.llm
