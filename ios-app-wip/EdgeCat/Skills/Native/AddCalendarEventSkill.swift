@@ -28,10 +28,13 @@ import EventKit
 public final class AddCalendarEventSkill: Skill, @unchecked Sendable {
     public var name: String { "add-calendar-event" }
     public var description: String {
-        "Create a new event in the user's calendar. Use this for " +
-        "appointments, meetings, dentist visits — anything that " +
-        "appears in the Calendar app. Distinct from set-reminder " +
-        "(which creates a Reminders-app to-do, not a calendar entry). " +
+        "Add an event to the user's CALENDAR. Triggers: 'add to calendar', " +
+        "'schedule', 'book', 'put on my calendar', 'set up a meeting / " +
+        "appointment / event', 'find a slot and add ...'. Anything that " +
+        "appears in the Calendar app (meetings, appointments, dentist visits, " +
+        "coffee, dinner, classes, dates with a specific time). Distinct from " +
+        "set-reminder (which writes a Reminders-app to-do — pick THAT only " +
+        "for shopping / nudge-me-later / chore items WITHOUT a meeting time). " +
         "args: title=<required>, startIso=<ISO 8601 e.g. 2026-04-29T14:00>, " +
         "whenText=<natural language like 'tomorrow at 10am' if you don't have ISO; " +
         "do NOT route through calculator>, " +

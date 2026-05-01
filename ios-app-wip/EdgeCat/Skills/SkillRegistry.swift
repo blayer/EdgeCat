@@ -51,7 +51,15 @@ public final class SkillRegistry: ToolExecutor, @unchecked Sendable {
     /// evaluator can replan around `not_supported_on_ios` errors.
     @MainActor public static func defaultSet() -> SkillRegistry {
         let nativeSkills: [Skill] = [
-            CalculatorSkill(),
+            // CalculatorSkill is intentionally NOT in the default set —
+            // even with `tier: deferred`, small models kept emitting
+            // skill=calculator for date arithmetic ("DATE_ADD(...)",
+            // "calculate start time 30 minutes before 12:00") because
+            // the name is in their training prior. Date paths are
+            // covered by set-reminder.dueWhen / add-calendar-event.
+            // whenText + the DATE CONTEXT prompt block; pure arithmetic
+            // requests are rare enough that re-registering on demand
+            // is fine.
             ClipboardSkill(),
             DeviceInfoSkill(),
             FetchWebContentSkill(),

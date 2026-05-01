@@ -15,11 +15,13 @@ public final class CalendarSkill: Skill, @unchecked Sendable {
         "Read upcoming events or add a new event in the user's calendar. " +
         "args (read, default): action=read, days=7 (how many days ahead to look). " +
         "args (add): action=add, title=<required>, " +
-        "startIso=<ISO 8601 e.g. 2026-04-29T14:00>, durationMin=<N, default 30>, " +
-        "notes=<optional>, location=<optional>. " +
-        "Use action=add for 'add an event / schedule a meeting' tasks; " +
-        "use the default action=read for 'what's on my calendar' tasks. " +
-        "For Reminders-app to-dos use set-reminder, NOT this skill."
+        "startIso=<ISO 8601 e.g. 2026-04-29T14:00> OR " +
+        "whenText=<natural language like 'tomorrow at 10am', 'next Friday 3pm'; " +
+        "do NOT route through calculator>, " +
+        "durationMin=<N, default 30>, notes=<optional>, location=<optional>. " +
+        "Use action=add for 'add an event / schedule a meeting / book / put on " +
+        "calendar / find a slot' tasks; use the default action=read for 'what's " +
+        "on my calendar' tasks. For Reminders-app to-dos use set-reminder, NOT this skill."
     }
     public init() {}
 
@@ -68,13 +70,9 @@ public final class CalendarSkill: Skill, @unchecked Sendable {
         guard let title = args["title"], !title.isEmpty else {
             return ToolExecutionResult(success: false, error: "missing 'title' argument")
         }
-        guard let startIso = args["startIso"], !startIso.isEmpty else {
+        guard let startDate = resolveStartDate(args: args) else {
             return ToolExecutionResult(success: false,
-                                       error: "missing 'startIso' argument (ISO 8601 datetime)")
-        }
-        guard let startDate = parseIso(startIso) else {
-            return ToolExecutionResult(success: false,
-                                       error: "couldn't parse startIso: '\(startIso)' (expected ISO 8601)")
+                                       error: "missing or unparseable start time (need startIso ISO 8601 or whenText natural-language)")
         }
         let durationMin = max(1, Int(args["durationMin"] ?? "30") ?? 30)
         let endDate = Calendar.current.date(byAdding: .minute,
@@ -107,16 +105,38 @@ public final class CalendarSkill: Skill, @unchecked Sendable {
             return ToolExecutionResult(success: false,
                                        error: "couldn't save event: \(error.localizedDescription)")
         }
+        let isoOut = ISO8601DateFormatter().string(from: startDate)
         let payload: [String: Any] = [
             "status": "succeeded",
             "title": title,
-            "start": startIso,
+            "start": isoOut,
             "duration_min": durationMin,
             "calendar": cal.title,
         ]
         let json = (try? JSONSerialization.data(withJSONObject: payload, options: []))
             .flatMap { String(data: $0, encoding: .utf8) } ?? "{}"
         return ToolExecutionResult(success: true, output: json)
+    }
+
+    /// Pick a start date from `startIso` (preferred) or `whenText`
+    /// (natural-language fallback parsed by NSDataDetector). Mirrors
+    /// AddCalendarEventSkill so both calendar entry-points accept the
+    /// same args.
+    private func resolveStartDate(args: [String: String]) -> Date? {
+        if let iso = args["startIso"], !iso.isEmpty,
+           let d = parseIso(iso) {
+            return d
+        }
+        if let when = args["whenText"], !when.isEmpty,
+           let detector = try? NSDataDetector(
+             types: NSTextCheckingResult.CheckingType.date.rawValue) {
+            let range = NSRange(when.startIndex..., in: when)
+            if let match = detector.firstMatch(in: when, options: [], range: range),
+               let date = match.date {
+                return date
+            }
+        }
+        return nil
     }
 
     private func parseIso(_ s: String) -> Date? {

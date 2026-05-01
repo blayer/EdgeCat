@@ -11,9 +11,11 @@ import EventKit
 public final class RemindersSkill: Skill, @unchecked Sendable {
     public var name: String { "set-reminder" }
     public var description: String {
-        "Create a to-do item in the iOS Reminders app (NOT a calendar event). " +
-        "Use this for shopping, follow-ups, and tasks the user wants to be nudged about later. " +
-        "For meetings / appointments / events that go on a calendar, use calendar (action=add). " +
+        "Add a TO-DO item to the iOS Reminders app (NOT a calendar event, NOT a scheduled meeting). " +
+        "Triggers: 'remind me to ...' (shopping list, errands, nudges), 'add to my list', " +
+        "'don't let me forget to ...'. Pick this ONLY for items without a fixed meeting time " +
+        "the user wants on their schedule. For 'add to calendar', 'schedule', 'book a meeting', " +
+        "'set up an appointment', 'find a slot and add ...' use add-calendar-event instead. " +
         "args: title, notes (optional), dueIso (optional, strict ISO 8601 like '2026-05-01T17:00'), " +
         "dueWhen (optional, natural language like 'tomorrow at 5pm', 'next Friday', 'in 3 days'). " +
         "If you don't already have an ISO timestamp, prefer dueWhen — do NOT route through calculator."
