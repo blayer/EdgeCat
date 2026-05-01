@@ -235,12 +235,27 @@ public enum EvalEntryPoint {
             // conversationContext closure. The closure captures the
             // history holder weakly (via the session) so it always
             // reads the current entries.
+            //
+            // Honor the user's "Thinking Mode" setting (Settings →
+            // Thinking Mode picker). Until the LiteRtLm bridge gained
+            // a real `enable_thinking` toggle, this setting was
+            // effectively dead in eval mode (controller defaulted to
+            // .auto and the flag never reached the engine). Now both
+            // ends are live: setting → ThinkingPolicy → planner
+            // policy.planner() → enableThinking → bridge extra_context
+            // → C library.
             let holder = session.history
             let provider = LiteRtLmInferenceProvider(engine: session.engine)
+            let thinkingModeRaw = await MainActor.run {
+                UserDefaults.standard.object(forKey: SamplerSettings.agentThinkingModeKey) as? Int
+                    ?? SamplerSettings.agentDefaults.thinkingMode
+            }
+            let thinkingPolicy = ThinkingPolicy(mode: ThinkingMode.from(thinkingModeRaw))
             let controller = await MainActor.run { () -> OrchestrationController in
                 OrchestrationController(
                     llm: provider,
                     tools: SkillRegistry.defaultSet(),
+                    policy: thinkingPolicy,
                     trace: session.recorder,
                     maxIterations: 3,
                     conversationContext: { holder.formatted() })

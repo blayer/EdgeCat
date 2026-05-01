@@ -4,7 +4,7 @@ import XCTest
 private final class StubLLM: LlmInferenceProvider, @unchecked Sendable {
     var response: String
     init(_ response: String) { self.response = response }
-    func generateResponse(prompt: String, enableThinking: Bool) async throws -> String { response }
+    func generateResponse(prompt: String, enableThinking: Bool, maxOutputTokens: Int) async throws -> String { response }
     func cancel() {}
 }
 

@@ -11,7 +11,7 @@ final class OrchestrationMemoryWiringTests: XCTestCase {
         var prompts: [String] = []
         let canned: String
         init(canned: String) { self.canned = canned }
-        func generateResponse(prompt: String, enableThinking: Bool) async throws -> String {
+        func generateResponse(prompt: String, enableThinking: Bool, maxOutputTokens: Int) async throws -> String {
             lock.lock(); prompts.append(prompt); lock.unlock()
             return canned
         }

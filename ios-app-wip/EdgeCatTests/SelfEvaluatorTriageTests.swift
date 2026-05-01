@@ -5,7 +5,7 @@ final class SelfEvaluatorTriageTests: XCTestCase {
 
     private final class StubLLM: LlmInferenceProvider, @unchecked Sendable {
         var called = false
-        func generateResponse(prompt: String, enableThinking: Bool) async throws -> String {
+        func generateResponse(prompt: String, enableThinking: Bool, maxOutputTokens: Int) async throws -> String {
             called = true
             return #"{"goalAchieved":false,"assessment":"llm-said-no","shouldReplan":true}"#
         }

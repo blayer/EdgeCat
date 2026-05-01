@@ -59,13 +59,31 @@ public struct ThinkingPolicy: Sendable {
     private static func isSimpleRequest(_ msg: String) -> Bool {
         let trimmed = msg.trimmingCharacters(in: .whitespacesAndNewlines)
         let wordCount = trimmed.split(whereSeparator: \.isWhitespace).count
+        // 4 words is the deliberate "trivial regardless of phrasing"
+        // threshold — anything beyond requires the prefix regex to
+        // confirm the intent is direct (no ambiguity to plan through).
         if wordCount <= 4 { return true }
         return simplePrefix.firstMatch(in: trimmed,
                                        range: NSRange(trimmed.startIndex..., in: trimmed)) != nil
     }
 
+    /// Prefix patterns where the user's intent is direct enough that
+    /// the planner doesn't need a CoT pass — saves the thinking-mode
+    /// token overhead on simple imperative requests. Patterns are
+    /// case-insensitive and matched against the trimmed message start.
     private static let simplePrefix: NSRegularExpression = {
-        let pattern = #"^(what time|what['’]?s? the time|set (a )?timer|set (a )?reminder|call |text |open |launch |show me |turn (on|off) )"#
+        let alternatives = [
+            "what time", #"what['’]?s? the time"#,
+            "set (a )?timer", "set (a )?reminder", "remind me ",
+            "add (a |an |to |it )?", "schedule ", "book ", "create (a |an )?",
+            "call ", "text ", "email ", "open ", "launch ",
+            "show me ", "tell me ", "give me ",
+            "find (a |an |the |me |my )?", "search (for )?", "look up ",
+            "where is", #"where['’]s"#, "how far", "how long",
+            "how many", "how much",
+            "turn (on|off) ", "based on ", "from that",
+        ]
+        let pattern = "^(" + alternatives.joined(separator: "|") + ")"
         do {
             return try NSRegularExpression(pattern: pattern, options: [.caseInsensitive])
         } catch {

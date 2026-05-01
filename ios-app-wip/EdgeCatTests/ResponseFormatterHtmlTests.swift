@@ -7,7 +7,7 @@ final class ResponseFormatterHtmlTests: XCTestCase {
         let canned: String
         var prompts: [String] = []
         init(canned: String = "<msg>synthesized</msg>") { self.canned = canned }
-        func generateResponse(prompt: String, enableThinking: Bool) async throws -> String {
+        func generateResponse(prompt: String, enableThinking: Bool, maxOutputTokens: Int) async throws -> String {
             prompts.append(prompt)
             return canned
         }

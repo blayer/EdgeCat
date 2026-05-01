@@ -15,7 +15,7 @@ final class OrchestrationCancellationTests: XCTestCase {
         }
         var responses: [String]
         init(_ responses: [String]) { self.responses = responses }
-        func generateResponse(prompt: String, enableThinking: Bool) async throws -> String {
+        func generateResponse(prompt: String, enableThinking: Bool, maxOutputTokens: Int) async throws -> String {
             responses.isEmpty ? "{}" : responses.removeFirst()
         }
         func cancel() {

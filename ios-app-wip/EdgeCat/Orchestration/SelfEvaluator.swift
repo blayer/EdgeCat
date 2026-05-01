@@ -191,7 +191,12 @@ public struct SelfEvaluator {
         }
         """
 
-        let raw = try await llm.generateResponse(prompt: prompt, enableThinking: policy.evaluator())
+        // No maxOutputTokens cap on the evaluator either — see Planner
+        // for why (truncated JSON forces a replan cascade that more
+        // than wipes out the decode-time savings).
+        let raw = try await llm.generateResponse(
+            prompt: prompt,
+            enableThinking: policy.evaluator())
         return parse(raw)
     }
 
