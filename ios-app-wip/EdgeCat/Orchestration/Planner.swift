@@ -337,6 +337,8 @@ public struct Planner {
 
         MULTI-TURN CONTINUATION: if a recent-conversation history is shown above AND the new user request is a bare detail (time/date/location/name) without its own verb, treat it as supplying missing info for the most recent prior request — re-emit the SAME skill the assistant used last turn (set-reminder stays set-reminder, calendar stays calendar — do NOT switch skills) with the new detail merged into its toolArgs. Pass bare time/date strings (e.g. "Tomorrow at 5pm") into the skill's natural-language arg (set-reminder's `dueWhen`, calendar/add-calendar-event's `whenText`).
 
+        PRONOUN FOLLOW-UP: when the new user request contains "that", "it", "them", "there", "this one", or similar referring expression, BIND the pronoun to the entity established in the most recent prior turn (place name, person, item, time) AND re-call the SAME tool the prior turn used — do NOT pivot to a `compose`/synthesis-only step, that path can't compute geodistance / refetch data / repeat actions. Example: prior turn called `directions` for "Golden Gate Bridge"; user asks "How far is that from where I am?" → re-call `directions` with `to: "Golden Gate Bridge"` (the skill auto-uses the user's current location when `from` is omitted).
+
         FIND-SLOT-AND-ADD: when the user says "find a free slot and add X" or "schedule X in a free time", emit TWO steps — (s1) calendar action=read to surface gaps, then (s2) calendar action=add with `whenText` set to a start time picked from s1's "FREE MORNING SLOTS" output. Do NOT stop after the read — the read is informational; the add is the action.
 
         User request: \(userMessage)
