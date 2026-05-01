@@ -52,15 +52,16 @@ public struct Planner {
                                           memoryContext: memoryContext,
                                           conversationContext: bound(conversationContext),
                                           isOnline: isOnline)
-        // Plan JSON is small — goal, reasoning, 1-5 steps with toolArgs,
-        // a couple of success-criteria strings. 1024 is a generous cap
-        // that fits ~99% of plans the model produces; capping at the
-        // engine cuts decode time directly (the dominant per-turn
-        // latency in eval traces).
+        // No maxOutputTokens cap on the planner: caps were tested in
+        // commit 9577996 and produced a strict regression — the model
+        // would occasionally truncate plan JSON mid-step, the parser
+        // would fail, and the evaluator would force a replan cascade
+        // (turn 2 of weather-cloth went 28s → 91.8s with 3 replans).
+        // Engine-default unbounded decode is empirically faster on
+        // these small bounded JSON outputs.
         let raw = try await llm.generateResponse(
             prompt: prompt,
-            enableThinking: policy.planner(userMessage: userMessage, iteration: iteration),
-            maxOutputTokens: 1024)
+            enableThinking: policy.planner(userMessage: userMessage, iteration: iteration))
         let parsed = try parsePlan(raw, defaultGoal: userMessage)
         return Self.filterUnknownSkills(plan: parsed, available: availableSkills)
     }
@@ -82,8 +83,7 @@ public struct Planner {
                                             conversationContext: bound(conversationContext))
         let raw = try await llm.generateResponse(
             prompt: prompt,
-            enableThinking: policy.replan(replanAttempt: context.replanAttempt),
-            maxOutputTokens: 1024)
+            enableThinking: policy.replan(replanAttempt: context.replanAttempt))
         let parsed = try parsePlan(raw, defaultGoal: userMessage)
         return Self.filterUnknownSkills(plan: parsed, available: availableSkills)
     }

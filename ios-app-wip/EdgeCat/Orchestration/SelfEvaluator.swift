@@ -191,13 +191,12 @@ public struct SelfEvaluator {
         }
         """
 
-        // Evaluator JSON is tiny: goalAchieved bool, short assessment
-        // string, two empty-or-tiny lists, shouldReplan bool. 384 is
-        // plenty and shaves several seconds off the eval-phase decode.
+        // No maxOutputTokens cap on the evaluator either — see Planner
+        // for why (truncated JSON forces a replan cascade that more
+        // than wipes out the decode-time savings).
         let raw = try await llm.generateResponse(
             prompt: prompt,
-            enableThinking: policy.evaluator(),
-            maxOutputTokens: 384)
+            enableThinking: policy.evaluator())
         return parse(raw)
     }
 
