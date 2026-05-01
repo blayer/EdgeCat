@@ -202,9 +202,11 @@ def launch_app(udid: str, bundle_id: str) -> None:
 
 
 def open_eval_url(udid: str, prompt: str, run_id: str, model_filename: str | None,
-                  agentic: bool) -> None:
+                  agentic: bool, keep_alive: bool = False) -> None:
     """Send `edgecat://eval?...` to the app. Matches the URL contract
-    in `EvalEntryPoint.swift`."""
+    in `EvalEntryPoint.swift`. `keep_alive=True` adds `&continue=1` so
+    the app keeps the session open for another turn after this one
+    completes — used for all but the final turn of a multi-turn task."""
     from urllib.parse import quote
     url = (f"edgecat://eval?prompt={quote(prompt, safe='')}"
            f"&runId={quote(run_id, safe='')}")
@@ -212,6 +214,8 @@ def open_eval_url(udid: str, prompt: str, run_id: str, model_filename: str | Non
         url += f"&model={quote(model_filename, safe='')}"
     if agentic:
         url += "&agentic=1"
+    if keep_alive:
+        url += "&continue=1"
     code, out = sh(["xcrun", "simctl", "openurl", udid, url], timeout=15)
     if code != 0:
         raise SystemExit(f"simctl openurl failed: {out}")
@@ -258,6 +262,40 @@ def wait_for_verify(udid: str, bundle_id: str, run_id: str,
                    and span.get("kind") == "verify" \
                    and span.get("name") == "complete":
                     time.sleep(0.3)  # let the trailing write flush
+                    return True
+        time.sleep(1)
+    return False
+
+
+def wait_for_turn_complete(udid: str, bundle_id: str, run_id: str,
+                            turn_idx: int, timeout_s: int) -> bool:
+    """Wait for a `kind=eval, name=turn-complete, payload.turn=<turn_idx>`
+    span emitted by `EvalEntryPoint.runTurn` after each non-final turn.
+    Mirrors `wait_for_trace` but matches the per-turn sentinel so we
+    don't return early on a previous turn's marker."""
+    path = trace_path(udid, bundle_id, run_id)
+    deadline = time.time() + timeout_s
+    target = str(turn_idx)
+    while time.time() < deadline:
+        if path.exists():
+            try:
+                content = path.read_text()
+            except OSError:
+                content = ""
+            for line in content.splitlines():
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    obj = json.loads(line)
+                except json.JSONDecodeError:
+                    continue
+                span = obj.get("span") or {}
+                if obj.get("type") == "span" \
+                   and span.get("kind") == "eval" \
+                   and span.get("name") == "turn-complete" \
+                   and (span.get("attrs") or {}).get("turn") == target:
+                    time.sleep(0.3)
                     return True
         time.sleep(1)
     return False
@@ -406,9 +444,31 @@ def score_task(task: dict[str, Any], trace: dict[str, Any], adb: list[str] | Non
         "latency_overshoot_ms": max(0, total_ms - budget_ms),
     }
 
+    # Multi-turn bookkeeping: count turn-complete spans and per-turn
+    # success. Single-turn tasks always have turns_total=1, turns_completed
+    # in {0,1}. Multi-turn TSR additionally requires every turn to have
+    # finished (turns_completed == turns_total) — a partial run can't be
+    # a pass even if the verifier happens to match prior state.
+    turns_total = len(task.get("turns") or []) or 1
+    turn_complete_spans = [
+        s for s in spans
+        if s.get("kind") == "eval" and s.get("name") == "turn-complete"
+    ]
+    turns_completed = len(turn_complete_spans)
+    per_turn_status = [
+        (s.get("attrs") or {}).get("status", "unknown")
+        for s in turn_complete_spans
+    ]
+    if turns_total > 1 and turns_completed < turns_total:
+        tsr = 0.0  # short-circuit: an incomplete multi-turn run is a fail
+
+    prompt_for_row = task.get("prompt", "")
+    if not prompt_for_row and (task.get("turns") or []):
+        prompt_for_row = task["turns"][0].get("prompt", "")
+
     return {
         "task_id": task["id"],
-        "prompt": task.get("prompt", ""),
+        "prompt": prompt_for_row,
         "category": task.get("category", "other"),
         "complexity": task.get("complexity", "single-skill"),
         "tsr": tsr,
@@ -422,6 +482,9 @@ def score_task(task: dict[str, Any], trace: dict[str, Any], adb: list[str] | Non
         "failure_info": extract_failure_info(trace) if tsr < 1.0 else None,
         "iteration": run.get("iteration", 0),
         "final_status": final_status,
+        "turns_total": turns_total,
+        "turns_completed": turns_completed,
+        "per_turn_status": per_turn_status,
     }
 
 
@@ -508,14 +571,15 @@ def render_report_md(label: str, summary: dict[str, Any],
     for k, v in summary["subsystem"].items():
         out.append(f"| {k} | {v:.3f} |")
     out.append("")
-    out.append("## Performance")
-    out.append("")
-    p = summary["perf"]
-    out.append(f"- p50/p95/p99 latency: {p['latency_ms']['p50']} / {p['latency_ms']['p95']} / {p['latency_ms']['p99']} ms")
-    out.append(f"- latency budget hit rate: {p['latency_budget_hit_rate'] * 100:.1f}%")
-    out.append(f"- thermal events: {p['thermal_throttle_events']}")
-    out.append(f"- peak resident memory: {p['peak_mem_mb']} MB")
-    out.append("")
+    if summary["n_tasks"] > 0:
+        out.append("## Performance")
+        out.append("")
+        p = summary["perf"]
+        out.append(f"- p50/p95/p99 latency: {p['latency_ms']['p50']} / {p['latency_ms']['p95']} / {p['latency_ms']['p99']} ms")
+        out.append(f"- latency budget hit rate: {p['latency_budget_hit_rate'] * 100:.1f}%")
+        out.append(f"- thermal events: {p['thermal_throttle_events']}")
+        out.append(f"- peak resident memory: {p['peak_mem_mb']} MB")
+        out.append("")
     out.append("## By complexity")
     out.append("")
     for c, v in summary["by_complexity"].items():
@@ -561,11 +625,17 @@ def run_one(args: argparse.Namespace, task: dict[str, Any], traces_dir: Path) ->
     if task.get("skip_on_ios"):
         return {"id": run_id, "skipped": True,
                 "reason": task.get("skip_on_ios_reason", "skip_on_ios")}
-    if task.get("turns"):
-        return {"id": run_id, "skipped": True,
-                "reason": "multi-turn runtime not yet supported (schema-only)"}
 
-    print(f"[runner] {run_id} — {task.get('prompt', '')[:80]}")
+    # Multi-turn vs single-turn: collect prompts to send sequentially.
+    # Single-turn → [prompt]; multi-turn → [t.prompt for t in task.turns].
+    turns_def = task.get("turns")
+    if turns_def:
+        prompts = [t["prompt"] for t in turns_def]
+        first_prompt_preview = prompts[0][:60]
+        print(f"[runner] {run_id} — [multi-turn x{len(prompts)}] {first_prompt_preview}")
+    else:
+        prompts = [task["prompt"]]
+        print(f"[runner] {run_id} — {task.get('prompt', '')[:80]}")
 
     terminate_app(udid, bundle)
     wait_for_app_dead(udid, bundle)
@@ -575,16 +645,36 @@ def run_one(args: argparse.Namespace, task: dict[str, Any], traces_dir: Path) ->
     # `simctl location set` only delivers to running CoreLocation
     # consumers, so the location reset that's done at preflight gets
     # forgotten by the time CLLocationManager.requestLocation fires
-    # 30+s later. Apple Park (Cupertino) — matches `directions-walk-001`
-    # task notes about a coffee-shop neighbor.
+    # 30+s later. Apple Park (Cupertino).
     sh(["xcrun", "simctl", "location", udid, "set", "37.3349,-122.0090"], timeout=10)
-    open_eval_url(udid, prompt=task["prompt"], run_id=run_id,
-                  model_filename=args.model, agentic=not task.get("no_agentic", False))
-    if not wait_for_trace(udid, bundle, run_id, timeout_s):
-        # Pull whatever exists — incomplete trace is still useful for triage.
-        local = pull_trace(udid, bundle, run_id, traces_dir)
-        return {"task": task, "trace_path": str(local) if local else None,
-                "timeout": True}
+    agentic = not task.get("no_agentic", False)
+
+    # Per-turn timeout: total budget split across turns, with a floor
+    # so each turn has time to load+plan+execute. The first turn pays
+    # the model-init cost (15-30s) so it gets a generous slice.
+    if len(prompts) > 1:
+        per_turn_timeout = max(timeout_s // len(prompts), 90)
+    else:
+        per_turn_timeout = timeout_s
+
+    for turn_idx, prompt in enumerate(prompts):
+        is_last = (turn_idx == len(prompts) - 1)
+        open_eval_url(udid, prompt=prompt, run_id=run_id,
+                      model_filename=args.model, agentic=agentic,
+                      keep_alive=not is_last)
+        if is_last:
+            if not wait_for_trace(udid, bundle, run_id, per_turn_timeout):
+                local = pull_trace(udid, bundle, run_id, traces_dir)
+                return {"task": task, "trace_path": str(local) if local else None,
+                        "timeout": True}
+        else:
+            if not wait_for_turn_complete(udid, bundle, run_id, turn_idx,
+                                          per_turn_timeout):
+                # Pull what exists — partial multi-turn trace is useful triage.
+                local = pull_trace(udid, bundle, run_id, traces_dir)
+                return {"task": task, "trace_path": str(local) if local else None,
+                        "timeout": True,
+                        "timeout_at_turn": turn_idx}
 
     # Run the in-app state verifier (if applicable) before pulling the
     # trace, so the verify span ends up in the same file the scorer
