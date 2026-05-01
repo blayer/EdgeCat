@@ -231,6 +231,22 @@ public final class ExecutionOrchestrator: @unchecked Sendable {
     /// the LLM. Serialized via `llmLane` so two LLM steps in the same batch
     /// can't overlap on the single LiteRT-LM conversation.
     /// Mirrors android-app/.../ExecutionOrchestrator.executeLlmStep.
+    /// Compact date-anchor block injected into every LLM-step prompt.
+    /// Mirrors the planner's `dateNote()` shape so a step like
+    /// "How many days from today is Christmas?" can reason about
+    /// today's date without an extra search/calculator round trip.
+    static func llmStepDateContext() -> String {
+        let fmt = DateFormatter()
+        fmt.dateFormat = "yyyy-MM-dd"
+        fmt.timeZone = .current
+        fmt.locale = Locale(identifier: "en_US_POSIX")
+        let cal = Calendar(identifier: .gregorian)
+        let now = Date()
+        let today = fmt.string(from: now)
+        let tomorrow = fmt.string(from: cal.date(byAdding: .day, value: 1, to: now) ?? now)
+        return "DATE CONTEXT: TODAY=\(today), TOMORROW=\(tomorrow)."
+    }
+
     private func runLlmStep(_ step: PlanStep,
                             priorResults: [String: StepResult],
                             start: DispatchTime,
@@ -260,6 +276,12 @@ public final class ExecutionOrchestrator: @unchecked Sendable {
         }
 
         var prompt = ""
+        // Date context first: TODAY/TOMORROW/etc. The planner prompt
+        // has these but the LLM-step previously didn't, so steps like
+        // "How many days from today is X?" would say "Please provide
+        // the current date" even when prior turns established X.
+        prompt += Self.llmStepDateContext()
+        prompt += "\n\n"
         // Multi-turn grounding: when the orchestrator was invoked from
         // a continued session (e.g. "Based on that, what should I
         // wear?"), the planner already factored prior turns into its
