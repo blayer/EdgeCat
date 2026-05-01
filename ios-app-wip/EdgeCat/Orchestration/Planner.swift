@@ -307,7 +307,7 @@ public struct Planner {
           "successCriteria": ["Distance is on the clipboard."]
         }
 
-        Synthesis / drafting / "make a plan from this data" example — leave skillName NULL and put the instruction in the description. The executor synthesizes free-form text via the LLM. NEVER use calculator for text — calculator is ARITHMETIC ONLY:
+        Synthesis / drafting / "make a plan from this data" example — leave skillName NULL and put the instruction in the description. The executor synthesizes free-form text via the LLM:
         {
           "goal": "Draft a Tokyo trip itinerary from the fetched page",
           "steps": [
@@ -328,7 +328,7 @@ public struct Planner {
           "successCriteria": ["Reply states today's Tokyo temperature/conditions."]
         }
 
-        MULTI-TURN CONTINUATION: if "Recent conversation:" is non-empty AND the new user request is a bare detail (time/date/location/name) without its own verb, treat it as supplying missing info for the most recent prior request — re-emit the SAME skill the assistant used last turn (set-reminder stays set-reminder, calendar stays calendar — do NOT switch skills) with the new detail merged into its toolArgs. Pass bare time/date strings (e.g. "Tomorrow at 5pm") into the skill's natural-language arg (set-reminder's `dueWhen`, calendar/add-calendar-event's `whenText`); do NOT route them through calculator.
+        MULTI-TURN CONTINUATION: if "Recent conversation:" is non-empty AND the new user request is a bare detail (time/date/location/name) without its own verb, treat it as supplying missing info for the most recent prior request — re-emit the SAME skill the assistant used last turn (set-reminder stays set-reminder, calendar stays calendar — do NOT switch skills) with the new detail merged into its toolArgs. Pass bare time/date strings (e.g. "Tomorrow at 5pm") into the skill's natural-language arg (set-reminder's `dueWhen`, calendar/add-calendar-event's `whenText`).
 
         FIND-SLOT-AND-ADD: when the user says "find a free slot and add X" or "schedule X in a free time", emit TWO steps — (s1) calendar action=read to surface gaps, then (s2) calendar action=add with `whenText` set to a start time picked from s1's "FREE MORNING SLOTS" output. Do NOT stop after the read — the read is informational; the add is the action.
 
@@ -780,10 +780,6 @@ public struct Planner {
             // Directions.
             ({ $0.contains("walk") || $0.contains("drive") || $0.contains("directions") || $0.contains("nearest") },
              ["directions"]),
-            // Calculator (only after we've ruled out everything else).
-            ({ $0.contains("calculate") || $0.contains("how much is") || $0.contains("plus")
-                 || $0.contains("times") || $0.contains("divided") },
-             ["calculator"]),
         ]
         for rule in rules where rule.check(g) {
             return rule.skills

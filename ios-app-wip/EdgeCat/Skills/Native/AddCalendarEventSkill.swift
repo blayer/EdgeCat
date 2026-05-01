@@ -36,8 +36,7 @@ public final class AddCalendarEventSkill: Skill, @unchecked Sendable {
         "set-reminder (which writes a Reminders-app to-do — pick THAT only " +
         "for shopping / nudge-me-later / chore items WITHOUT a meeting time). " +
         "args: title=<required>, startIso=<ISO 8601 e.g. 2026-04-29T14:00>, " +
-        "whenText=<natural language like 'tomorrow at 10am' if you don't have ISO; " +
-        "do NOT route through calculator>, " +
+        "whenText=<natural language like 'tomorrow at 10am' if you don't have ISO>, " +
         "durationMin=<N, default 30>, notes=<optional>, location=<optional>"
     }
     public init() {}

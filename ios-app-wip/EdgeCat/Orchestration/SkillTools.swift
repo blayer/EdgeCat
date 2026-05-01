@@ -18,7 +18,6 @@ public enum SkillTools {
     /// NATIVE_SKILL_TOOLS map. The iOS SkillRegistry exposes each tool by
     /// the value side of this map (e.g. "calculate", "manageCalendar").
     public static let native: [String: String] = [
-        "calculator":         "calculate",
         "fetch-web-content":  "fetchWebContent",
         "send-sms":           "sendSms",
         "send-email":         "sendEmail",

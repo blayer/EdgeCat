@@ -800,10 +800,30 @@ def main() -> int:
     partial = run_dir / "results.partial.json"
     if partial.exists(): partial.unlink()
 
+    # Append a one-line summary to a per-tree aggregate results log so
+    # successive runs leave a quick history without bloating the run
+    # dir count. Gitignored — purely a local navigation aid.
+    log_path = ROOT / "results.log"
+    per_case = " ".join(
+        f"{r['task_id']}:{int(r['tsr'] * 100)}" for r in rows)
+    log_line = (
+        f"{timestamp}  {args.label:32}  {Path(args.dataset).name:24}  "
+        f"TSR={summary['tsr'] * 100:5.1f}%  OQI={summary['oqi']:.3f}  "
+        f"n={summary['n_tasks']:>2}  skipped={summary['n_skipped']:>2}  "
+        f"[{per_case}]  → {run_dir.name}\n"
+    )
+    try:
+        with log_path.open("a") as fh:
+            fh.write(log_line)
+    except OSError as exc:
+        # Don't fail the run on a log-write error — it's diagnostic only.
+        print(f"[runner] (results.log append failed: {exc})")
+
     print()
     print(f"[runner] TSR={summary['tsr'] * 100:.1f}%  OQI={summary['oqi']:.3f}  "
           f"({summary['n_tasks']} tasks, {summary['n_skipped']} skipped)")
     print(f"[runner] report: {run_dir / 'report.md'}")
+    print(f"[runner] log:    {log_path}")
     return 0
 
 

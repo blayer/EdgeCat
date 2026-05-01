@@ -16,7 +16,7 @@ import Foundation
 //   4. tryTrivialRender: if the data has exactly one non-bookkeeping
 //      scalar value (or list of scalars), return it directly — saves an
 //      LLM call when the skill already produced a user-ready answer
-//      (calculator → "42", flashlight → "torch: on").
+//      (flashlight → "torch: on", read-health → "9234 steps").
 //   5. Otherwise call the LLM with a `<msg>…</msg>` few-shot prompt and
 //      strip the wrapper / preambles from the response.
 
@@ -186,7 +186,7 @@ public struct ResponseFormatter {
     /// call. Returns nil when the output needs LLM formatting.
     public static func tryTrivialRender(_ raw: String) -> String? {
         let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
-        // Plain scalar output (calculator, flashlight, etc.)
+        // Plain scalar output (flashlight, read-health, etc.)
         if !trimmed.hasPrefix("{") && !trimmed.hasPrefix("[") {
             if trimmed.count <= 200, !trimmed.contains("="),
                !trimmed.contains("Step:"), !trimmed.contains("\n") {

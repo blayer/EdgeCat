@@ -18,7 +18,7 @@ public final class RemindersSkill: Skill, @unchecked Sendable {
         "'set up an appointment', 'find a slot and add ...' use add-calendar-event instead. " +
         "args: title, notes (optional), dueIso (optional, strict ISO 8601 like '2026-05-01T17:00'), " +
         "dueWhen (optional, natural language like 'tomorrow at 5pm', 'next Friday', 'in 3 days'). " +
-        "If you don't already have an ISO timestamp, prefer dueWhen — do NOT route through calculator."
+        "If you don't already have an ISO timestamp, prefer dueWhen."
     }
     public init() {}
 

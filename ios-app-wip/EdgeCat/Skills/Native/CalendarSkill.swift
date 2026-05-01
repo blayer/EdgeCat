@@ -16,8 +16,7 @@ public final class CalendarSkill: Skill, @unchecked Sendable {
         "args (read, default): action=read, days=7 (how many days ahead to look). " +
         "args (add): action=add, title=<required>, " +
         "startIso=<ISO 8601 e.g. 2026-04-29T14:00> OR " +
-        "whenText=<natural language like 'tomorrow at 10am', 'next Friday 3pm'; " +
-        "do NOT route through calculator>, " +
+        "whenText=<natural language like 'tomorrow at 10am', 'next Friday 3pm'>, " +
         "durationMin=<N, default 30>, notes=<optional>, location=<optional>. " +
         "Use action=add for 'add an event / schedule a meeting / book / put on " +
         "calendar / find a slot' tasks; use the default action=read for 'what's " +
