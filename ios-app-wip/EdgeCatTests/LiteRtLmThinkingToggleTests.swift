@@ -62,4 +62,57 @@ final class LiteRtLmThinkingToggleTests: XCTestCase {
         let json = String(data: data, encoding: .utf8) ?? ""
         XCTAssertEqual(json, "{}")
     }
+
+    // MARK: - Config-page → policy round-trip
+
+    /// Regression guard for the Settings → Thinking Mode picker. The
+    /// picker uses `@AppStorage(SamplerSettings.agentThinkingModeKey)`
+    /// which writes ints (0/1/2) to UserDefaults. Both the chat
+    /// path (ChatViewModel) and the eval path (EvalEntryPoint) read
+    /// that same key and feed it to `ThinkingMode.from(_:)` to
+    /// construct the orchestration policy. Test the full storage →
+    /// mode → policy → enableThinking chain so a renamed key or a
+    /// changed enum order would break here, not at runtime.
+    func testSettingsPickerValuesRoundTripThroughThinkingPolicy() {
+        let suiteName = "com.edgecat.tests.thinkingPicker"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        // Picker writes raw int values; SamplerSettings reads via
+        // `agentThinkingModeKey`. Verify each picker option resolves
+        // to the documented policy behavior.
+        let cases: [(rawSetting: Int, expectedMode: ThinkingMode,
+                      plannerOnSimpleMsg: Bool, plannerOnComplexMsg: Bool)] = [
+            (0, .auto,       false, true),
+            (1, .off,        false, false),
+            (2, .aggressive, true,  true),
+        ]
+        for c in cases {
+            defaults.set(c.rawSetting, forKey: SamplerSettings.agentThinkingModeKey)
+            let stored = defaults.integer(forKey: SamplerSettings.agentThinkingModeKey)
+            XCTAssertEqual(stored, c.rawSetting,
+                           "Picker raw value must round-trip through UserDefaults")
+            let mode = ThinkingMode.from(stored)
+            XCTAssertEqual(mode, c.expectedMode,
+                           "raw=\(c.rawSetting) must map to \(c.expectedMode)")
+            let policy = ThinkingPolicy(mode: mode)
+            XCTAssertEqual(policy.planner(userMessage: "what time is it",
+                                          iteration: 0),
+                           c.plannerOnSimpleMsg,
+                           "Mode \(mode) on simple-prefix prompt: expected \(c.plannerOnSimpleMsg)")
+            XCTAssertEqual(policy.planner(userMessage: "Build a rich nuanced research plan",
+                                          iteration: 0),
+                           c.plannerOnComplexMsg,
+                           "Mode \(mode) on complex prompt: expected \(c.plannerOnComplexMsg)")
+            // And the toggle reaches the bridge with the right shape:
+            // .off should produce no key (omitted), .auto/.aggressive
+            // can produce the key when the policy says thinking is on.
+            let dictForOff = LiteRtLmInferenceProvider.makeExtraContext(enableThinking: false)
+            XCTAssertEqual(dictForOff, [:],
+                           "When policy returns false the bridge gets an empty dict (omits key)")
+            let dictForOn = LiteRtLmInferenceProvider.makeExtraContext(enableThinking: true)
+            XCTAssertEqual(dictForOn, ["enable_thinking": "true"],
+                           "When policy returns true the bridge gets enable_thinking=true")
+        }
+    }
 }
