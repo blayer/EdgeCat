@@ -16,21 +16,25 @@ final class LiteRtLmThinkingToggleTests: XCTestCase {
                        "enableThinking=true must produce {\"enable_thinking\":\"true\"}")
     }
 
-    func testEnableThinkingFalseMapsToFalseString() {
+    /// Crucially: when thinking is OFF, the key is *omitted* (empty
+    /// dict). Sending `"enable_thinking":"false"` explicitly was
+    /// empirically slower than omitting — the SDK seems to interpret
+    /// presence-of-key as "the caller is asking about thinking,
+    /// emit a CoT preamble". Matches the Android Gallery's
+    /// `if (enableThinking) mapOf(...) else null` convention.
+    func testEnableThinkingFalseProducesEmptyDict() {
         let ctx = LiteRtLmInferenceProvider.makeExtraContext(enableThinking: false)
-        XCTAssertEqual(ctx, ["enable_thinking": "false"],
-                       "enableThinking=false must produce {\"enable_thinking\":\"false\"}")
+        XCTAssertEqual(ctx, [:],
+                       "enableThinking=false must omit the key entirely so the engine returns to its default behavior")
     }
 
-    func testExtraContextHasExactlyOneKey() {
-        // Catches accidental key bloat (extra entries forwarded to the
-        // C-side that we don't actually understand). Add new keys only
-        // alongside a corresponding test asserting the new value shape.
-        for flag in [true, false] {
-            let ctx = LiteRtLmInferenceProvider.makeExtraContext(enableThinking: flag)
-            XCTAssertEqual(Set(ctx.keys), ["enable_thinking"],
-                           "extra_context must contain exactly the enable_thinking key")
-        }
+    func testEnableThinkingTrueHasExactlyOneKey() {
+        // Catches accidental key bloat — only `enable_thinking` should
+        // be forwarded to the C-side `extra_context`. Add new keys
+        // only alongside a corresponding test asserting their shape.
+        let ctx = LiteRtLmInferenceProvider.makeExtraContext(enableThinking: true)
+        XCTAssertEqual(Set(ctx.keys), ["enable_thinking"],
+                       "extra_context must contain exactly the enable_thinking key when thinking is on")
     }
 
     // MARK: - JSON-shape contract (matches Android Gallery)

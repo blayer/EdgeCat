@@ -26,12 +26,16 @@ public final class LiteRtLmInferenceProvider: LlmInferenceProvider, @unchecked S
 
     /// Build the `extra_context` dict the LiteRtLm bridge JSON-encodes
     /// and forwards to the C-side `litert_lm_conversation_send_message_stream`.
-    /// Key + string-value shape matches what the Android Gallery sends
-    /// (mapOf("enable_thinking" to "true"|"false")) so the C-side
-    /// parser sees the same encoding on both platforms. Static so the
-    /// mapping is unit-testable without a live engine.
+    /// Matches the Android Gallery pattern exactly:
+    /// `if (enableThinking) mapOf("enable_thinking" to "true") else null`
+    /// — i.e. ONLY include the key when thinking is on. Sending
+    /// `"enable_thinking":"false"` explicitly was empirically slower
+    /// (the SDK seems to interpret presence-of-key as "model is being
+    /// asked about thinking, emit a CoT preamble"); omitting the key
+    /// returns the engine to its default behavior. Empty dict
+    /// serializes to `{}`, the same default the bridge already used.
     static func makeExtraContext(enableThinking: Bool) -> [String: String] {
-        ["enable_thinking": enableThinking ? "true" : "false"]
+        enableThinking ? ["enable_thinking": "true"] : [:]
     }
 
     public func cancel() { engine.stopResponse() }
