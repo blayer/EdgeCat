@@ -304,7 +304,18 @@ public enum EvalEntryPoint {
         session.lastEval = capturedEval
         session.lastIteration = iteration
 
-        // 4. Per-turn sentinel.
+        // 4. Per-turn sentinel + response. The response goes into a
+        //    separate span so per-run log writers can extract each
+        //    turn's assistant text without parsing the RunSummary
+        //    (which only carries the *last* turn's output for multi-
+        //    turn cases). Truncated to 8K so a runaway LLM doesn't
+        //    blow the trace file.
+        let textForTrace = String(finalText.prefix(8192))
+        await session.recorder.event(kind: "eval", name: "turn-response",
+                                      payload: ["turn": String(session.turnIndex),
+                                                "run_id": runId,
+                                                "text": textForTrace,
+                                                "iteration": String(iteration)])
         await session.recorder.event(kind: "eval", name: "turn-complete",
                                       payload: ["status": finalStatus,
                                                 "turn": String(session.turnIndex),

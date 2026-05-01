@@ -615,6 +615,157 @@ def render_report_md(label: str, summary: dict[str, Any],
     return "\n".join(out)
 
 
+# ---------------------------------------------------------------- run log
+
+def render_run_log(label: str, dataset: str, model: str | None,
+                   summary: dict[str, Any], rows: list[dict[str, Any]],
+                   traces_dir: Path) -> str:
+    """Per-run human-readable log: for each task, walk the trace and
+    emit each turn's user prompt, plan reasoning, step execution, and
+    assistant response as labeled Markdown sections. Pairs with
+    `report.md` (high-level summary) — this is the deep view a person
+    reads when they want to see *what the agent actually did*."""
+    out: list[str] = []
+    out.append(f"# Eval Run — {label}")
+    out.append("")
+    out.append(f"- Dataset: `{Path(dataset).name}`")
+    if model:
+        out.append(f"- Model: `{model}`")
+    out.append(f"- Summary: TSR={summary['tsr'] * 100:.1f}%  OQI={summary['oqi']:.3f}  "
+               f"({summary['n_tasks']} tasks, {summary['n_skipped']} skipped)")
+    out.append("")
+    for row in rows:
+        out.append("---")
+        out.append("")
+        tsr_pct = int(row["tsr"] * 100)
+        turns = f"{row.get('turns_completed', 0)}/{row.get('turns_total', 1)}"
+        v = row.get("state_verifier") or {}
+        v_label = ("pass" if v.get("passed") is True
+                   else "fail" if v.get("passed") is False
+                   else "n/a")
+        out.append(f"## {row['task_id']} — TSR={tsr_pct}%, turns {turns}, verifier={v_label}")
+        out.append("")
+        trace_path = traces_dir / f"{row['task_id']}.jsonl"
+        if not trace_path.exists():
+            out.append("_(no trace file — task didn't produce output)_")
+            out.append("")
+            continue
+        out.extend(_render_task_turns(trace_path, row))
+        out.append("")
+    return "\n".join(out)
+
+
+def _render_task_turns(trace_path: Path, row: dict[str, Any]) -> list[str]:
+    """Walk a single task's trace JSONL and emit per-turn Markdown.
+    Falls back gracefully when spans are sparse (early-failed tasks)."""
+    spans: list[dict[str, Any]] = []
+    run_block: dict[str, Any] = {}
+    for line in trace_path.read_text().splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            o = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if o.get("type") == "span":
+            spans.append(o.get("span") or {})
+        elif o.get("type") == "run":
+            run_block = o.get("run") or {}
+    # Bucket spans into turns. Turn 0 is bounded by `eval.start` and
+    # the first `eval.turn-complete`; subsequent turns by `eval.turn-
+    # start` / `eval.turn-complete` pairs.
+    turns: list[dict[str, Any]] = []
+    current: dict[str, Any] | None = None
+    for s in spans:
+        attrs = s.get("attrs") or {}
+        kind, name = s.get("kind"), s.get("name")
+        if kind == "eval" and name in ("start", "turn-start"):
+            if current is not None:
+                turns.append(current)
+            current = {
+                "turn": int(attrs.get("turn") or 0),
+                "prompt": attrs.get("prompt") or "",
+                "steps": [],
+                "response": "",
+                "status": "incomplete",
+                "iteration": 0,
+            }
+        elif current is None:
+            continue
+        elif kind == "step.start":
+            current["steps"].append({
+                "id": name, "skill": attrs.get("skill") or "(llm-only)",
+                "ok": None, "tool": None,
+            })
+        elif kind == "step.end" and current["steps"]:
+            last = current["steps"][-1]
+            last["ok"] = attrs.get("ok") == "1"
+            last["tool"] = attrs.get("tool") or last["skill"]
+        elif kind == "eval" and name == "turn-response":
+            current["response"] = attrs.get("text") or ""
+            current["iteration"] = int(attrs.get("iteration") or 0)
+        elif kind == "eval" and name == "turn-complete":
+            current["status"] = attrs.get("status") or "ok"
+            turns.append(current)
+            current = None
+    if current is not None:
+        turns.append(current)
+    # If the trace predates `turn-response` (older runs) the final
+    # response is only on the RunSummary — backfill the last turn.
+    if turns and not turns[-1]["response"]:
+        turns[-1]["response"] = (run_block.get("final_output") or "")[:8192]
+    plan_block = run_block.get("plan") or {}
+    out: list[str] = []
+    for t in turns:
+        out.append(f"### Turn {t['turn'] + 1} — {t['status']}")
+        out.append("")
+        if t["prompt"]:
+            out.append(f"**User:** {t['prompt']}")
+            out.append("")
+        # Plan: only the LAST turn's plan is reliably available
+        # (controller resets state per turn). For earlier turns we
+        # show the step skeleton which is still informative.
+        is_last = (t is turns[-1])
+        if is_last and plan_block:
+            goal = plan_block.get("goal") or ""
+            reasoning = plan_block.get("reasoning") or ""
+            if goal:
+                out.append(f"**Plan goal:** {goal}")
+            if reasoning:
+                out.append(f"**Plan reasoning:** {reasoning}")
+            out.append("")
+        if t["steps"]:
+            out.append("**Steps:**")
+            for st in t["steps"]:
+                tick = "ok" if st["ok"] is True else ("err" if st["ok"] is False else "?")
+                line = f"- {st['id']} [{tick}] {st['skill']}"
+                if st["tool"] and st["tool"] != st["skill"]:
+                    line += f" → {st['tool']}"
+                out.append(line)
+            out.append("")
+        if is_last and run_block.get("step_results"):
+            srs = run_block["step_results"]
+            shown = False
+            for sid, sr in list(srs.items())[:6]:
+                output = (sr.get("output") or "").strip()
+                if not output:
+                    continue
+                if not shown:
+                    out.append("**Step outputs (final turn):**")
+                    shown = True
+                out.append(f"- `{sid}`: {output[:280]}")
+            if shown:
+                out.append("")
+        if t["response"]:
+            out.append(f"**Assistant:** {t['response'][:1600]}")
+            out.append("")
+    if not turns:
+        out.append("_(no turn spans in trace)_")
+        out.append("")
+    return out
+
+
 # ---------------------------------------------------------------- per-task driver
 
 def run_one(args: argparse.Namespace, task: dict[str, Any], traces_dir: Path) -> dict[str, Any]:
@@ -800,10 +951,32 @@ def main() -> int:
     partial = run_dir / "results.partial.json"
     if partial.exists(): partial.unlink()
 
+    # Per-run human-readable transcript log: one file per run.py
+    # invocation, named with the run's date+time + label, dropped in a
+    # gitignored `logs/` folder so successive runs don't clutter
+    # version control. Pairs with `runs/<label>-<ts>/report.md` (the
+    # high-level summary) — this one is the deep view: per-task,
+    # per-turn user prompts, plan reasoning, step execution, and
+    # assistant responses.
+    logs_dir = ROOT / "logs"
+    logs_dir.mkdir(parents=True, exist_ok=True)
+    log_filename = f"{timestamp}_{args.label}.md"
+    log_path = logs_dir / log_filename
+    try:
+        log_text = render_run_log(label=args.label,
+                                   dataset=args.dataset,
+                                   model=args.model,
+                                   summary=summary,
+                                   rows=rows,
+                                   traces_dir=traces_dir)
+        log_path.write_text(log_text)
+    except OSError as exc:
+        print(f"[runner] (run-log write failed: {exc})")
+
     # Append a one-line summary to a per-tree aggregate results log so
     # successive runs leave a quick history without bloating the run
     # dir count. Gitignored — purely a local navigation aid.
-    log_path = ROOT / "results.log"
+    results_log_path = ROOT / "results.log"
     per_case = " ".join(
         f"{r['task_id']}:{int(r['tsr'] * 100)}" for r in rows)
     log_line = (
@@ -813,7 +986,7 @@ def main() -> int:
         f"[{per_case}]  → {run_dir.name}\n"
     )
     try:
-        with log_path.open("a") as fh:
+        with results_log_path.open("a") as fh:
             fh.write(log_line)
     except OSError as exc:
         # Don't fail the run on a log-write error — it's diagnostic only.
@@ -824,6 +997,7 @@ def main() -> int:
           f"({summary['n_tasks']} tasks, {summary['n_skipped']} skipped)")
     print(f"[runner] report: {run_dir / 'report.md'}")
     print(f"[runner] log:    {log_path}")
+    print(f"[runner] aggregate: {results_log_path}")
     return 0
 
 
