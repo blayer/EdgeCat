@@ -10,7 +10,7 @@ import XCTest
 final class OrchestrationSettingsWiringTests: XCTestCase {
 
     private final class StubLLM: LlmInferenceProvider, @unchecked Sendable {
-        func generateResponse(prompt: String, enableThinking: Bool) async throws -> String { "{}" }
+        func generateResponse(prompt: String, enableThinking: Bool, maxOutputTokens: Int) async throws -> String { "{}" }
         func cancel() {}
     }
 

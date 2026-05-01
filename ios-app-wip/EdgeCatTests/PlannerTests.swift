@@ -6,7 +6,7 @@ private final class StubLLM: LlmInferenceProvider, @unchecked Sendable {
     private(set) var lastPrompt: String = ""
     private(set) var lastEnableThinking: Bool = false
     init(response: String) { self.response = response }
-    func generateResponse(prompt: String, enableThinking: Bool) async throws -> String {
+    func generateResponse(prompt: String, enableThinking: Bool, maxOutputTokens: Int) async throws -> String {
         lastPrompt = prompt
         lastEnableThinking = enableThinking
         return response

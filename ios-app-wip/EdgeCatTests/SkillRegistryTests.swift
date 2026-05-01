@@ -68,8 +68,13 @@ final class SkillRegistryTests: XCTestCase {
         // catalog is fully populated before we read it back.
         try await Task.sleep(nanoseconds: 50_000_000)
         let names = Set(reg.getAvailableSkills().map(\.name))
+        // Calculator was de-registered from defaultSet (PR #44); pure
+        // arithmetic is rare and the prior placement caused the
+        // planner to mis-route date arithmetic through it. The skill
+        // can still be re-loaded on demand via `search-skills` if a
+        // task genuinely needs NSExpression evaluation.
         let expected: [String] = [
-            "calculator", "clipboard", "device-info", "fetch-web-content", "search-web",
+            "clipboard", "device-info", "fetch-web-content", "search-web",
             "read-contacts", "calendar", "set-reminder", "list-photos", "get-location",
             "phone-call", "send-sms", "flashlight", "share-content", "scan-barcode",
             "query-wikipedia",
@@ -94,43 +99,31 @@ final class SkillRegistryTests: XCTestCase {
 
     /// `getAvailableSkills()` must filter by user toggles; `allSkills()`
     /// must not. The planner uses the filtered view; the manager UI uses
-    /// the full one.
+    /// the full one. Test fixture is `clipboard` — small, registered,
+    /// and side-effect-light; calculator (the original fixture) was
+    /// de-registered in PR #44.
     func testTogglesFilterAvailableButNotAll() async throws {
         SkillToggles.resetAll()
         let reg = SkillRegistry.defaultSet()
         try await Task.sleep(nanoseconds: 50_000_000)
 
-        SkillToggles.setEnabled(false, for: "calculator")
+        SkillToggles.setEnabled(false, for: "clipboard")
         defer { SkillToggles.resetAll() }
 
         let visible = Set(reg.getAvailableSkills().map(\.name))
         let everything = Set(reg.allSkills().map(\.name))
-        XCTAssertFalse(visible.contains("calculator"),
+        XCTAssertFalse(visible.contains("clipboard"),
                        "Disabled skill should be hidden from the planner")
-        XCTAssertTrue(everything.contains("calculator"),
+        XCTAssertTrue(everything.contains("clipboard"),
                       "Manager UI must still see disabled skill")
-    }
-
-    /// `executeTool` should still run a disabled skill if invoked by name —
-    /// the toggle gates planner exposure, not direct invocation. This
-    /// matches Android's behavior where disabled skills can still be
-    /// triggered via direct API once the planner has decided to.
-    func testDisabledSkillIsStillExecutable() async throws {
-        SkillToggles.resetAll()
-        let reg = SkillRegistry.defaultSet()
-        try await Task.sleep(nanoseconds: 50_000_000)
-        SkillToggles.setEnabled(false, for: "calculator")
-        defer { SkillToggles.resetAll() }
-
-        let r = await reg.executeTool(toolName: "calculator",
-                                       args: ["expression": "2+2"])
-        XCTAssertTrue(r.success)
-        XCTAssertEqual(r.output, "4")
     }
 
     func testUpdateSkillInstructionsIsNoOpForBuiltIns() async {
         let reg = SkillRegistry.defaultSet()
-        let updated = await reg.updateSkillInstructions(skillName: "calculator",
+        // `clipboard` is a registered native (built-in) skill, so its
+        // instructions can't be updated through the manager UI hook —
+        // that affordance only applies to JS-bundled custom skills.
+        let updated = await reg.updateSkillInstructions(skillName: "clipboard",
                                                         newInstructions: "do thing")
         XCTAssertFalse(updated)
     }

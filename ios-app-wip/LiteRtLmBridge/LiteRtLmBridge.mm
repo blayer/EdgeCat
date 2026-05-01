@@ -217,11 +217,40 @@ void StreamCallbackThunk(void *userData, const char *chunk, bool isFinal, const 
          audioPaths:(NSArray<NSString *> *)audioPaths
             onToken:(void (^)(NSString *, NSString * _Nullable))onToken
              onDone:(void (^)(NSError * _Nullable))onDone {
+    [self sendMessage:text
+           imagePaths:imagePaths
+           audioPaths:audioPaths
+         extraContext:nil
+              onToken:onToken
+               onDone:onDone];
+}
+
+- (void)sendMessage:(NSString *)text
+         imagePaths:(NSArray<NSString *> *)imagePaths
+         audioPaths:(NSArray<NSString *> *)audioPaths
+       extraContext:(NSDictionary<NSString *, NSString *> *)extraContext
+            onToken:(void (^)(NSString *, NSString * _Nullable))onToken
+             onDone:(void (^)(NSError * _Nullable))onDone {
     if (!_conversation) {
         if (onDone) onDone(MakeError(LRTLMErrorCodeInferenceFailed, @"Conversation already closed"));
         return;
     }
     NSString *messageJson = BuildMessageJson(text, imagePaths, audioPaths);
+    // Serialize the extraContext dict to a JSON string. Empty / nil
+    // matches the previous hard-coded `"{}"` default. Non-string
+    // values would fail JSONSerialization, but the API is typed as
+    // NSString → NSString so callers can't pass them.
+    NSString *extraContextJson = @"{}";
+    if (extraContext.count > 0) {
+        NSError *jsonErr = nil;
+        NSData *data = [NSJSONSerialization dataWithJSONObject:extraContext
+                                                        options:0
+                                                          error:&jsonErr];
+        if (data && !jsonErr) {
+            extraContextJson = [[NSString alloc] initWithData:data
+                                                      encoding:NSUTF8StringEncoding];
+        }
+    }
     void (^doneWrapper)(NSError * _Nullable) = ^(NSError *err) {
         // Reset the in-flight flag on the conversation when the C-side stream
         // finishes (success or error). The semaphore is always signaled by
@@ -234,7 +263,7 @@ void StreamCallbackThunk(void *userData, const char *chunk, bool isFinal, const 
     int rc = litert_lm_conversation_send_message_stream(
         _conversation,
         messageJson.UTF8String,
-        /*extra_context=*/"{}",
+        extraContextJson.UTF8String,
         StreamCallbackThunk,
         ctx);
     if (rc != 0) {

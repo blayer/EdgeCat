@@ -6,7 +6,7 @@ private final class ScriptedLLM: LlmInferenceProvider, @unchecked Sendable {
     private(set) var promptCount = 0
     private let lock = NSLock()
     init(_ responses: [String]) { self.responses = responses }
-    func generateResponse(prompt: String, enableThinking: Bool) async throws -> String {
+    func generateResponse(prompt: String, enableThinking: Bool, maxOutputTokens: Int) async throws -> String {
         lock.lock(); defer { lock.unlock() }
         promptCount += 1
         if responses.isEmpty {

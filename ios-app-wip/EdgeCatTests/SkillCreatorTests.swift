@@ -8,7 +8,7 @@ final class SkillCreatorTests: XCTestCase {
     private final class StubLLM: LlmInferenceProvider, @unchecked Sendable {
         var canned: String
         init(_ canned: String) { self.canned = canned }
-        func generateResponse(prompt: String, enableThinking: Bool) async throws -> String { canned }
+        func generateResponse(prompt: String, enableThinking: Bool, maxOutputTokens: Int) async throws -> String { canned }
         func cancel() {}
     }
 

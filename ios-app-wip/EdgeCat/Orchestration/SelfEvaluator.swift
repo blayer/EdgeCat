@@ -191,7 +191,13 @@ public struct SelfEvaluator {
         }
         """
 
-        let raw = try await llm.generateResponse(prompt: prompt, enableThinking: policy.evaluator())
+        // Evaluator JSON is tiny: goalAchieved bool, short assessment
+        // string, two empty-or-tiny lists, shouldReplan bool. 384 is
+        // plenty and shaves several seconds off the eval-phase decode.
+        let raw = try await llm.generateResponse(
+            prompt: prompt,
+            enableThinking: policy.evaluator(),
+            maxOutputTokens: 384)
         return parse(raw)
     }
 

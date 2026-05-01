@@ -136,6 +136,18 @@ typedef NS_ENUM(NSInteger, LRTLMLogLevel) {
          audioPaths:(nullable NSArray<NSString *> *)audioPaths
             onToken:(void (^)(NSString * _Nonnull chunk, NSString * _Nullable thought))onToken
              onDone:(void (^)(NSError * _Nullable error))onDone;
+/// Same as the 4-arg multimodal variant plus an optional extra-context
+/// dict. The dict is JSON-serialized and passed to the underlying C API
+/// as `extra_context` (see `litert_lm_conversation_send_message_stream`).
+/// Mirrors the Android `sendMessageAsync(..., extraContext: Map<String, String>)`
+/// hook that the Android Gallery uses to toggle `enable_thinking`. nil
+/// or empty dict matches the existing default of `"{}"`.
+- (void)sendMessage:(NSString *)text
+         imagePaths:(nullable NSArray<NSString *> *)imagePaths
+         audioPaths:(nullable NSArray<NSString *> *)audioPaths
+       extraContext:(nullable NSDictionary<NSString *, NSString *> *)extraContext
+            onToken:(void (^)(NSString * _Nonnull chunk, NSString * _Nullable thought))onToken
+             onDone:(void (^)(NSError * _Nullable error))onDone;
 - (void)cancel;
 - (void)close;
 @end

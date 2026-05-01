@@ -59,12 +59,10 @@ public struct ThinkingPolicy: Sendable {
     private static func isSimpleRequest(_ msg: String) -> Bool {
         let trimmed = msg.trimmingCharacters(in: .whitespacesAndNewlines)
         let wordCount = trimmed.split(whereSeparator: \.isWhitespace).count
-        // 6 words covers most bare follow-ups that arrive on multi-turn
-        // continuation (e.g. "Add it to my calendar.", "Tomorrow at
-        // 5pm.", "How many days from now?"). 4 was too strict — it
-        // forced the planner into a CoT pass for prompts that have no
-        // ambiguity to think through, costing ~5-10s per turn.
-        if wordCount <= 6 { return true }
+        // 4 words is the deliberate "trivial regardless of phrasing"
+        // threshold — anything beyond requires the prefix regex to
+        // confirm the intent is direct (no ambiguity to plan through).
+        if wordCount <= 4 { return true }
         return simplePrefix.firstMatch(in: trimmed,
                                        range: NSRange(trimmed.startIndex..., in: trimmed)) != nil
     }

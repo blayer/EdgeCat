@@ -52,9 +52,15 @@ public struct Planner {
                                           memoryContext: memoryContext,
                                           conversationContext: bound(conversationContext),
                                           isOnline: isOnline)
+        // Plan JSON is small — goal, reasoning, 1-5 steps with toolArgs,
+        // a couple of success-criteria strings. 1024 is a generous cap
+        // that fits ~99% of plans the model produces; capping at the
+        // engine cuts decode time directly (the dominant per-turn
+        // latency in eval traces).
         let raw = try await llm.generateResponse(
             prompt: prompt,
-            enableThinking: policy.planner(userMessage: userMessage, iteration: iteration))
+            enableThinking: policy.planner(userMessage: userMessage, iteration: iteration),
+            maxOutputTokens: 1024)
         let parsed = try parsePlan(raw, defaultGoal: userMessage)
         return Self.filterUnknownSkills(plan: parsed, available: availableSkills)
     }
@@ -76,7 +82,8 @@ public struct Planner {
                                             conversationContext: bound(conversationContext))
         let raw = try await llm.generateResponse(
             prompt: prompt,
-            enableThinking: policy.replan(replanAttempt: context.replanAttempt))
+            enableThinking: policy.replan(replanAttempt: context.replanAttempt),
+            maxOutputTokens: 1024)
         let parsed = try parsePlan(raw, defaultGoal: userMessage)
         return Self.filterUnknownSkills(plan: parsed, available: availableSkills)
     }
@@ -328,7 +335,7 @@ public struct Planner {
           "successCriteria": ["Reply states today's Tokyo temperature/conditions."]
         }
 
-        MULTI-TURN CONTINUATION: if "Recent conversation:" is non-empty AND the new user request is a bare detail (time/date/location/name) without its own verb, treat it as supplying missing info for the most recent prior request — re-emit the SAME skill the assistant used last turn (set-reminder stays set-reminder, calendar stays calendar — do NOT switch skills) with the new detail merged into its toolArgs. Pass bare time/date strings (e.g. "Tomorrow at 5pm") into the skill's natural-language arg (set-reminder's `dueWhen`, calendar/add-calendar-event's `whenText`).
+        MULTI-TURN CONTINUATION: if a recent-conversation history is shown above AND the new user request is a bare detail (time/date/location/name) without its own verb, treat it as supplying missing info for the most recent prior request — re-emit the SAME skill the assistant used last turn (set-reminder stays set-reminder, calendar stays calendar — do NOT switch skills) with the new detail merged into its toolArgs. Pass bare time/date strings (e.g. "Tomorrow at 5pm") into the skill's natural-language arg (set-reminder's `dueWhen`, calendar/add-calendar-event's `whenText`).
 
         FIND-SLOT-AND-ADD: when the user says "find a free slot and add X" or "schedule X in a free time", emit TWO steps — (s1) calendar action=read to surface gaps, then (s2) calendar action=add with `whenText` set to a start time picked from s1's "FREE MORNING SLOTS" output. Do NOT stop after the read — the read is informational; the add is the action.
 

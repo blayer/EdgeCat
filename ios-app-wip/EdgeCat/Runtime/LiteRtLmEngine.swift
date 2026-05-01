@@ -127,7 +127,10 @@ public final class LiteRtLmEngine: LlmModelHelper {
     /// store the fresh conversation back so subsequent chat turns start
     /// from a clean KV-cache. The user's prior chat bubbles are still
     /// visible in the UI; only the model's KV-cache resets.
-    public func generateOnce(prompt: String) async throws -> String {
+    public func generateOnce(prompt: String,
+                             maxOutputTokens: Int = 0,
+                             systemInstruction: String? = nil,
+                             extraContext: [String: String]? = nil) async throws -> String {
         guard let engine else { throw LiteRtLmError.notInitialized }
         conversation?.close()
         conversation = nil
@@ -140,11 +143,11 @@ public final class LiteRtLmEngine: LlmModelHelper {
         sampler.seed = 0
 
         let fresh = try engine.createConversation(
-            withSystemPrompt: nil,
+            withSystemPrompt: systemInstruction,
             sampler: sampler,
             applyPromptTemplate: true,
             enableConstrainedDecoding: false,
-            maxOutputTokens: 0)
+            maxOutputTokens: Int32(maxOutputTokens))
         self.conversation = fresh
 
         return try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<String, Error>) in
@@ -156,6 +159,7 @@ public final class LiteRtLmEngine: LlmModelHelper {
             fresh.sendMessage(prompt,
                               imagePaths: nil,
                               audioPaths: nil,
+                              extraContext: extraContext,
                               onToken: { chunk, _ in
                 buffer += chunk
             }, onDone: { error in
