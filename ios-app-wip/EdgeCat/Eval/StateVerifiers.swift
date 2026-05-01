@@ -58,7 +58,15 @@ public enum StateVerifiers {
     private static func dispatch(kind: String, params: [String: String]) async throws -> Result {
         switch kind {
         case "calendar_event_exists":  return try await calendarEventExists(params)
+        case "calendar_event_in_free_slot":
+            return try await calendarEventInFreeSlot(params)
         case "reminder_exists":        return try await reminderExists(params)
+        case "reminder_recent_with_substring":
+            return try await reminderRecentWithSubstring(params)
+        case "reminder_with_title_and_due":
+            return try await reminderWithTitleAndDue(params)
+        case "reminder_with_title_due_and_location":
+            return try await reminderWithTitleDueAndLocation(params)
         // `timer_set` is the AndroidWorld-style name; map it onto the
         // iOS path. Translate `minutes` → `interval_s` if the dataset
         // uses the Android param convention.
@@ -166,6 +174,177 @@ public enum StateVerifiers {
         }
         return Result(passed: false,
                       detail: "no reminder with title~='\(titleSub)' (saw \(reminders.count))")
+    }
+
+    /// Args: title_contains, window_minutes (default 1440).
+    /// Multi-turn variant of `reminder_exists`: matches a reminder
+    /// whose title contains the substring AND was created within
+    /// `window_minutes` of now. Used when the agent should have just
+    /// added a reminder referencing content from a prior turn.
+    private static func reminderRecentWithSubstring(_ params: [String: String]) async throws -> Result {
+        let titleSub = params["title_contains"] ?? ""
+        let windowMin = Int(params["window_minutes"] ?? "1440") ?? 1440
+        let store = EKEventStore()
+        let granted = try await requestAccess(store: store, entity: .reminder)
+        guard granted else { return Result(passed: false, detail: "reminder access denied") }
+        let predicate = store.predicateForReminders(in: nil)
+        let reminders: [EKReminder] = await withCheckedContinuation { cont in
+            store.fetchReminders(matching: predicate) { items in
+                cont.resume(returning: items ?? [])
+            }
+        }
+        let cutoff = Date().addingTimeInterval(-Double(windowMin) * 60)
+        let recent = reminders.filter { ($0.creationDate ?? .distantPast) >= cutoff }
+        let match = recent.first { r in
+            titleSub.isEmpty
+                || (r.title?.localizedCaseInsensitiveContains(titleSub) ?? false)
+        }
+        if let match {
+            return Result(passed: true,
+                          detail: "found '\(match.title ?? "")' (recent=\(recent.count) total=\(reminders.count))")
+        }
+        return Result(passed: false,
+                      detail: "no recent reminder title~='\(titleSub)' window_min=\(windowMin) (recent=\(recent.count) total=\(reminders.count))")
+    }
+
+    /// Args: title_substring, due_dow ("monday".."sunday"), due_hour_local
+    /// (0-23, optional), window_days (default 14).
+    /// Match a reminder whose title contains the substring AND whose
+    /// dueDateComponents resolves to a date with the specified
+    /// day-of-week AND hour-of-day, within the next `window_days`.
+    private static func reminderWithTitleAndDue(_ params: [String: String]) async throws -> Result {
+        let titleSub = params["title_substring"] ?? ""
+        let dowName = (params["due_dow"] ?? "").lowercased()
+        let hour = Int(params["due_hour_local"] ?? "") ?? -1
+        let windowDays = Int(params["window_days"] ?? "14") ?? 14
+        let dowMap: [String: Int] = [
+            "sunday": 1, "monday": 2, "tuesday": 3, "wednesday": 4,
+            "thursday": 5, "friday": 6, "saturday": 7,
+        ]
+        guard let targetDow = dowMap[dowName] else {
+            return Result(passed: false, detail: "bad due_dow: '\(dowName)'")
+        }
+        let store = EKEventStore()
+        let granted = try await requestAccess(store: store, entity: .reminder)
+        guard granted else { return Result(passed: false, detail: "reminder access denied") }
+        let predicate = store.predicateForReminders(in: nil)
+        let reminders: [EKReminder] = await withCheckedContinuation { cont in
+            store.fetchReminders(matching: predicate) { items in
+                cont.resume(returning: items ?? [])
+            }
+        }
+        let cal = Calendar.current
+        let now = Date()
+        let upper = cal.date(byAdding: .day, value: windowDays, to: now) ?? now
+        let match = reminders.first { r in
+            let titleOk = titleSub.isEmpty
+                || (r.title?.localizedCaseInsensitiveContains(titleSub) ?? false)
+            guard titleOk, let due = r.dueDateComponents,
+                  let dueDate = cal.date(from: due),
+                  dueDate >= now && dueDate <= upper else { return false }
+            if cal.component(.weekday, from: dueDate) != targetDow { return false }
+            if hour >= 0 && cal.component(.hour, from: dueDate) != hour { return false }
+            return true
+        }
+        if let match, let due = match.dueDateComponents {
+            return Result(passed: true,
+                          detail: "found '\(match.title ?? "")' dow=\(dowName) due=\(due)")
+        }
+        return Result(passed: false,
+                      detail: "no reminder title~='\(titleSub)' dow=\(dowName) hour=\(hour) (saw \(reminders.count))")
+    }
+
+    /// Args: title_substring, location_substring, date_offset (days
+    /// from today, default 0), due_hour_local (optional).
+    /// Match a reminder with the title substring, a `structuredLocation.title`
+    /// containing the location substring, and dueDateComponents on
+    /// (today + date_offset) at the specified hour.
+    private static func reminderWithTitleDueAndLocation(_ params: [String: String]) async throws -> Result {
+        let titleSub = params["title_substring"] ?? ""
+        let locSub = params["location_substring"] ?? ""
+        let dateOffset = Int(params["date_offset"] ?? "0") ?? 0
+        let hour = Int(params["due_hour_local"] ?? "") ?? -1
+        let store = EKEventStore()
+        let granted = try await requestAccess(store: store, entity: .reminder)
+        guard granted else { return Result(passed: false, detail: "reminder access denied") }
+        let predicate = store.predicateForReminders(in: nil)
+        let reminders: [EKReminder] = await withCheckedContinuation { cont in
+            store.fetchReminders(matching: predicate) { items in
+                cont.resume(returning: items ?? [])
+            }
+        }
+        let cal = Calendar.current
+        let targetDay = cal.date(byAdding: .day, value: dateOffset, to: Date()) ?? Date()
+        let dayStart = cal.startOfDay(for: targetDay)
+        let dayEnd = cal.date(byAdding: .day, value: 1, to: dayStart) ?? dayStart
+        let match = reminders.first { r in
+            let titleOk = titleSub.isEmpty
+                || (r.title?.localizedCaseInsensitiveContains(titleSub) ?? false)
+            let locOk: Bool
+            if locSub.isEmpty { locOk = true }
+            else {
+                let locTitle = r.alarms?.compactMap({ $0.structuredLocation?.title }).first ?? ""
+                locOk = locTitle.localizedCaseInsensitiveContains(locSub)
+            }
+            guard titleOk && locOk,
+                  let due = r.dueDateComponents,
+                  let dueDate = cal.date(from: due),
+                  dueDate >= dayStart && dueDate < dayEnd else { return false }
+            if hour >= 0 && cal.component(.hour, from: dueDate) != hour { return false }
+            return true
+        }
+        if let match {
+            let locTitle = match.alarms?.compactMap({ $0.structuredLocation?.title }).first ?? "(no location)"
+            return Result(passed: true,
+                          detail: "found '\(match.title ?? "")' loc='\(locTitle)'")
+        }
+        return Result(passed: false,
+                      detail: "no reminder title~='\(titleSub)' loc~='\(locSub)' offset=\(dateOffset) hour=\(hour) (saw \(reminders.count))")
+    }
+
+    /// Args: title_substring, date_offset (default 1), before_hour_local
+    /// (default 12), duration_minutes (default 30).
+    /// Match an EKEvent on (today+date_offset) whose title contains
+    /// the substring, starts before the cutoff hour, has duration
+    /// ≥ duration_minutes, AND doesn't overlap any *other* event in
+    /// that morning window — i.e. the agent picked an actually-free
+    /// slot rather than double-booking.
+    private static func calendarEventInFreeSlot(_ params: [String: String]) async throws -> Result {
+        let titleSub = params["title_substring"] ?? ""
+        let dateOffset = Int(params["date_offset"] ?? "1") ?? 1
+        let beforeHour = Int(params["before_hour_local"] ?? "12") ?? 12
+        let durMin = Int(params["duration_minutes"] ?? "30") ?? 30
+        let store = EKEventStore()
+        let granted = try await requestAccess(store: store, entity: .event)
+        guard granted else { return Result(passed: false, detail: "calendar access denied") }
+        let cal = Calendar.current
+        let targetDay = cal.date(byAdding: .day, value: dateOffset, to: Date()) ?? Date()
+        let dayStart = cal.startOfDay(for: targetDay)
+        let cutoff = cal.date(bySettingHour: beforeHour, minute: 0, second: 0,
+                              of: dayStart) ?? dayStart
+        let predicate = store.predicateForEvents(withStart: dayStart, end: cutoff,
+                                                  calendars: nil)
+        let events = store.events(matching: predicate)
+        let candidates = events.filter { e in
+            let titleOk = titleSub.isEmpty
+                || (e.title?.localizedCaseInsensitiveContains(titleSub) ?? false)
+            let dur = e.endDate.timeIntervalSince(e.startDate) / 60.0
+            return titleOk && dur >= Double(durMin) && e.startDate < cutoff
+        }
+        guard let cand = candidates.first else {
+            return Result(passed: false,
+                          detail: "no event title~='\(titleSub)' offset=\(dateOffset) before=\(beforeHour):00 dur≥\(durMin)m (saw \(events.count))")
+        }
+        let others = events.filter { $0 !== cand }
+        for o in others {
+            let overlap = max(o.startDate, cand.startDate) < min(o.endDate, cand.endDate)
+            if overlap {
+                return Result(passed: false,
+                              detail: "'\(cand.title ?? "")' overlaps '\(o.title ?? "")'")
+            }
+        }
+        return Result(passed: true,
+                      detail: "free-slot '\(cand.title ?? "")' (no overlap with \(others.count) others)")
     }
 
     // MARK: - Timer

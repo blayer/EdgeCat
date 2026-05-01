@@ -3,8 +3,12 @@
   "title": "EdgeCatTask",
   "description": "A single eval task for EdgeCat orchestration. One JSONL line per task.",
   "type": "object",
-  "required": ["id", "prompt", "category", "complexity"],
+  "required": ["id", "category", "complexity"],
   "additionalProperties": false,
+  "oneOf": [
+    {"required": ["prompt"], "not": {"required": ["turns"]}},
+    {"required": ["turns"], "not": {"required": ["prompt"]}}
+  ],
   "properties": {
     "id": {
       "type": "string",
@@ -12,7 +16,20 @@
     },
     "prompt": {
       "type": "string",
-      "description": "The user message sent to EdgeCat"
+      "description": "The user message sent to EdgeCat. Mutually exclusive with `turns`."
+    },
+    "turns": {
+      "type": "array",
+      "minItems": 2,
+      "description": "Multi-turn conversation. Each turn's prompt is sent sequentially within a single conversation; the runner waits for the agent's reply before sending the next turn. Verifier (top-level) runs after the final turn. Mutually exclusive with `prompt`. Runtime support pending — runner currently skips these.",
+      "items": {
+        "type": "object",
+        "required": ["prompt"],
+        "additionalProperties": false,
+        "properties": {
+          "prompt": {"type": "string"}
+        }
+      }
     },
     "category": {
       "type": "string",
@@ -20,7 +37,7 @@
     },
     "complexity": {
       "type": "string",
-      "enum": ["single-skill", "multi-step", "replan-required", "refuse", "chat"]
+      "enum": ["single-skill", "multi-step", "multi-turn", "replan-required", "refuse", "chat"]
     },
     "expected_skills": {
       "type": "array",
