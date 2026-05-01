@@ -705,6 +705,11 @@ def _render_task_turns(trace_path: Path, row: dict[str, Any]) -> list[str]:
         elif kind == "eval" and name == "turn-response":
             current["response"] = attrs.get("text") or ""
             current["iteration"] = int(attrs.get("iteration") or 0)
+            current["duration_ms"] = int(attrs.get("duration_ms") or 0)
+            current["history_chars"] = int(attrs.get("history_chars") or 0)
+            current["response_chars"] = int(attrs.get("response_chars") or 0)
+            current["approx_history_tokens"] = int(attrs.get("approx_history_tokens") or 0)
+            current["approx_response_tokens"] = int(attrs.get("approx_response_tokens") or 0)
         elif kind == "eval" and name == "turn-complete":
             current["status"] = attrs.get("status") or "ok"
             turns.append(current)
@@ -720,6 +725,21 @@ def _render_task_turns(trace_path: Path, row: dict[str, Any]) -> list[str]:
     for t in turns:
         out.append(f"### Turn {t['turn'] + 1} — {t['status']}")
         out.append("")
+        # Per-turn telemetry: latency + approximate token usage. These
+        # are only present when the trace was produced by an app build
+        # that emits the new turn-response attrs (commit 65c78f2+);
+        # older runs render the stats line with zeros, which is fine.
+        if t.get("duration_ms"):
+            dur_s = t["duration_ms"] / 1000.0
+            mem_tok = t.get("approx_history_tokens", 0)
+            mem_chars = t.get("history_chars", 0)
+            resp_tok = t.get("approx_response_tokens", 0)
+            resp_chars = t.get("response_chars", 0)
+            out.append(
+                f"_Latency: {dur_s:.1f}s • memory in: ~{mem_tok} tok ({mem_chars} chars) "
+                f"• response out: ~{resp_tok} tok ({resp_chars} chars)_"
+            )
+            out.append("")
         if t["prompt"]:
             out.append(f"**User:** {t['prompt']}")
             out.append("")

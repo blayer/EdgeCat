@@ -174,6 +174,7 @@ public enum EvalEntryPoint {
                                 agentic: Bool,
                                 keepAlive: Bool) async {
         let device = await MainActor.run { Self.deviceInfo() }
+        let turnStartMs = TraceRecorder.nowMs()
 
         // 1. Acquire-or-continue the active session.
         let make: @Sendable () -> ActiveSession = {
@@ -294,7 +295,15 @@ public enum EvalEntryPoint {
             errorMessage = error.localizedDescription
         }
 
-        // 3. Append to history; stash latest results for RunSummary.
+        // 3. Capture per-turn telemetry BEFORE appending the new turn
+        //    to history (so `history_chars` reflects the conversation
+        //    context that was actually fed to the planner this turn,
+        //    not what the *next* turn will see).
+        let turnEndMs = TraceRecorder.nowMs()
+        let turnDurationMs = turnEndMs - turnStartMs
+        let historyChars = session.history.formatted().count
+        let responseChars = finalText.count
+
         session.history.append(user: prompt, assistant: finalText)
         session.lastFinalText = finalText
         session.lastFinalStatus = finalStatus
@@ -309,13 +318,22 @@ public enum EvalEntryPoint {
         //    turn's assistant text without parsing the RunSummary
         //    (which only carries the *last* turn's output for multi-
         //    turn cases). Truncated to 8K so a runaway LLM doesn't
-        //    blow the trace file.
+        //    blow the trace file. Telemetry attrs (`duration_ms`,
+        //    `history_chars`, `response_chars`, plus a 4-chars-per-
+        //    token approximation of each) let off-device log
+        //    renderers surface latency + token-usage per turn
+        //    without needing a real tokenizer.
         let textForTrace = String(finalText.prefix(8192))
         await session.recorder.event(kind: "eval", name: "turn-response",
                                       payload: ["turn": String(session.turnIndex),
                                                 "run_id": runId,
                                                 "text": textForTrace,
-                                                "iteration": String(iteration)])
+                                                "iteration": String(iteration),
+                                                "duration_ms": String(turnDurationMs),
+                                                "history_chars": String(historyChars),
+                                                "response_chars": String(responseChars),
+                                                "approx_history_tokens": String(historyChars / 4),
+                                                "approx_response_tokens": String(responseChars / 4)])
         await session.recorder.event(kind: "eval", name: "turn-complete",
                                       payload: ["status": finalStatus,
                                                 "turn": String(session.turnIndex),
