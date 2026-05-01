@@ -210,8 +210,13 @@ public enum EvalEntryPoint {
             }
             do {
                 try await withModelInitTimeout(seconds: Self.modelInitTimeoutSeconds) {
+                    // 8192 instead of 4096: multi-turn cases pile
+                    // conversation history into the planner prompt and
+                    // the original 4K cap blew the token budget on
+                    // turn 2+ ("Input token ids are too long: 4167
+                    // >= 4096"). Gemma E2B/E4B supports 8K context.
                     try await session.engine.initialize(
-                        config: LlmInitConfig(modelPath: modelURL, maxTokens: 4096))
+                        config: LlmInitConfig(modelPath: modelURL, maxTokens: 8192))
                 }
             } catch let timeout as ModelInitTimeout {
                 await emitFailureAndDispose(session,

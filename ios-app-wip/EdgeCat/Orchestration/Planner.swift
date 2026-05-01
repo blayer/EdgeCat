@@ -328,31 +328,7 @@ public struct Planner {
           "successCriteria": ["Reply states today's Tokyo temperature/conditions."]
         }
 
-        MULTI-TURN CONTINUATION: if "Recent conversation:" above is non-empty
-        AND the new user request looks like a bare detail (a time, a date,
-        a location, a name, a yes/no) without its own verb, treat it as
-        the user supplying missing info for the *most recent* request from
-        prior turns. Re-emit the original action with the new detail
-        merged in. Do NOT route bare time strings ("Next Friday at 5pm",
-        "tomorrow morning") through calculator — pass them straight to
-        the appropriate skill's natural-language arg (e.g. set-reminder's
-        `dueWhen`, calendar's `whenText`).
-
-        Continuation example — prior turn established a reminder with no
-        time; this turn supplies it:
-        Recent conversation:
-          User: Remind me to buy chocolate milk.
-          Assistant: created: chocolate milk
-        New user request: Next Friday at 5pm.
-        →
-        {
-          "goal": "Set the reminder time for the chocolate-milk task",
-          "reasoning": "Prior turn created a chocolate-milk reminder without a due. The bare time-phrase here supplies that detail; re-call set-reminder with the same title and the dueWhen string.",
-          "steps": [
-            {"id": "s1", "description": "Set due time for the chocolate-milk reminder.", "skillName": "set-reminder", "toolArgs": {"title": "chocolate milk", "dueWhen": "Next Friday at 5pm"}, "dependsOn": []}
-          ],
-          "successCriteria": ["A reminder titled 'chocolate milk' is due next Friday at 5pm."]
-        }
+        MULTI-TURN CONTINUATION: if "Recent conversation:" is non-empty AND the new user request is a bare detail (time/date/location/name) without its own verb, treat it as supplying missing info for the most recent prior request — re-emit that action with the new detail merged in. Pass bare time/date strings (e.g. "Next Friday at 5pm") straight to the skill's natural-language arg (set-reminder's `dueWhen`); do NOT route them through calculator.
 
         User request: \(userMessage)
         """
