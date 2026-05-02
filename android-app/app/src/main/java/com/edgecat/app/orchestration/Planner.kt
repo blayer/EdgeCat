@@ -177,6 +177,10 @@ Steps: [
   {"id":"step_2","description":"Fetch the top result's page to get the actual weather details.","skillName":"fetch-web-content","toolArgs":{"url":"Output from step_1"},"dependsOn":["step_1"]}
 ]
 
+MULTI-TURN CONTINUATION: if a recent-conversation history is shown above AND the new user request is a bare detail (time/date/location/name) without its own verb, treat it as supplying missing info for the most recent prior request — re-emit the SAME skill the assistant used last turn (do NOT switch skills) with the new detail merged into its toolArgs. Convert any natural-language time/date in the detail to yyyy-MM-ddTHH:mm before placing it in toolArgs. When the new request contains a pronoun ("that", "it", "them", "there"), resolve it from the most recent prior-turn entity and inline that entity into your toolArgs — never ask the user to clarify what the pronoun means.
+
+FIND-SLOT-AND-ADD: when the user says "find a free slot and add X" or "schedule X in a free time", emit TWO steps — (step_1) calendar action=read over today's date range to surface existing events, then (step_2) calendar action=create with startDateTime set to a time picked from step_1's output (a gap between existing events). Do NOT stop after the read — the read is informational; the create is the action.
+
 User request: "$userMessage"
 
 Respond with ONLY valid JSON:
