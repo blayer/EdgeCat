@@ -138,3 +138,52 @@ def test_render_task_turns_buckets_steps(tmp_path: Path) -> None:
     ])
     md = "\n".join(_render_task_turns(trace, {"task_id": "t"}))
     assert "step_1 [ok] search-web" in md
+
+
+def test_render_run_log_multi_turn_renders_each_turn(tmp_path: Path) -> None:
+    """A multi-turn trace (eval.start + eval.turn-start + per-turn complete)
+    should render distinct ### Turn 1 / ### Turn 2 sections, each with its
+    own latency line and assistant text."""
+    traces = tmp_path / "traces"
+    spans = [
+        # Turn 0
+        {"type": "span", "span": {"kind": "eval", "name": "start",
+            "attrs": {"turn": "0", "prompt": "weather in Tokyo?"}}},
+        {"type": "span", "span": {"kind": "eval", "name": "turn-response",
+            "attrs": {"turn": "0", "text": "It is rainy in Tokyo.",
+                      "iteration": "0", "duration_ms": "1500",
+                      "history_chars": "17", "response_chars": "21",
+                      "approx_history_tokens": "4",
+                      "approx_response_tokens": "5"}}},
+        {"type": "span", "span": {"kind": "eval", "name": "turn-complete",
+            "attrs": {"turn": "0", "status": "ok"}}},
+        # Turn 1
+        {"type": "span", "span": {"kind": "eval", "name": "turn-start",
+            "attrs": {"turn": "1", "prompt": "what should I wear?"}}},
+        {"type": "span", "span": {"kind": "eval", "name": "turn-response",
+            "attrs": {"turn": "1", "text": "Bring an umbrella and a jacket.",
+                      "iteration": "0", "duration_ms": "2200",
+                      "history_chars": "60", "response_chars": "32",
+                      "approx_history_tokens": "15",
+                      "approx_response_tokens": "8"}}},
+        {"type": "span", "span": {"kind": "eval", "name": "turn-complete",
+            "attrs": {"turn": "1", "status": "ok"}}},
+        {"type": "run", "run": {"final_output": "Bring an umbrella and a jacket.",
+                                "user_message": "weather in Tokyo?"}},
+    ]
+    _write_trace(traces / "multi-001.jsonl", spans)
+    rows = [{"task_id": "multi-001", "tsr": 1.0,
+             "state_verifier": {"passed": True}}]
+    log = render_run_log(
+        label="t", dataset="datasets/v3_multi_turn.jsonl",
+        summary={"tsr": 1.0, "oqi": 0.9, "n_tasks": 1},
+        rows=rows, traces_dir=traces,
+    )
+    assert "### Turn 1" in log and "### Turn 2" in log
+    assert "weather in Tokyo?" in log
+    assert "what should I wear?" in log
+    assert "It is rainy in Tokyo." in log
+    assert "Bring an umbrella and a jacket." in log
+    assert "Latency: 1.5s" in log  # turn 0
+    assert "Latency: 2.2s" in log  # turn 1
+    assert log.count("### Turn") == 2
