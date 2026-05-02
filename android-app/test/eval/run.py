@@ -162,7 +162,7 @@ def escape_for_am(s: str) -> str:
     return "'" + cleaned.replace("'", "'\\''") + "'"
 
 
-def start_eval(adb: list[str], prompt: str, run_id: str) -> tuple[int, str]:
+def start_eval(adb: list[str], prompts: list[str], run_id: str) -> tuple[int, str]:
     # Requirement #4 + memory hygiene: fresh process per task. Gemma-4-E2B-it holds
     # ~2.4GB of native memory; without a force-stop, the second task's init hits
     # `Not enough free memory`.
@@ -175,11 +175,20 @@ def start_eval(adb: list[str], prompt: str, run_id: str) -> tuple[int, str]:
         if not out.strip():
             break
         time.sleep(1)
+    # Single-turn keeps the original `--es prompt`; multi-turn passes a
+    # JSON array via `--es prompts_json` (matches EvalActivity.kt). The
+    # JSON form survives shell single-quote wrapping because we escape
+    # embedded single quotes the same way as for plain prompts.
+    if len(prompts) == 1:
+        prompt_args = f"--es prompt {escape_for_am(prompts[0])}"
+    else:
+        prompts_json = json.dumps(prompts, ensure_ascii=False)
+        prompt_args = f"--es prompts_json {escape_for_am(prompts_json)}"
     cmd = (
         f"am start -W "
         f"-a {EVAL_ACTION} "
         f"-n {EVAL_ACTIVITY} "
-        f"--es prompt {escape_for_am(prompt)} "
+        f"{prompt_args} "
         f"--es run_id {escape_for_am(run_id)}"
     )
     return adb_shell(adb, cmd, timeout=30)
@@ -314,12 +323,25 @@ def _empty_failure_info() -> dict[str, Any]:
     }
 
 
+def _display_prompt(task: dict[str, Any]) -> str:
+    """Pick the prompt string for report/log columns. Single-turn tasks have a
+    top-level `prompt`; multi-turn tasks have `turns: [{prompt, ...}]` — for
+    those we surface the first turn so the summary still shows what the task
+    asked for."""
+    if task.get("prompt"):
+        return task["prompt"]
+    turns = task.get("turns") or []
+    if turns and turns[0].get("prompt"):
+        return f"(multi-turn x{len(turns)}) {turns[0]['prompt']}"
+    return ""
+
+
 def _failure_row(task: dict[str, Any], error: str, detail: str) -> dict[str, Any]:
     """Build a zero-score row shaped like score_task output, so summary/report code
     doesn't need to special-case failures."""
     return {
         "task_id": task["id"],
-        "prompt": task["prompt"],
+        "prompt": _display_prompt(task),
         "category": task.get("category"),
         "complexity": task.get("complexity", "unknown"),
         "error": error,
@@ -365,7 +387,7 @@ def score_task(
     """Run all scorers against a single trace. Returns a per-task result row."""
     result: dict[str, Any] = {
         "task_id": task["id"],
-        "prompt": task["prompt"],
+        "prompt": _display_prompt(task),
         "category": task.get("category"),
         "complexity": task.get("complexity"),
     }
@@ -807,14 +829,15 @@ def run_one(
     enforce_latency_budget: bool = False,
 ) -> dict[str, Any]:
     task_id = task["id"]
-    if task.get("turns"):
-        print(f"\n[{task_id}] multi-turn — skipped (runtime not yet supported)")
-        return _failure_row(
-            {**task, "prompt": "(multi-turn)"},
-            "skip_multi_turn",
-            "multi-turn runtime not yet supported (schema-only encoding)",
-        )
-    print(f"\n[{task_id}] {task['prompt']}")
+    # Multi-turn vs single-turn: `task.turns` is a list of {prompt: "..."}
+    # dicts; absence means the legacy single-turn `task.prompt` shape.
+    turns_def = task.get("turns")
+    if turns_def:
+        prompts = [t["prompt"] for t in turns_def if t.get("prompt")]
+        print(f"\n[{task_id}] multi-turn x{len(prompts)} — first: {prompts[0][:60]}")
+    else:
+        prompts = [task["prompt"]]
+        print(f"\n[{task_id}] {task['prompt']}")
     timeout = int(task.get("timeout_s", 180))
 
     for cmd in (task.get("setup") or []):
@@ -825,7 +848,7 @@ def run_one(
     run_id = task_id
     remove_trace_if_exists(adb, run_id)
 
-    code, out = start_eval(adb, task["prompt"], run_id)
+    code, out = start_eval(adb, prompts, run_id)
     if code != 0:
         print(f"  am start failed: {out.strip()}")
         return _failure_row(task, "am_start_failed", out.strip()[:200])
