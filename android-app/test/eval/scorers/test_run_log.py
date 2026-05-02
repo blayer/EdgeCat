@@ -12,8 +12,9 @@ from pathlib import Path
 import pytest
 
 import sys
-ROOT = Path(__file__).resolve().parent
-sys.path.insert(0, str(ROOT))
+# This file lives in test/eval/scorers/ — add the parent (test/eval/) to
+# sys.path so `import run` resolves to test/eval/run.py.
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from run import render_run_log, _render_task_turns  # noqa: E402
 
 

@@ -15,9 +15,21 @@ import android.os.Bundle
 import android.util.Log
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -25,8 +37,13 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import com.edgecat.app.customtasks.agentchat.AgentTools
 import com.edgecat.app.customtasks.agentchat.LlmInferenceProviderImpl
@@ -133,6 +150,7 @@ class EvalActivity : ComponentActivity() {
 
     Log.d(TAG, "Eval run starting: runId=$runId, turns=${prompts.size}, " +
       "first='${prompts[0].take(80)}'")
+    EvalRunStatus.begin(prompt = prompts[0], runId = runId)
     setContent { EvalRunner(prompts = prompts, runId = runId, onComplete = { finish() }) }
   }
 
@@ -203,11 +221,13 @@ private fun EvalRunner(
 
     val loadedModel: Model = if (liveModel != null) {
       Log.d(TAG, "Using already-live model: ${liveModel.name}")
+      EvalRunStatus.setModelName(liveModel.name)
       liveModel
     } else {
       val pair = findDownloadedModel(context, mmVm, customTasks)
       if (pair == null) {
         Log.e(TAG, "No downloaded model found; failing fast per eval rule #7")
+        EvalRunStatus.transition(EvalRunStatus.Phase.FAILED, "No model loaded")
         writeFlushFailure(
           context = context,
           runId = runId,
@@ -219,6 +239,7 @@ private fun EvalRunner(
       }
       val (task, model) = pair
       Log.d(TAG, "Auto-initializing downloaded model for eval: ${model.name} (task=${task.id})")
+      EvalRunStatus.setModelName(model.name)
       // AgentChatTask.initializeModelFn touches agentTools.skillManagerViewModel, which is
       // a lateinit normally populated by AgentChatScreen's composable. No screen here — inject
       // it ourselves against the same CustomTask instance MMVM holds.
@@ -240,6 +261,7 @@ private fun EvalRunner(
       if (model.instance == null) {
         val err = mmVm.uiState.value.modelInitializationStatus[model.name]?.error ?: "init_timeout"
         Log.e(TAG, "Model init failed for ${model.name}: $err")
+        EvalRunStatus.transition(EvalRunStatus.Phase.FAILED, "Model init failed: $err")
         writeFlushFailure(
           context = context,
           runId = runId,
@@ -296,6 +318,10 @@ private fun EvalRunner(
         .attr("turn", turnIdx.toString())
         .attr("prompt", turnPrompt)
       val turnStartMs = System.currentTimeMillis()
+      EvalRunStatus.transition(
+        EvalRunStatus.Phase.RUNNING,
+        if (prompts.size == 1) "Running…" else "Turn ${turnIdx + 1}/${prompts.size}…",
+      )
       // Format last MAX_HISTORY_TURNS pairs as the conversation context the
       // planner sees. Trimmed so a long run can't blow the planner prompt
       // budget (8K context window).
@@ -364,14 +390,152 @@ private fun EvalRunner(
     )
     Log.d(TAG, "Flushed trace for runId=$runId, turns=${prompts.size}, " +
       "status=$lastTerminalStatus")
+    EvalRunStatus.transition(
+      if (lastTerminalStatus == "ok") EvalRunStatus.Phase.COMPLETED
+      else EvalRunStatus.Phase.FAILED,
+      "Done — $lastTerminalStatus (${prompts.size} turn${if (prompts.size == 1) "" else "s"})",
+    )
 
     memory.clearAll()
-    onComplete()
+    // Do NOT call onComplete() here — leaves the activity alive so the
+    // off-device runner can pull the trace and the developer can see the
+    // final status pill. The user (or runner-driven am force-stop)
+    // dismisses the activity. Mirrors iOS, where `EvalRunStatus.requestExit`
+    // is the only way out post-run.
   }
 
-  Box(modifier = Modifier.fillMaxSize().padding(16.dp), contentAlignment = Alignment.Center) {
-    Text("Running eval run_id=$runId (${prompts.size} turn${if (prompts.size == 1) "" else "s"})" +
-      "\n${firstPrompt.take(120)}")
+  // Status surface: mirrors iOS `EvalRunnerView` (ios-app-wip/EdgeCat/App/
+  // EvalRunnerView.swift). Walks the same idle → loadingModel → running →
+  // completed/failed pill, shows the prompt + model + trace id, and
+  // surfaces an Exit button once the phase is terminal so the developer
+  // can drop into the normal app UI to inspect post-run state.
+  val state by EvalRunStatus.state.collectAsState()
+  LaunchedEffect(state.exited) {
+    if (state.exited) onComplete()
+  }
+  EvalStatusSurface(
+    state = state,
+    onExit = { EvalRunStatus.requestExit() },
+  )
+}
+
+@Composable
+private fun EvalStatusSurface(
+  state: EvalRunStatus.State,
+  onExit: () -> Unit,
+) {
+  val canExit = state.phase == EvalRunStatus.Phase.IDLE ||
+    state.phase == EvalRunStatus.Phase.COMPLETED ||
+    state.phase == EvalRunStatus.Phase.FAILED
+  val pillLabel = when (state.phase) {
+    EvalRunStatus.Phase.IDLE -> "Waiting for eval"
+    EvalRunStatus.Phase.LOADING_MODEL -> "Loading model"
+    EvalRunStatus.Phase.RUNNING -> "Running"
+    EvalRunStatus.Phase.COMPLETED -> "Done"
+    EvalRunStatus.Phase.FAILED -> "Failed"
+  }
+  val pillColor = when (state.phase) {
+    EvalRunStatus.Phase.IDLE -> Color.Gray
+    EvalRunStatus.Phase.LOADING_MODEL -> Color(0xFFFFC107)  // amber
+    EvalRunStatus.Phase.RUNNING -> Color(0xFF2196F3)  // blue
+    EvalRunStatus.Phase.COMPLETED -> Color(0xFF4CAF50)  // green
+    EvalRunStatus.Phase.FAILED -> Color(0xFFF44336)  // red
+  }
+
+  Column(
+    modifier = Modifier
+      .fillMaxSize()
+      .background(Color.Black)
+      .padding(24.dp),
+    verticalArrangement = Arrangement.spacedBy(12.dp),
+  ) {
+    Spacer(modifier = Modifier.weight(1f))
+    Text(
+      text = "EdgeCat Eval",
+      color = Color.White.copy(alpha = 0.6f),
+      fontSize = 11.sp,
+      fontWeight = FontWeight.SemiBold,
+    )
+    StatusPill(label = pillLabel, dotColor = pillColor, detail = state.detail)
+    if (state.prompt.isNotEmpty()) {
+      Spacer(modifier = Modifier.height(8.dp))
+      Text(
+        text = "Prompt",
+        color = Color.White.copy(alpha = 0.5f),
+        fontSize = 10.sp,
+        fontWeight = FontWeight.SemiBold,
+      )
+      Text(
+        text = state.prompt,
+        color = Color.White,
+        fontSize = 15.sp,
+        maxLines = 4,
+        overflow = TextOverflow.Ellipsis,
+      )
+    }
+    if (state.modelName.isNotEmpty()) {
+      Text(
+        text = "Model: ${state.modelName}",
+        color = Color.White.copy(alpha = 0.6f),
+        fontSize = 11.sp,
+        fontFamily = FontFamily.Monospace,
+      )
+    }
+    Spacer(modifier = Modifier.weight(1f))
+    if (state.runId.isNotEmpty()) {
+      Text(
+        text = "Trace: ${state.runId}",
+        color = Color.White.copy(alpha = 0.4f),
+        fontSize = 10.sp,
+        fontFamily = FontFamily.Monospace,
+      )
+    }
+    if (canExit) {
+      OutlinedButton(
+        onClick = onExit,
+        colors = ButtonDefaults.outlinedButtonColors(contentColor = Color.White),
+        border = BorderStroke(1.dp, Color.White.copy(alpha = 0.3f)),
+      ) {
+        Text("Exit eval mode", fontWeight = FontWeight.SemiBold)
+      }
+    }
+  }
+}
+
+@Composable
+private fun StatusPill(
+  label: String,
+  dotColor: Color,
+  detail: String,
+) {
+  Column {
+    Row(
+      verticalAlignment = Alignment.CenterVertically,
+      horizontalArrangement = Arrangement.spacedBy(8.dp),
+      modifier = Modifier
+        .background(Color.White.copy(alpha = 0.08f), RoundedCornerShape(999.dp))
+        .padding(horizontal = 16.dp, vertical = 10.dp),
+    ) {
+      Box(
+        modifier = Modifier
+          .size(10.dp)
+          .background(dotColor, CircleShape),
+      )
+      Text(
+        text = label,
+        color = Color.White,
+        fontSize = 18.sp,
+        fontWeight = FontWeight.SemiBold,
+      )
+    }
+    if (detail.isNotEmpty()) {
+      Spacer(modifier = Modifier.height(4.dp))
+      Text(
+        text = detail,
+        color = Color.White.copy(alpha = 0.7f),
+        fontSize = 13.sp,
+      )
+    }
   }
 }
 

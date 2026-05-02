@@ -11,8 +11,9 @@ from pathlib import Path
 
 import pytest
 
-ROOT = Path(__file__).resolve().parent
-sys.path.insert(0, str(ROOT))
+# This file lives in test/eval/scorers/ — add the parent (test/eval/) to
+# sys.path so `from scorers import state` resolves correctly.
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from scorers import state  # noqa: E402
 
 
