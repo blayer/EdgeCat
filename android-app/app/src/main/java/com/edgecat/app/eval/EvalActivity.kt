@@ -256,6 +256,15 @@ private fun EvalRunner(
       trace = trace,
     )
 
+    // `eval.start` opens a virtual "turn" the off-device run-log renderer
+    // (`render_run_log` in test/eval/run.py) buckets sub-spans into. Android
+    // EvalActivity is single-turn today, so we always emit turn=0; the same
+    // span shape on iOS multi-turn carries turn=N. The `prompt` attr is what
+    // gets surfaced as the **User:** line in `run_log.md`.
+    val turnStart = trace.start(kind = "eval", name = "start")
+      .attr("turn", "0")
+      .attr("prompt", prompt)
+    val turnStartMs = System.currentTimeMillis()
     try {
       controller.run(prompt)
     } catch (e: Exception) {
@@ -269,6 +278,31 @@ private fun EvalRunner(
       OrchestrationStatus.ERROR -> "error"
       else -> "incomplete"
     }
+    turnStart.end(status = "ok")
+    val turnDurationMs = System.currentTimeMillis() - turnStartMs
+    val finalText = finalState.finalOutput ?: ""
+    val historyChars = prompt.length
+    val responseChars = finalText.length
+    // Per-turn telemetry: latency + 4-chars-per-token approximation. Mirrors
+    // iOS `EvalEntryPoint.swift` so `render_run_log` reads identical attrs on
+    // both platforms. Truncate `text` to 8K so a runaway LLM can't blow the
+    // trace file.
+    trace.start(kind = "eval", name = "turn-response")
+      .attr("turn", "0")
+      .attr("run_id", runId)
+      .attr("text", finalText.take(8192))
+      .attr("iteration", finalState.iteration.toString())
+      .attr("duration_ms", turnDurationMs.toString())
+      .attr("history_chars", historyChars.toString())
+      .attr("response_chars", responseChars.toString())
+      .attr("approx_history_tokens", (historyChars / 4).toString())
+      .attr("approx_response_tokens", (responseChars / 4).toString())
+      .end(status = "ok")
+    trace.start(kind = "eval", name = "turn-complete")
+      .attr("turn", "0")
+      .attr("run_id", runId)
+      .attr("status", terminalStatus)
+      .end(status = "ok")
     trace.flush(
       userMessage = prompt,
       finalStatus = terminalStatus,

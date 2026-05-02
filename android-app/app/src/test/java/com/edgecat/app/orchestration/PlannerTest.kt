@@ -520,6 +520,30 @@ class PlannerTest {
   }
 
   @Test
+  fun `buildPlanningPrompt includes MULTI-TURN CONTINUATION rule`() {
+    val prompt = planner.buildPlanningPrompt("tomorrow at 5pm", emptyList())
+    assertTrue("multi-turn rule header present", prompt.contains("MULTI-TURN CONTINUATION"))
+    assertTrue("re-emit-same-skill guidance present", prompt.contains("re-emit the SAME skill"))
+    assertTrue("ISO conversion guidance present", prompt.contains("yyyy-MM-ddTHH:mm"))
+  }
+
+  @Test
+  fun `buildPlanningPrompt includes pronoun-resolution guidance`() {
+    val prompt = planner.buildPlanningPrompt("change that to 6pm", emptyList())
+    assertTrue("pronoun list present", prompt.contains("\"that\", \"it\", \"them\", \"there\""))
+    assertTrue("never-clarify rule present", prompt.contains("never ask the user to clarify"))
+  }
+
+  @Test
+  fun `buildPlanningPrompt includes FIND-SLOT-AND-ADD rule`() {
+    val prompt = planner.buildPlanningPrompt("find a free slot and add a meeting", emptyList())
+    assertTrue("find-slot rule header present", prompt.contains("FIND-SLOT-AND-ADD"))
+    assertTrue("two-step guidance present", prompt.contains("emit TWO steps"))
+    assertTrue("read-then-create guidance present",
+      prompt.contains("calendar action=read") && prompt.contains("calendar action=create"))
+  }
+
+  @Test
   fun `classifyIntent routes referential pronouns to chat with prior turn`() {
     for (msg in listOf(
       "what about those?",
