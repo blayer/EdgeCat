@@ -60,6 +60,44 @@ final class LlmStepExecutionTests: XCTestCase {
         XCTAssertEqual(llm.prompts.count, 1)
     }
 
+    func testLlmStepIncludesConversationContextWhenProvided() async {
+        // Multi-turn regression: turn-2 compose/summarize/null-skill
+        // steps must see the prior-turn assistant outputs so they can
+        // synthesize over established context instead of asking the
+        // user to re-supply data. Pre-fix the LLM prompt only carried
+        // the current turn's prior step results.
+        let llm = RecordingLLM(canned: "Light jacket and umbrella")
+        let orch = ExecutionOrchestrator(executor: StubExec(), llm: llm)
+        let plan = ExecutionPlan(goal: "synthesize", reasoning: "r", steps: [
+            PlanStep(id: "s1", description: "Suggest clothing for the user."),
+        ])
+        let history = """
+        User: What is the current weather in Tokyo?
+        Assistant: Light rain, max 24°C, min 14°C tomorrow.
+        """
+        _ = await orch.execute(plan: plan, conversationContext: history)
+        let prompt = llm.prompts[0]
+        XCTAssertTrue(prompt.contains("Recent conversation"),
+                      "LLM-step prompt must label the prior-turn block")
+        XCTAssertTrue(prompt.contains("Light rain"),
+                      "Prior turn assistant text must reach the LLM")
+        XCTAssertTrue(prompt.contains("do NOT ask the user to re-supply"),
+                      "Prompt must explicitly forbid the 'please provide' anti-pattern")
+    }
+
+    func testLlmStepOmitsConversationBlockWhenEmpty() async {
+        // Single-turn cases (chat path) shouldn't waste tokens on an
+        // empty "Recent conversation:" header.
+        let llm = RecordingLLM(canned: "ok")
+        let orch = ExecutionOrchestrator(executor: StubExec(), llm: llm)
+        let plan = ExecutionPlan(goal: "x", reasoning: "r", steps: [
+            PlanStep(id: "s1", description: "do thing"),
+        ])
+        _ = await orch.execute(plan: plan)
+        XCTAssertFalse(llm.prompts[0].contains("Recent conversation"),
+                       "Empty conversation context must omit the header entirely")
+    }
+
     func testEchoFallbackWhenNoLlmInjected() async {
         // Existing tests rely on this — without an LLM, an LLM-only step
         // should still complete (echoing the description) so test setups

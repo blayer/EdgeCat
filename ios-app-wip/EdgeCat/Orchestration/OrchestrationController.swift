@@ -158,7 +158,8 @@ public final class OrchestrationController {
             // Execute
             state.status = .executing
             results = await trace.phase(kind: "phase", name: "execute") {
-                await executor.execute(plan: p)
+                await executor.execute(plan: p,
+                                        conversationContext: conversationContext)
             }
             state.stepResults = results
 
