@@ -194,6 +194,199 @@ def output_regex(trace: dict[str, Any], pattern: str) -> tuple[bool, str]:
     return False, f"regex not matched: {pattern} (output[:120]={out[:120]!r})"
 
 
+# ─── Calendar/reminder helpers shared by the multi-turn verifiers ───
+#
+# Android piggybacks reminders on CalendarContract events with `hasAlarm=1`
+# (set by DeviceSkills.setReminder via CalendarContract.Reminders), so the
+# same content URI serves both event and reminder queries. iOS uses two
+# different stores (EKEventStore, EKReminders) — the verifier names mirror
+# iOS for dataset compatibility, but the implementation queries one URI
+# regardless.
+
+# Day-of-week names accepted in `due_dow` params. Mirrors iOS.
+_DOW = {"monday": 0, "tuesday": 1, "wednesday": 2, "thursday": 3,
+        "friday": 4, "saturday": 5, "sunday": 6}
+
+
+def _fetch_events(adb: list[str], with_alarm_only: bool = False
+                  ) -> tuple[bool, list[dict[str, Any]], str]:
+    """Query CalendarContract.Events and parse rows. Returns (ok, events, detail).
+    Each event is a dict with title (lower), dtstart_ms, dtend_ms, location
+    (lower), has_alarm. `with_alarm_only=True` filters to reminder-style rows."""
+    code, out = _sh(adb, [
+        "shell", "content", "query",
+        "--uri", "content://com.android.calendar/events",
+        "--projection", "title:dtstart:dtend:eventLocation:hasAlarm",
+    ], timeout=20)
+    if code != 0:
+        return False, [], f"adb query failed: {out[:160]}"
+    events: list[dict[str, Any]] = []
+    for line in out.splitlines():
+        if "title=" not in line:
+            continue
+        m_title = re.search(r"title=([^,]+?)(?:,|$)", line)
+        m_start = re.search(r"dtstart=(\d+)", line)
+        m_end = re.search(r"dtend=(\d+)", line)
+        m_loc = re.search(r"eventLocation=([^,]+?)(?:,|$)", line)
+        m_alarm = re.search(r"hasAlarm=(\d+)", line)
+        if not m_title or not m_start:
+            continue
+        has_alarm = bool(m_alarm and m_alarm.group(1) == "1")
+        if with_alarm_only and not has_alarm:
+            continue
+        events.append({
+            "title": m_title.group(1).strip().lower(),
+            "dtstart_ms": int(m_start.group(1)),
+            "dtend_ms": int(m_end.group(1)) if m_end else 0,
+            "location": (m_loc.group(1).strip().lower() if m_loc else ""),
+            "has_alarm": has_alarm,
+        })
+    return True, events, f"{len(events)} events"
+
+
+def reminder_recent_with_substring(adb: list[str], params: dict[str, Any]
+                                   ) -> tuple[bool, str]:
+    """Match a recently-created reminder by title substring.
+
+    Params:
+      title_contains: substring to match in event title (case-insensitive)
+      window_minutes: how far back to look (default 60)
+    """
+    title_sub = (params.get("title_contains") or "").lower()
+    window_min = int(params.get("window_minutes", 60))
+    ok, events, detail = _fetch_events(adb, with_alarm_only=True)
+    if not ok:
+        return False, detail
+    cutoff_ms = int(_dt.datetime.now().timestamp() * 1000) - window_min * 60_000
+    for e in events:
+        if title_sub and title_sub not in e["title"]:
+            continue
+        if e["dtstart_ms"] >= cutoff_ms:
+            return True, f"found reminder '{e['title']}' within {window_min}min"
+    return False, f"no reminder title~'{title_sub}' in last {window_min}min"
+
+
+def reminder_with_title_and_due(adb: list[str], params: dict[str, Any]
+                                ) -> tuple[bool, str]:
+    """Match a reminder whose title contains a substring and whose dtstart
+    falls on a target day-of-week within `window_days`.
+
+    Params:
+      title_substring: substring to match in title (case-insensitive)
+      due_dow: weekday name ('monday'..'sunday')
+      due_hour_local: optional, exact hour match (0..23)
+      window_days: forward search window (default 14)
+    """
+    title_sub = (params.get("title_substring") or "").lower()
+    dow_name = (params.get("due_dow") or "").lower()
+    target_hour = params.get("due_hour_local")
+    window_days = int(params.get("window_days", 14))
+    if dow_name not in _DOW:
+        return False, f"due_dow='{dow_name}' not a weekday name"
+    target_dow = _DOW[dow_name]
+    ok, events, detail = _fetch_events(adb, with_alarm_only=True)
+    if not ok:
+        return False, detail
+    now = _dt.datetime.now()
+    for e in events:
+        if title_sub and title_sub not in e["title"]:
+            continue
+        start = _dt.datetime.fromtimestamp(e["dtstart_ms"] / 1000.0)
+        if start < now or (start - now).days > window_days:
+            continue
+        if start.weekday() != target_dow:
+            continue
+        if target_hour is not None and start.hour != int(target_hour):
+            continue
+        return True, f"found reminder '{e['title']}' at {start.isoformat()}"
+    return (False,
+            f"no reminder title~'{title_sub}' on {dow_name} hour={target_hour} "
+            f"within {window_days}d")
+
+
+def reminder_with_title_due_and_location(adb: list[str], params: dict[str, Any]
+                                         ) -> tuple[bool, str]:
+    """Match a reminder by title substring + location substring + a specific
+    day_offset/hour. The location column is `eventLocation` on Android.
+
+    Params:
+      title_substring, location_substring: substrings (case-insensitive)
+      date_offset: days from today (0=today, 1=tomorrow)
+      due_hour_local: expected hour (0..23)
+    """
+    title_sub = (params.get("title_substring") or "").lower()
+    loc_sub = (params.get("location_substring") or "").lower()
+    day_offset = int(params.get("date_offset", 1))
+    target_hour = params.get("due_hour_local")
+    target_date = _dt.date.today() + _dt.timedelta(days=day_offset)
+    ok, events, detail = _fetch_events(adb, with_alarm_only=True)
+    if not ok:
+        return False, detail
+    for e in events:
+        if title_sub and title_sub not in e["title"]:
+            continue
+        if loc_sub and loc_sub not in e["location"]:
+            continue
+        start = _dt.datetime.fromtimestamp(e["dtstart_ms"] / 1000.0)
+        if start.date() != target_date:
+            continue
+        if target_hour is not None and start.hour != int(target_hour):
+            continue
+        return True, (f"found reminder '{e['title']}' loc='{e['location']}' "
+                       f"at {start.isoformat()}")
+    return (False,
+            f"no reminder title~'{title_sub}' loc~'{loc_sub}' "
+            f"date={target_date} hour={target_hour}")
+
+
+def calendar_event_in_free_slot(adb: list[str], params: dict[str, Any]
+                                ) -> tuple[bool, str]:
+    """Match a calendar event whose start/end fall inside an actually-free
+    window — i.e. it does not overlap any other event on the target day
+    before `before_hour_local`.
+
+    Params:
+      title_substring: substring (case-insensitive)
+      date_offset: days from today (default 1 = tomorrow)
+      before_hour_local: gap must be entirely before this hour (default 12)
+      duration_minutes: minimum event duration (default 30)
+    """
+    title_sub = (params.get("title_substring") or "").lower()
+    day_offset = int(params.get("date_offset", 1))
+    before_hour = int(params.get("before_hour_local", 12))
+    min_dur_min = int(params.get("duration_minutes", 30))
+    target_date = _dt.date.today() + _dt.timedelta(days=day_offset)
+    ok, events, detail = _fetch_events(adb)
+    if not ok:
+        return False, detail
+    same_day = [e for e in events
+                if _dt.datetime.fromtimestamp(e["dtstart_ms"] / 1000.0).date()
+                == target_date]
+    candidate = next((e for e in same_day
+                      if title_sub and title_sub in e["title"]
+                      and _dt.datetime.fromtimestamp(e["dtstart_ms"] / 1000.0)
+                          .hour < before_hour), None)
+    if candidate is None:
+        return (False,
+                f"no event title~'{title_sub}' on {target_date} before "
+                f"{before_hour:02d}:00")
+    cs, ce = candidate["dtstart_ms"], candidate["dtend_ms"]
+    duration_min = (ce - cs) / 60_000 if ce > cs else min_dur_min
+    if duration_min + 0.5 < min_dur_min:
+        return (False,
+                f"event duration {int(duration_min)}min < required {min_dur_min}min")
+    for other in same_day:
+        if other is candidate:
+            continue
+        os, oe = other["dtstart_ms"], other["dtend_ms"]
+        if cs < oe and os < ce:
+            return (False,
+                    f"event '{candidate['title']}' overlaps "
+                    f"'{other['title']}' on {target_date}")
+    return True, (f"event '{candidate['title']}' fits free slot on "
+                  f"{target_date} ({int(duration_min)}min)")
+
+
 VERIFIERS: dict[str, Callable] = {
     "calendar_event_exists": calendar_event_exists,
     "alarm_exists": alarm_exists,
@@ -201,6 +394,10 @@ VERIFIERS: dict[str, Callable] = {
     "sms_sent": sms_sent,
     "setting_equals": setting_equals,
     "timer_set": timer_set,
+    "reminder_recent_with_substring": reminder_recent_with_substring,
+    "reminder_with_title_and_due": reminder_with_title_and_due,
+    "reminder_with_title_due_and_location": reminder_with_title_due_and_location,
+    "calendar_event_in_free_slot": calendar_event_in_free_slot,
 }
 
 

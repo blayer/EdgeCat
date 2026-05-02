@@ -57,8 +57,10 @@ import java.util.UUID
 private const val TAG = "AGEvalActivity"
 private const val ACTION_RUN = "com.edgecat.app.EVAL_RUN"
 private const val EXTRA_PROMPT = "prompt"
+private const val EXTRA_PROMPTS_JSON = "prompts_json"
 private const val EXTRA_RUN_ID = "run_id"
 private const val TRACE_DIR = "/sdcard/edgecat-traces"
+private const val MAX_HISTORY_TURNS = 6
 
 /**
  * Hidden, intent-driven entry point for UI-free orchestration evaluation.
@@ -104,17 +106,34 @@ class EvalActivity : ComponentActivity() {
       return
     }
 
-    val prompt = intent?.getStringExtra(EXTRA_PROMPT)
+    val singlePrompt = intent?.getStringExtra(EXTRA_PROMPT)
+    val promptsJson = intent?.getStringExtra(EXTRA_PROMPTS_JSON)
     val runId = intent?.getStringExtra(EXTRA_RUN_ID) ?: UUID.randomUUID().toString()
-    if (prompt.isNullOrBlank()) {
+    // Multi-turn intent shape: `--es prompts_json '["p1","p2"]'`. Single-turn
+    // keeps the original `--es prompt "..."` for back-compat with existing
+    // run.py invocations and ad-hoc adb commands.
+    val prompts: List<String> = when {
+      !promptsJson.isNullOrBlank() ->
+        runCatching {
+          val arr = org.json.JSONArray(promptsJson)
+          (0 until arr.length()).map { arr.getString(it) }.filter { it.isNotBlank() }
+        }.getOrElse {
+          Log.e(TAG, "Failed to parse prompts_json", it)
+          emptyList()
+        }
+      !singlePrompt.isNullOrBlank() -> listOf(singlePrompt)
+      else -> emptyList()
+    }
+    if (prompts.isEmpty()) {
       writeFailureTrace(runId, prompt = "", reason = "missing_prompt_extra")
-      Log.e(TAG, "Missing --es prompt; exiting")
+      Log.e(TAG, "Missing --es prompt or prompts_json; exiting")
       finish()
       return
     }
 
-    Log.d(TAG, "Eval run starting: runId=$runId, prompt='${prompt.take(80)}'")
-    setContent { EvalRunner(prompt = prompt, runId = runId, onComplete = { finish() }) }
+    Log.d(TAG, "Eval run starting: runId=$runId, turns=${prompts.size}, " +
+      "first='${prompts[0].take(80)}'")
+    setContent { EvalRunner(prompts = prompts, runId = runId, onComplete = { finish() }) }
   }
 
   private fun writeFailureTrace(runId: String, prompt: String, reason: String) {
@@ -144,10 +163,11 @@ class EvalActivity : ComponentActivity() {
 
 @Composable
 private fun EvalRunner(
-  prompt: String,
+  prompts: List<String>,
   runId: String,
   onComplete: () -> Unit,
 ) {
+  val firstPrompt = prompts.first()
   val context = LocalContext.current
   val chatVm: LlmChatViewModel = hiltViewModel()
   val skillVm: SkillManagerViewModel = hiltViewModel()
@@ -191,7 +211,7 @@ private fun EvalRunner(
         writeFlushFailure(
           context = context,
           runId = runId,
-          prompt = prompt,
+          prompt = firstPrompt,
           reason = "no_model_loaded",
         )
         onComplete()
@@ -223,7 +243,7 @@ private fun EvalRunner(
         writeFlushFailure(
           context = context,
           runId = runId,
-          prompt = prompt,
+          prompt = firstPrompt,
           reason = "model_init_failed:$err",
         )
         onComplete()
@@ -256,77 +276,102 @@ private fun EvalRunner(
       trace = trace,
     )
 
-    // `eval.start` opens a virtual "turn" the off-device run-log renderer
-    // (`render_run_log` in test/eval/run.py) buckets sub-spans into. Android
-    // EvalActivity is single-turn today, so we always emit turn=0; the same
-    // span shape on iOS multi-turn carries turn=N. The `prompt` attr is what
-    // gets surfaced as the **User:** line in `run_log.md`.
-    val turnStart = trace.start(kind = "eval", name = "start")
-      .attr("turn", "0")
-      .attr("prompt", prompt)
-    val turnStartMs = System.currentTimeMillis()
-    try {
-      controller.run(prompt)
-    } catch (e: Exception) {
-      Log.e(TAG, "controller.run threw", e)
+    // Multi-turn loop: each prompt is one "turn". Turn 0 emits `eval.start`
+    // (matches iOS for parity with `render_run_log`); turn N≥1 emits
+    // `eval.turn-start`. After each turn we emit `turn-response` with the
+    // assistant text + per-turn telemetry (duration, char/token approx) and
+    // `turn-complete` with the terminal status. History from prior turns is
+    // formatted as "User: …\nAssistant: …" and threaded through to the
+    // planner via OrchestrationController.run(conversationContext = …).
+    val history = mutableListOf<Pair<String, String>>()
+    var lastFinalText = ""
+    var lastTerminalStatus = "incomplete"
+    var lastIteration = 0
+    var lastPlan: com.edgecat.app.orchestration.ExecutionPlan? = null
+    var lastStepResults: Map<String, com.edgecat.app.orchestration.StepResult>? = null
+    var lastEval: com.edgecat.app.orchestration.EvaluationResult? = null
+    for ((turnIdx, turnPrompt) in prompts.withIndex()) {
+      val turnSpanName = if (turnIdx == 0) "start" else "turn-start"
+      val turnStart = trace.start(kind = "eval", name = turnSpanName)
+        .attr("turn", turnIdx.toString())
+        .attr("prompt", turnPrompt)
+      val turnStartMs = System.currentTimeMillis()
+      // Format last MAX_HISTORY_TURNS pairs as the conversation context the
+      // planner sees. Trimmed so a long run can't blow the planner prompt
+      // budget (8K context window).
+      val ctx = history.takeLast(MAX_HISTORY_TURNS)
+        .joinToString("\n") { (u, a) -> "User: $u\nAssistant: $a" }
+      try {
+        controller.run(turnPrompt, conversationContext = ctx)
+      } catch (e: Exception) {
+        Log.e(TAG, "controller.run threw on turn $turnIdx", e)
+      }
+      val finalState = controller.state.value
+      val terminalStatus = when (finalState.status) {
+        OrchestrationStatus.COMPLETED -> "ok"
+        OrchestrationStatus.CANCELLED -> "cancelled"
+        OrchestrationStatus.ERROR -> "error"
+        else -> "incomplete"
+      }
+      turnStart.end(status = "ok")
+      val turnDurationMs = System.currentTimeMillis() - turnStartMs
+      val finalText = finalState.finalOutput ?: ""
+      val historyChars = ctx.length + turnPrompt.length
+      val responseChars = finalText.length
+      trace.start(kind = "eval", name = "turn-response")
+        .attr("turn", turnIdx.toString())
+        .attr("run_id", runId)
+        .attr("text", finalText.take(8192))
+        .attr("iteration", finalState.iteration.toString())
+        .attr("duration_ms", turnDurationMs.toString())
+        .attr("history_chars", historyChars.toString())
+        .attr("response_chars", responseChars.toString())
+        .attr("approx_history_tokens", (historyChars / 4).toString())
+        .attr("approx_response_tokens", (responseChars / 4).toString())
+        .end(status = "ok")
+      trace.start(kind = "eval", name = "turn-complete")
+        .attr("turn", turnIdx.toString())
+        .attr("run_id", runId)
+        .attr("status", terminalStatus)
+        .end(status = "ok")
+      history.add(turnPrompt to finalText)
+      lastFinalText = finalText
+      lastTerminalStatus = terminalStatus
+      lastIteration = finalState.iteration
+      lastPlan = finalState.plan
+      lastStepResults = finalState.stepResults.takeIf { it.isNotEmpty() }
+      lastEval = finalState.evaluation
     }
-
-    val finalState = controller.state.value
-    val terminalStatus = when (finalState.status) {
-      OrchestrationStatus.COMPLETED -> "ok"
-      OrchestrationStatus.CANCELLED -> "cancelled"
-      OrchestrationStatus.ERROR -> "error"
-      else -> "incomplete"
-    }
-    turnStart.end(status = "ok")
-    val turnDurationMs = System.currentTimeMillis() - turnStartMs
-    val finalText = finalState.finalOutput ?: ""
-    val historyChars = prompt.length
-    val responseChars = finalText.length
-    // Per-turn telemetry: latency + 4-chars-per-token approximation. Mirrors
-    // iOS `EvalEntryPoint.swift` so `render_run_log` reads identical attrs on
-    // both platforms. Truncate `text` to 8K so a runaway LLM can't blow the
-    // trace file.
-    trace.start(kind = "eval", name = "turn-response")
-      .attr("turn", "0")
-      .attr("run_id", runId)
-      .attr("text", finalText.take(8192))
-      .attr("iteration", finalState.iteration.toString())
-      .attr("duration_ms", turnDurationMs.toString())
-      .attr("history_chars", historyChars.toString())
-      .attr("response_chars", responseChars.toString())
-      .attr("approx_history_tokens", (historyChars / 4).toString())
-      .attr("approx_response_tokens", (responseChars / 4).toString())
-      .end(status = "ok")
-    trace.start(kind = "eval", name = "turn-complete")
-      .attr("turn", "0")
-      .attr("run_id", runId)
-      .attr("status", terminalStatus)
-      .end(status = "ok")
     trace.flush(
-      userMessage = prompt,
-      finalStatus = terminalStatus,
-      finalOutput = finalState.finalOutput,
-      plan = finalState.plan,
-      stepResults = finalState.stepResults.takeIf { it.isNotEmpty() },
-      evaluation = finalState.evaluation,
-      iteration = finalState.iteration,
+      // For multi-turn runs, the run-summary's `user_message` carries the
+      // FIRST prompt (the dispatch key). Per-turn prompts are recoverable
+      // from the `eval.start` / `eval.turn-start` span attrs.
+      userMessage = firstPrompt,
+      finalStatus = lastTerminalStatus,
+      finalOutput = lastFinalText.takeIf { it.isNotEmpty() },
+      plan = lastPlan,
+      stepResults = lastStepResults,
+      evaluation = lastEval,
+      iteration = lastIteration,
       extras = mapOf(
         "model_name" to loadedModel.name,
         "thinking_mode" to dataStoreRepo.getAgentThinkingMode(),
         "device_model" to Build.MODEL,
         "device_sdk" to Build.VERSION.SDK_INT,
         "memory_isolated" to true,
+        "turns_total" to prompts.size,
       ),
     )
-    Log.d(TAG, "Flushed trace for runId=$runId, status=$terminalStatus")
+    Log.d(TAG, "Flushed trace for runId=$runId, turns=${prompts.size}, " +
+      "status=$lastTerminalStatus")
 
     memory.clearAll()
     onComplete()
   }
 
   Box(modifier = Modifier.fillMaxSize().padding(16.dp), contentAlignment = Alignment.Center) {
-    Text("Running eval run_id=$runId\n${prompt.take(120)}")
+    Text("Running eval run_id=$runId (${prompts.size} turn${if (prompts.size == 1) "" else "s"})" +
+      "\n${firstPrompt.take(120)}")
   }
 }
 
