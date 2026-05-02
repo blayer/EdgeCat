@@ -10,13 +10,7 @@
 
 ## Status (2026-05-01)
 
-- **iOS / Android parity.** The Android orchestration stack (Planner, ExecutionOrchestrator, SelfEvaluator, ResponseFormatter, ThinkingPolicy, SkillCreator) is fully ported to iOS under `ios-app-wip/EdgeCat/Orchestration/`, including the eval harness and ~28 native skills (calendar, health, directions, PDFs, etc.). Android remains the primary platform; iOS is feature-complete on orchestration and tracking the same prompts.
-- **Multi-turn robustness.** Planner now carries explicit pronoun-resolution and continuation rules; per-turn latency and token telemetry recorded by the eval harness; calendar.read surfaces free morning slots; multi-turn evaluation runs against four state verifiers.
-- **Thinking Mode toggle.** `enable_thinking` is wired end-to-end into LiteRT-LM via extra_context. Default is **off** to preserve baseline latency; planner stays on, evaluator/formatter/LLM-step stay off (see [ThinkingPolicy](#thinking-policy-orchestrationthinkingpolicykt)).
-- **Planner hardening.** JSON repair for small-model malformations, regex fallback for ambiguous inputs, dependency chaining for Q&A flows (`search-web → fetch-web-content`), and goal-keyword rescue for empty/placeholder args.
-- **Skill tuning.** Calculator removed (hallucination surface); calendar/reminder skills now accept natural-language dates; descriptions sharpened to reduce mis-routing.
-
-Active focus: multi-turn quality, planner prompt tuning, evaluator grounding. No major architectural changes pending.
+The Android orchestration stack is now at parity on iOS (`ios-app-wip/`), with a configurable Thinking Mode toggle and hardened multi-turn handling. Active focus is prompt tuning and evaluator grounding — no major architectural changes pending.
 
 ## Download
 
@@ -180,39 +174,6 @@ The planner reads `description` for catalog listings and `instructions` when the
 | One failure = dead turn | Evaluator → replan loop (up to 3 iterations); auto-repair of skill instructions |
 | Date-format ambiguity | ISO-format rule in every plan; shared date note constant |
 | 8K context blown by 29-skill catalog | Deferred-skill tier; step-output budgeting; trimmed few-shot |
-
-## Directory layout
-
-```
-android-app/
-├── app/src/main/java/com/edgecat/app/
-│   ├── orchestration/                    ← plan→execute→evaluate loop
-│   │   ├── OrchestrationController.kt
-│   │   ├── Planner.kt                    ← NL → JSON plan
-│   │   ├── ExecutionOrchestrator.kt      ← DAG execution, parallel batches
-│   │   ├── SelfEvaluator.kt              ← rubric + evidence grounding
-│   │   ├── ResponseFormatter.kt          ← raw output → chat reply
-│   │   ├── ThinkingPolicy.kt             ← per-call-site CoT routing
-│   │   ├── SkillCreator.kt               ← save-as-skill + auto-repair
-│   │   └── OrchestrationTypes.kt
-│   ├── customtasks/agentchat/
-│   │   ├── DeviceSkills.kt               ← native device features
-│   │   ├── OrchestrationBridge.kt        ← app ↔ orchestration glue
-│   │   └── AgentChatTaskModule.kt        ← system prompt, model init
-│   └── memory/                           ← episodic memory
-├── app/src/main/assets/skills/           ← packaged SKILL.md + JS
-└── test/                                 ← on-device test harness
-
-ios-app-wip/EdgeCat/                  ← iOS port (parity with Android)
-├── Orchestration/                    ← Planner, ExecutionOrchestrator, SelfEvaluator, ...
-├── Skills/                           ← native iOS skill implementations
-├── Eval/                             ← eval harness
-├── Memory/                           ← episodic memory
-├── Runtime/                          ← LiteRT-LM bridge
-└── UI/                               ← chat, model manager, conversation history
-
-docs/                                 ← project assets (icon, learnings)
-```
 
 ## Running on-device tests
 
