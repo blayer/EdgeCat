@@ -33,6 +33,18 @@ public struct SelfEvaluator {
         for step in plan.steps where Self.isWriteSideStep(step) {
             return nil
         }
+        // Symmetric guard: when the GOAL or success criteria explicitly
+        // ask for a state change ("add … to my calendar", "schedule …",
+        // "remind me …") but NO step in the plan is write-side, the plan
+        // is structurally incomplete — the planner read but never wrote.
+        // Force the LLM evaluator so it returns shouldReplan=true and the
+        // planner gets a second chance to emit the missing add/set step.
+        // Caught by eval: multi-calendar-gap-fill where the planner's
+        // own reasoning + criteria mentioned the add step but the JSON
+        // only contained the read step.
+        if Self.hasWriteIntent(goal: plan.goal, criteria: plan.successCriteria) {
+            return nil
+        }
         // Every planned step must have a result and be COMPLETED.
         for step in plan.steps {
             guard let result = results[step.id], result.status == .completed else { return nil }
@@ -86,6 +98,38 @@ public struct SelfEvaluator {
             missingItems: [],
             shouldReplan: false,
             failedCriteria: [])
+    }
+
+    /// `true` when the goal or success-criteria contain an action verb
+    /// that implies a state change (add/schedule/create/set-reminder/
+    /// send/book/save/etc.) — used by `triage` to refuse rubber-stamping
+    /// a read-only plan whose stated intent was actually write-side.
+    /// Tighter than a plain word-boundary scan: anchored to common
+    /// imperative shapes so noun uses ("a set of options", "save mode")
+    /// don't trigger false refusals.
+    static func hasWriteIntent(goal: String, criteria: [String]) -> Bool {
+        let combined = (goal + " " + criteria.joined(separator: " ")).lowercased()
+        // Phrases anchored to imperative usage. Each entry is intentionally
+        // narrow: better to miss a write-intent and trust the (cheap)
+        // triage shortcut than to over-refuse and burn LLM evaluator calls
+        // on read-only goals.
+        let phrases = [
+            "add ",          // "add 'coffee' to my calendar", "add an event"
+            "schedule ",     // "schedule a meeting", "schedule the call"
+            "create ",       // "create a reminder", "create event"
+            "remind me",
+            "set a reminder", "set the reminder", "set an alarm",
+            "set up",
+            "send ",         // "send an SMS"
+            "book ",
+            "save ",
+            "share ",
+            "update the",    // "update the existing reminder"
+            "is added", "was added", "is scheduled", "is created",
+            "successfully added", "successfully scheduled",
+            "successfully created", "successfully set",
+        ]
+        return phrases.contains { combined.contains($0) }
     }
 
     /// `true` when the output is a search-web results listing with no
@@ -163,7 +207,10 @@ public struct SelfEvaluator {
         }
         let summary = plan.steps.map { step -> String in
             let r = results[step.id]
-            return "- \(step.id) [\(r?.status.rawValue ?? "?")] — \(r?.output ?? "")"
+            let skill = step.skillName ?? "(llm-only)"
+            let action = step.toolArgs["action"].map { " action=\($0)" } ?? ""
+            return "- \(step.id) [\(r?.status.rawValue ?? "?")] " +
+                   "skill=\(skill)\(action) — \(r?.output ?? "")"
         }.joined(separator: "\n")
 
         let criteriaSection = plan.successCriteria.isEmpty ? "" : """
@@ -178,8 +225,17 @@ public struct SelfEvaluator {
         User request: \(userMessage)
         Goal: \(plan.goal)
         \(criteriaSection)
-        Step results:
+
+        Steps actually executed (in order — this is EVERY action the agent took, NOTHING else ran):
         \(summary)
+
+        IMPORTANT — base goalAchieved STRICTLY on what the steps above actually DID, not on what the goal sounds like or what the read-side step output suggests is possible.
+
+        - If the goal mentions an ACTION (add / schedule / create / set / send / book / save / share / remove) but NO write-side skill (add-calendar-event, set-reminder, send-sms, send-email, share-content, set-alarm, calendar with action=add, clipboard with action=write, timer, etc.) appears in the steps above, the goal was NOT achieved. Set goalAchieved=false, shouldReplan=true, and put the missing write-side skill in missingItems.
+        - If the goal is purely informational ("find …", "what is …", "tell me …", "where is …", "when is …", "how many …"), do NOT add a write-side skill name to missingItems even if it seems "useful next" — the agent is supposed to answer the question, not write to the device. A read-only goal whose steps successfully retrieved the answer is goalAchieved=true.
+        - A step whose skill is `calendar` with action=read does NOT add events; it only lists them. Hints in its output like "FREE MORNING SLOTS" are SUGGESTIONS for the next step, NOT proof an event was scheduled.
+        - Do NOT claim an event was added based on existing entries in the calendar read; only the agent's own write-side step counts.
+        - If a step listed above has status=FAILED or output mentions "error"/"unable to"/"could not", treat that step as not achieving its purpose.
 
         Reply with strict JSON:
         {

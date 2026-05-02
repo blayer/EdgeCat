@@ -92,6 +92,97 @@ def step_order_lcs(trace: dict[str, Any], expected_skills: list[str]) -> tuple[f
     return score, f"expected={expected_seq} actual={actual_seq} lcs={lcs_len}/{m}"
 
 
+def _bucket_steps_by_turn(spans: list[dict[str, Any]]) -> list[list[str]]:
+    """Group skill names by the turn they ran in.
+
+    Returns a list of per-turn step lists; index 0 is Turn 1. Mirrors the
+    logging path's turn-bucketing in `run.py::_render_task_turns` so the
+    skill names line up with what the report shows.
+    """
+    turns: list[list[str]] = []
+    current: list[str] | None = None
+    for s in spans:
+        attrs = s.get("attrs") or {}
+        kind, name = s.get("kind"), s.get("name")
+        if kind == "eval" and name in ("start", "turn-start"):
+            if current is not None:
+                turns.append(current)
+            current = []
+        elif current is None:
+            continue
+        elif kind == "step.start":
+            skill = attrs.get("skill") or "(llm-only)"
+            current.append(skill)
+        elif kind == "eval" and name == "turn-complete":
+            turns.append(current)
+            current = None
+    if current is not None:
+        turns.append(current)
+    return turns
+
+
+def trace_assertions(
+    trace: dict[str, Any],
+    spec: dict[str, Any],
+) -> tuple[bool | None, str]:
+    """Check trace-shape assertions on a multi-turn run.
+
+    Spec fields (all optional; absence → no check, returns None):
+      forbidden_skills_per_turn: {"<turn_idx>": ["skill-a", "skill-b"]}
+        — fail if any of those skills ran in that turn (1-indexed).
+      max_steps_per_turn: {"<turn_idx>": <int>}
+        — fail if more than N steps ran in that turn.
+
+    Catches the "ignored prior-turn data and re-fetched" anti-pattern
+    (e.g. weather-cloth Turn 2 calling get-location + search-web when
+    Turn 1's Tokyo weather was the right input). Returns:
+      (True, …) when every declared assertion passes.
+      (False, …) when any declared assertion fails — TSR=0.
+      (None, …) when no trace assertions were declared.
+    """
+    forbidden = spec.get("forbidden_skills_per_turn") or {}
+    required = spec.get("required_skills_per_turn") or {}
+    max_steps = spec.get("max_steps_per_turn") or {}
+    if not forbidden and not required and not max_steps:
+        return None, "no trace assertions declared"
+    spans = trace.get("spans") or []
+    by_turn = _bucket_steps_by_turn(spans)
+    failures: list[str] = []
+    for k, banned in forbidden.items():
+        idx = int(k) - 1
+        if idx < 0 or idx >= len(by_turn):
+            continue
+        banned_norm = {b.replace("_", "-") for b in banned}
+        actual = {s.replace("_", "-") for s in by_turn[idx]}
+        hit = actual & banned_norm
+        if hit:
+            failures.append(f"turn {k} called forbidden {sorted(hit)}")
+    for k, must_call in required.items():
+        idx = int(k) - 1
+        # Turn never ran (multi-turn timed out before reaching it) — fail.
+        if idx < 0 or idx >= len(by_turn):
+            failures.append(f"turn {k} missing required {must_call} (turn did not run)")
+            continue
+        required_norm = {r.replace("_", "-") for r in must_call}
+        actual = {s.replace("_", "-") for s in by_turn[idx]}
+        missing = required_norm - actual
+        if missing:
+            failures.append(f"turn {k} missing required {sorted(missing)} (actual={sorted(actual)})")
+    for k, limit in max_steps.items():
+        idx = int(k) - 1
+        if idx < 0 or idx >= len(by_turn):
+            continue
+        n = len(by_turn[idx])
+        if n > int(limit):
+            failures.append(f"turn {k} ran {n} steps > limit {limit}")
+    if failures:
+        return False, "; ".join(failures)
+    declared = [k for k, v in [
+        ("forbidden", forbidden), ("required", required), ("max_steps", max_steps),
+    ] if v]
+    return True, f"trace assertions passed (declared={declared})"
+
+
 def refusal_accuracy(trace: dict[str, Any], should_refuse: bool) -> tuple[float, str]:
     """Did the agent correctly refuse (or not refuse) per the task spec?"""
     run = trace.get("run", {})

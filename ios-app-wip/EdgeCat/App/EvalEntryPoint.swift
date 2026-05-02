@@ -217,8 +217,22 @@ public enum EvalEntryPoint {
                     // the original 4K cap blew the token budget on
                     // turn 2+ ("Input token ids are too long: 4167
                     // >= 4096"). Gemma E2B/E4B supports 8K context.
+                    // Lower temperature + fixed seed for eval runs:
+                    // default temperature=1.0 produced ~10% TSR variance
+                    // case-to-case (same plan would land on different
+                    // skills across sweeps). Eval is meant to be a
+                    // measurement, not a roll of the dice — keep
+                    // sampling diverse enough to avoid pathological
+                    // greedy loops (temperature=0 → infinite repeat on
+                    // small models) but deterministic enough that two
+                    // back-to-back sweeps land on the same answers.
                     try await session.engine.initialize(
-                        config: LlmInitConfig(modelPath: modelURL, maxTokens: 8192))
+                        config: LlmInitConfig(
+                            modelPath: modelURL,
+                            maxTokens: 8192,
+                            topK: 40, topP: 0.9,
+                            temperature: 0.3,
+                            seed: 42))
                 }
             } catch let timeout as ModelInitTimeout {
                 await emitFailureAndDispose(session,

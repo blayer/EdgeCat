@@ -98,6 +98,25 @@ final class LlmStepExecutionTests: XCTestCase {
                        "Empty conversation context must omit the header entirely")
     }
 
+    func testLlmStepPromptForbidsApologyAntiPattern() async {
+        // Eval regression: LLM-only synthesis steps were saying "I
+        // apologize, the context does not contain..." even when the
+        // prior step had 9986 chars of useful content. The prompt now
+        // explicitly forbids that anti-pattern; lock it in so we don't
+        // silently soften the wording later.
+        let llm = RecordingLLM(canned: "ok")
+        let orch = ExecutionOrchestrator(executor: StubExec(), llm: llm)
+        let plan = ExecutionPlan(goal: "x", reasoning: "r", steps: [
+            PlanStep(id: "s1", description: "synth")
+        ])
+        _ = await orch.execute(plan: plan)
+        let prompt = llm.prompts[0]
+        XCTAssertTrue(prompt.contains("NEVER respond with"),
+                      "Prompt must include the no-apology guard")
+        XCTAssertTrue(prompt.contains("CURRENT_YEAR"),
+                      "Prompt must surface CURRENT_YEAR for 'this year' resolution")
+    }
+
     func testEchoFallbackWhenNoLlmInjected() async {
         // Existing tests rely on this — without an LLM, an LLM-only step
         // should still complete (echoing the description) so test setups

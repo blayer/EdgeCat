@@ -185,13 +185,27 @@ def timer_set(adb: list[str], params: dict[str, Any]) -> tuple[bool, str]:
     return (has_timer, "timer signal present" if has_timer else "no timer signal")
 
 
-def output_regex(trace: dict[str, Any], pattern: str) -> tuple[bool, str]:
-    """Trace-based verifier: final_output matches regex. No device query."""
+def output_regex(
+    trace: dict[str, Any],
+    pattern: str,
+    reject: str | None = None,
+) -> tuple[bool, str]:
+    """Trace-based verifier: final_output matches regex. No device query.
+
+    Optional `reject` is a second regex; if it matches, the verifier fails
+    even when `pattern` matches. Catches the "I apologize, I don't have
+    access" / "please provide" anti-patterns where the model bails on the
+    user but the answer-shape regex still finds a stray digit.
+    """
     run = trace.get("run", {})
     out = run.get("final_output") or ""
-    if re.search(pattern, out):
-        return True, f"regex matched: {pattern}"
-    return False, f"regex not matched: {pattern} (output[:120]={out[:120]!r})"
+    if not re.search(pattern, out):
+        return False, f"regex not matched: {pattern} (output[:120]={out[:120]!r})"
+    if reject and re.search(reject, out):
+        m = re.search(reject, out)
+        snippet = m.group(0) if m else ""
+        return False, f"reject matched: {reject!r} hit={snippet!r} (false-pass guard)"
+    return True, f"regex matched: {pattern}" + (" (reject clean)" if reject else "")
 
 
 VERIFIERS: dict[str, Callable] = {
@@ -247,7 +261,11 @@ def run_verifier(
     if vtype in ("none", "llm_judge"):
         return None, f"skipped: {vtype}"
     if vtype == "output_regex":
-        return output_regex(trace, verifier_spec.get("check") or ".*")
+        return output_regex(
+            trace,
+            verifier_spec.get("check") or ".*",
+            reject=verifier_spec.get("reject"),
+        )
     if vtype == "state":
         name = verifier_spec.get("check")
         # iOS path: the runner emits a `edgecat://verify?kind=<name>&…`

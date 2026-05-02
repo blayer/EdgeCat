@@ -177,6 +177,28 @@ public struct Planner {
         ]
         if !evaluation.missingItems.isEmpty {
             sections.append("Missing: " + evaluation.missingItems.joined(separator: "; "))
+            // When the evaluator flagged a specific skill name as missing
+            // AND the goal text actually contains a write-intent verb,
+            // promote it into a high-priority directive so the model
+            // doesn't bury it among the JSON examples and re-emit the
+            // same incomplete plan. Gating on goal text prevents the
+            // cascade where the LLM evaluator hallucinated a missing
+            // write-side skill on a read-only goal ("Find a free yoga
+            // class") — without the gate the directive forces the next
+            // iteration to wedge in add-calendar-event, blowing through
+            // the per-turn timeout.
+            let knownSkillNames = Set(skills.map { $0.name.lowercased() })
+            let missingSkills = evaluation.missingItems
+                .map { $0.lowercased().trimmingCharacters(in: .whitespacesAndNewlines) }
+                .filter { knownSkillNames.contains($0) }
+            let goalHasWriteIntent = SelfEvaluator.hasWriteIntent(
+                goal: priorPlan.goal,
+                criteria: priorPlan.successCriteria)
+            if !missingSkills.isEmpty && goalHasWriteIntent {
+                let list = missingSkills.joined(separator: ", ")
+                sections.append("")
+                sections.append("🚨 REQUIRED SKILL: your previous plan did NOT call \(list). Your new plan's `steps` array MUST include at least one step with skillName=\(missingSkills[0]). Read-only steps alone are NOT sufficient — you must emit the action step explicitly in JSON.")
+            }
         }
         if !evaluation.failedCriteria.isEmpty {
             sections.append("Failed criteria: " + evaluation.failedCriteria.joined(separator: "; "))
@@ -259,10 +281,12 @@ public struct Planner {
         // models grabbed it for "tomorrow" tasks, off-by-one. Trimmed
         // back to the four values the planner actually needs.
         _ = inTwoDays
+        let year = String(today.prefix(4))
         return """
         DATE CONTEXT (substitute these EXACT values into toolArgs):
         TODAY = \(today)
         TOMORROW = \(tomorrow)
+        CURRENT_YEAR = \(year)
         ONE_WEEK_FROM_NOW = \(inOneWeek)
         TWO_WEEKS_FROM_NOW = \(inTwoWeeks)
 
@@ -272,6 +296,7 @@ public struct Planner {
         DO NOT write the literal words "today", "tomorrow", "next week".
         DO NOT use placeholder years like 2024 or 2025 — only the values above.
         DO NOT use 12-hour times like "2pm" — convert to 24-hour ("14:00").
+        When the user says "this year" (e.g. "Christmas this year"), use CURRENT_YEAR (\(year)). Recurring holidays repeat annually — "Christmas Day this year" is \(year)-12-25, NOT a prior year.
         """
     }
 
@@ -337,7 +362,48 @@ public struct Planner {
 
         MULTI-TURN CONTINUATION: if a recent-conversation history is shown above AND the new user request is a bare detail (time/date/location/name) without its own verb, treat it as supplying missing info for the most recent prior request — re-emit the SAME skill the assistant used last turn (set-reminder stays set-reminder, calendar stays calendar — do NOT switch skills) with the new detail merged into its toolArgs. Pass bare time/date strings (e.g. "Tomorrow at 5pm") into the skill's natural-language arg (set-reminder's `dueWhen`, calendar/add-calendar-event's `whenText`). When the new request contains a pronoun ("that", "it", "them", "there"), resolve it from the most recent prior-turn entity and inline that entity into your toolArgs — never ask the user to clarify what the pronoun means.
 
-        FIND-SLOT-AND-ADD: when the user says "find a free slot and add X" or "schedule X in a free time", emit TWO steps — (s1) calendar action=read to surface gaps, then (s2) calendar action=add with `whenText` set to a start time picked from s1's "FREE MORNING SLOTS" output. Do NOT stop after the read — the read is informational; the add is the action.
+        Multi-turn continuation example — Turn 1 used set-reminder, Turn 2 says "Next Friday at 5pm." (bare time detail). Continue with set-reminder, NOT calendar/add-calendar-event:
+        {
+          "goal": "Update the chocolate-milk reminder with a due time",
+          "steps": [
+            {"id": "s1", "description": "Update the existing reminder with the user-supplied time.", "skillName": "set-reminder", "toolArgs": {"title": "buy chocolate milk", "dueWhen": "Next Friday at 5pm"}, "dependsOn": []}
+          ],
+          "successCriteria": ["Reminder is set with the correct time."]
+        }
+
+        Pronoun resolution example — Turn 1's assistant said the answer "the Golden Gate Bridge", Turn 2 user says "How far is that from where I am right now?" The pronoun "that" MUST be resolved to "the Golden Gate Bridge" — INLINE the entity into toolArgs. NEVER plan an "ask the user what 'that' means" step:
+        {
+          "goal": "Compute distance from the user's current location to the Golden Gate Bridge",
+          "steps": [
+            {"id": "s1", "description": "Get distance from the user's location to the Golden Gate Bridge.", "skillName": "directions", "toolArgs": {"to": "Golden Gate Bridge", "mode": "driving"}, "dependsOn": []}
+          ],
+          "successCriteria": ["Reply states the distance in miles or km."]
+        }
+
+        Pronoun + arithmetic example — Turn 1 said "Christmas Day this year is 2026-12-25.", Turn 2 says "How many days from today is that?" Resolve "that" to "2026-12-25". The math is small — emit a single LLM-only step, no calendar/wikipedia read needed:
+        {
+          "goal": "Compute days from today to 2026-12-25",
+          "steps": [
+            {"id": "s1", "description": "Compute the day delta between TODAY and 2026-12-25.", "skillName": null, "toolArgs": {"instruction": "How many days from TODAY (use DATE CONTEXT above) until 2026-12-25? Return just the number followed by 'days'."}, "dependsOn": []}
+          ],
+          "successCriteria": ["Reply states the number of days."]
+        }
+
+        FIND-SLOT-AND-ADD: triggers ONLY when the user explicitly mentions "calendar", "schedule", or "slot in my day" combined with an action ("add", "schedule", "book"). Phrases like "find a free yoga class" or "find a yoga class" are PUBLIC-WEB searches (use search-web + fetch-web-content), not calendar reads — "free" here means "no-cost / drop-in", not "open time slot". Use this pattern only for calendar-side slot-fitting:
+        - User: "find a free 30-minute slot and add coffee with Sam" → calendar read + add-calendar-event
+        - User: "find a free yoga class this Saturday" → search-web + fetch-web-content (do NOT use calendar)
+
+        When FIND-SLOT-AND-ADD applies, emit TWO steps — (s1) calendar action=read to surface gaps, then (s2) add-calendar-event (or calendar action=add) with `whenText` set to a start time picked from s1's "FREE MORNING SLOTS" output. Do NOT stop after the read — the read is informational; the add is the action.
+
+        Find-slot-and-add example — user says "Find a free 30-minute slot before noon and add 'coffee with Sam' there." Emit BOTH steps; do NOT skip the add:
+        {
+          "goal": "Find a 30-minute free slot before noon and add 'coffee with Sam'",
+          "steps": [
+            {"id": "s1", "description": "Read the calendar to find free morning slots.", "skillName": "calendar", "toolArgs": {"action": "read", "days": "1"}, "dependsOn": []},
+            {"id": "s2", "description": "Add the coffee event in the first free slot before noon.", "skillName": "add-calendar-event", "toolArgs": {"title": "coffee with Sam", "whenText": "tomorrow morning in the first free slot before noon", "durationMin": "30"}, "dependsOn": ["s1"]}
+          ],
+          "successCriteria": ["Coffee event is added in a free slot before noon."]
+        }
 
         User request: \(userMessage)
         """

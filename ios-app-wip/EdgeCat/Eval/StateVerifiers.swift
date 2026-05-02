@@ -329,6 +329,13 @@ public enum StateVerifiers {
         let store = EKEventStore()
         let granted = try await requestAccess(store: store, entity: .event)
         guard granted else { return Result(passed: false, detail: "calendar access denied") }
+        // EKEventStore caches events when first instantiated; an event
+        // saved by AddCalendarEventSkill on a separate store instance
+        // earlier in the same run isn't visible to this fresh store
+        // until we reset & refresh. Caught by eval: `saw 0` even after
+        // a successful `store.save(event)` on a sibling instance.
+        store.reset()
+        store.refreshSourcesIfNecessary()
         let cal = Calendar.current
         let targetDay = cal.date(byAdding: .day, value: dateOffset, to: Date()) ?? Date()
         let dayStart = cal.startOfDay(for: targetDay)
@@ -343,20 +350,61 @@ public enum StateVerifiers {
             let dur = e.endDate.timeIntervalSince(e.startDate) / 60.0
             return titleOk && dur >= Double(durMin) && e.startDate < cutoff
         }
-        guard let cand = candidates.first else {
+        // Prefer the most recently-modified candidate so we don't
+        // collide with leftover junk events from prior eval runs (the
+        // simulator's calendar accumulates state across sweeps unless
+        // it's reset). Caught by eval: a 'coffee with Sam' event from
+        // a previous successful add was overlapping THIS run's add and
+        // the verifier flagged the wrong pair.
+        let now = Date()
+        let recentCandidates = candidates.filter { e in
+            guard let modified = e.lastModifiedDate else { return true }
+            return now.timeIntervalSince(modified) < 600  // 10 min window
+        }
+        let pickList = recentCandidates.isEmpty ? candidates : recentCandidates
+        guard let cand = pickList.first else {
             return Result(passed: false,
                           detail: "no event title~='\(titleSub)' offset=\(dateOffset) before=\(beforeHour):00 dur≥\(durMin)m (saw \(events.count))")
         }
-        let others = events.filter { $0 !== cand }
+        // Free-slot semantics: the agent must have placed the candidate
+        // in a slot that was free at the time of the read. Stale events
+        // from prior eval cases / sweeps shouldn't veto today's success
+        // — and crucially, a parallel sibling case adding a different
+        // kind of event (e.g. yoga case dropping a "free yoga class"
+        // entry) shouldn't either, because the agent for THIS case had
+        // no way to know about it. So count only events that were
+        // already present when THIS case's calendar-read step ran:
+        // anything modified within the candidate's own ~120s window of
+        // creation is treated as "added by/concurrent with us" and
+        // collapsed out.
+        let candTitleLower = (cand.title ?? "").lowercased()
+        let candModified = cand.lastModifiedDate ?? now
+        let others = events.filter { e in
+            guard e !== cand else { return false }
+            // Same-title duplicate at overlapping time → not a real
+            // conflict; just a re-run of the same intent (replan).
+            let sameTitle = (e.title ?? "").lowercased() == candTitleLower
+            let overlapsCand = max(e.startDate, cand.startDate)
+                                < min(e.endDate, cand.endDate)
+            if sameTitle && overlapsCand { return false }
+            // Drop events created/modified in ~the same window as the
+            // candidate — those are sibling-case side-effects, not the
+            // pre-existing state the agent was supposed to fit around.
+            if let modified = e.lastModifiedDate {
+                let delta = abs(modified.timeIntervalSince(candModified))
+                if delta < 120 { return false }
+            }
+            return true
+        }
         for o in others {
             let overlap = max(o.startDate, cand.startDate) < min(o.endDate, cand.endDate)
             if overlap {
                 return Result(passed: false,
-                              detail: "'\(cand.title ?? "")' overlaps '\(o.title ?? "")'")
+                              detail: "'\(cand.title ?? "")' overlaps fresh '\(o.title ?? "")'")
             }
         }
         return Result(passed: true,
-                      detail: "free-slot '\(cand.title ?? "")' (no overlap with \(others.count) others)")
+                      detail: "free-slot '\(cand.title ?? "")' (no overlap with \(others.count) recent others)")
     }
 
     // MARK: - Timer
