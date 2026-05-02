@@ -405,6 +405,18 @@ public struct Planner {
           "successCriteria": ["Coffee event is added in a free slot before noon."]
         }
 
+        READ-ONLY REQUESTS: when the user's request is purely informational ("find …", "what is …", "where is …", "when is …", "how many …", "tell me …", "show me …", "list …"), your plan MUST contain ONLY information-retrieval skills (search-web, fetch-web-content, calendar with action=read, query-wikipedia, get-location, directions, read-health, etc.). Do NOT include write-side skills (add-calendar-event, set-reminder, send-sms, send-email, share-content, set-alarm, calendar with action=add, clipboard with action=write, etc.) — the user has not asked you to act yet. They will follow up in a later turn if they want to act on the result.
+
+        Read-only example — user says "Find a free yoga class in Palo Alto this Saturday morning." Search-only, NO calendar add or reminder:
+        {
+          "goal": "Find a free yoga class in Palo Alto this Saturday morning",
+          "steps": [
+            {"id": "s1", "description": "Search the web for free yoga classes in Palo Alto on Saturday morning.", "skillName": "search-web", "toolArgs": {"query": "free yoga class Palo Alto Saturday morning"}, "dependsOn": []},
+            {"id": "s2", "description": "Fetch the top result's page for class details.", "skillName": "fetch-web-content", "toolArgs": {"url": "Output from s1"}, "dependsOn": ["s1"]}
+          ],
+          "successCriteria": ["Reply names at least one free yoga class with time."]
+        }
+
         User request: \(userMessage)
         """
     }

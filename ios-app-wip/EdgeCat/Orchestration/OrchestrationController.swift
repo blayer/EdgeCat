@@ -196,7 +196,7 @@ public final class OrchestrationController {
             state.iteration += 1
         }
 
-        guard let finalPlan = plan else {
+        guard var finalPlan = plan else {
             state.status = .error
             state.error = "No plan produced"
             throw OrchestrationError.noPlan
@@ -217,8 +217,24 @@ public final class OrchestrationController {
            let injected = await injectMissingWriteStepIfNeeded(
             evaluation: priorEval,
             plan: finalPlan,
-            userMessage: userMessage) {
+            userMessage: userMessage,
+            conversationContext: conversationContext) {
             results[injected.stepId] = injected.result
+            // Append the synthetic step to plan.steps so the formatter
+            // (which enumerates plan.steps) actually surfaces the
+            // injected result rather than echoing the prior compose
+            // step's "what would you like to add?" clarification.
+            let injectedStep = PlanStep(
+                id: injected.stepId,
+                description: "Inject missing \(injected.skillName) action",
+                skillName: injected.skillName,
+                toolArgs: [:],
+                dependsOn: [])
+            finalPlan = ExecutionPlan(
+                goal: finalPlan.goal,
+                reasoning: finalPlan.reasoning,
+                steps: finalPlan.steps + [injectedStep],
+                successCriteria: finalPlan.successCriteria)
         }
 
         // Format
@@ -281,6 +297,7 @@ extension OrchestrationController {
     /// Result wrapper for the injected step.
     struct InjectedStep {
         let stepId: String
+        let skillName: String
         let result: StepResult
     }
 
@@ -295,6 +312,7 @@ extension OrchestrationController {
         evaluation: EvaluationResult,
         plan: ExecutionPlan,
         userMessage: String,
+        conversationContext: String,
     ) async -> InjectedStep? {
         // Only inject for the write-side skills we know how to construct
         // args for — anything else risks calling a skill with garbage.
@@ -311,20 +329,26 @@ extension OrchestrationController {
         guard let skillName = candidate else { return nil }
 
         // Symmetric gate with the planner's replan REQUIRED-SKILL
-        // directive: only inject when the goal actually has write-
-        // intent. Without this, an LLM evaluator that hallucinates
-        // `missingItems: [add-calendar-event]` on a read-only goal
-        // (e.g. "Find a free yoga class") triggers a stray write that
+        // directive: only inject when the user's request OR the
+        // planner's goal has write-intent. Checking both because the
+        // planner sometimes paraphrases "Add it to my calendar" into
+        // "Provide details for the user to add the event" which
+        // strips the verb and would skip injection. Without this gate
+        // an LLM evaluator that hallucinates `missingItems:
+        // [add-calendar-event]` on a truly read-only goal ("Find a
+        // free yoga class") would trigger a stray write that
         // pollutes the simulator's calendar across cases.
-        guard SelfEvaluator.hasWriteIntent(goal: plan.goal,
-                                            criteria: plan.successCriteria) else {
-            return nil
-        }
+        let writeIntent = SelfEvaluator.hasWriteIntent(
+            goal: plan.goal, criteria: plan.successCriteria)
+            || SelfEvaluator.hasWriteIntent(
+                goal: userMessage, criteria: [])
+        guard writeIntent else { return nil }
 
         let args = Self.injectorArgs(
             forSkill: skillName,
             userMessage: userMessage,
-            goal: plan.goal)
+            goal: plan.goal,
+            conversationContext: conversationContext)
         guard !args.isEmpty else { return nil }
         // Reject obvious junk titles ("an unspecified item to the user's
         // calendar" — derived from a hallucinated goal). The agent's
@@ -360,7 +384,7 @@ extension OrchestrationController {
             status: status,
             output: result.output ?? "",
             error: result.error)
-        return InjectedStep(stepId: stepId, result: stepResult)
+        return InjectedStep(stepId: stepId, skillName: skillName, result: stepResult)
     }
 
     /// Heuristic arg extractor for the small set of injectable skills.
@@ -372,13 +396,24 @@ extension OrchestrationController {
         forSkill skill: String,
         userMessage: String,
         goal: String,
+        conversationContext: String = "",
     ) -> [String: String] {
         let combined = userMessage + " " + goal
+        // Title resolution priority:
+        //  1. Quoted phrase in the current user message ("'coffee with Sam'")
+        //  2. Quoted phrase in the planner's goal text
+        //  3. Quoted/Title-shaped phrase in the most recent prior-turn
+        //     assistant message — needed when the user uses a pronoun
+        //     ("Remind me one hour before it starts") and the entity
+        //     was established earlier in the conversation.
+        //  4. Strip the action-verb prefix from the goal as a last resort.
         let title = extractQuotedTitle(from: userMessage)
             ?? extractQuotedTitle(from: goal)
+            ?? extractEntityFromConversation(conversationContext)
             ?? defaultTitleFromGoal(goal, skill: skill)
         guard !title.isEmpty else { return [:] }
-        let whenText = extractTemporalHint(from: combined) ?? "tomorrow morning"
+        let whenText = extractTemporalHint(
+            from: combined + " " + conversationContext) ?? "tomorrow morning"
         // Derive a concrete startIso anchor as a fallback for cases where
         // NSDataDetector can't parse the bare phrase. The skill prefers
         // startIso when present so this just makes the call robust to
@@ -476,6 +511,83 @@ extension OrchestrationController {
                 range: NSRange(text.startIndex..<text.endIndex, in: text)),
                let inner = Range(m.range(at: 1), in: text) {
                 return String(text[inner])
+            }
+        }
+        return nil
+    }
+
+    /// When the current request uses a pronoun ("Add IT to my calendar",
+    /// "Remind me one hour before IT starts"), the title needs to come
+    /// from the most recent prior-turn assistant text. Looks for, in
+    /// order: a `Title: X` field (the formatter emits this for
+    /// add-calendar-event success envelopes), a quoted phrase, or the
+    /// first capitalized noun phrase. Returns nil when nothing matches.
+    static func extractEntityFromConversation(_ context: String) -> String? {
+        let trimmed = context.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return nil }
+        // Walk assistant blocks newest-to-oldest so the most recent
+        // entity wins, but fall back to earlier turns (e.g. yoga case
+        // turn 3: latest assistant is a clarification ask, but turn 1
+        // established "Yoga for Harmony & Peace" — that's the binding).
+        let assistantBlocks = trimmed.components(separatedBy: "Assistant:")
+            .dropFirst()                        // drop the "User:" prefix
+            .map { $0.components(separatedBy: "User:").first ?? $0 }
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+        for block in assistantBlocks.reversed() {
+            if let entity = entityCandidates(in: block) { return entity }
+        }
+        return nil
+    }
+
+    /// Pull an entity-shaped substring out of one assistant text block.
+    /// Tries, in order: a `Title: X` field (formatter-emitted),
+    /// quoted-phrase, then a 1–4-word TitleCase noun phrase. Filters
+    /// out single-word lead-ins ("To", "The") and stopwords.
+    static func entityCandidates(in text: String) -> String? {
+        if let r = try? NSRegularExpression(
+            pattern: #"Title:\s*([^,\n]{2,60})"#, options: .caseInsensitive),
+           let m = r.firstMatch(
+            in: text,
+            range: NSRange(text.startIndex..<text.endIndex, in: text)),
+           let inner = Range(m.range(at: 1), in: text) {
+            return String(text[inner]).trimmingCharacters(in: .whitespaces)
+        }
+        if let q = extractQuotedTitle(from: text) { return q }
+        // Prefer multi-word TitleCase phrases (more specific) over
+        // single-word matches; both are TitleCase but a single word
+        // alone is often a sentence start ("Yoga is a practice…")
+        // rather than a named entity.
+        let stop: Set<String> = [
+            "the", "this", "that", "you", "we", "today",
+            "tomorrow", "yesterday", "user", "assistant", "no",
+            "yes", "ok", "sure", "to", "for", "and", "or",
+            "i", "in", "on", "at", "by", "of", "an", "a",
+        ]
+        if let multi = try? NSRegularExpression(
+            pattern: #"\b([A-Z][a-z]+(?:\s+(?:&\s+)?[A-Z][a-z]+){1,4})\b"#) {
+            let nsr = NSRange(text.startIndex..<text.endIndex, in: text)
+            for m in multi.matches(in: text, range: nsr) {
+                guard let inner = Range(m.range(at: 1), in: text)
+                else { continue }
+                let candidate = String(text[inner])
+                if !stop.contains(candidate.lowercased()),
+                   candidate.count >= 4 {
+                    return candidate
+                }
+            }
+        }
+        // Single-word fallback: pick a non-stopword TitleCase noun.
+        if let single = try? NSRegularExpression(
+            pattern: #"\b([A-Z][a-z]{2,})\b"#) {
+            let nsr = NSRange(text.startIndex..<text.endIndex, in: text)
+            for m in single.matches(in: text, range: nsr) {
+                guard let inner = Range(m.range(at: 1), in: text)
+                else { continue }
+                let candidate = String(text[inner])
+                if !stop.contains(candidate.lowercased()) {
+                    return candidate
+                }
             }
         }
         return nil
