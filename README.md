@@ -1,8 +1,22 @@
+<p align="center">
+  <img src="docs/icon.png" alt="EdgeCat" width="160" height="160">
+</p>
+
 # EdgeCat
 
-**Agentic orchestration for on-device LLMs.** Turn a 2B/4B chat model into a task-executing assistant that plans, calls device skills, recovers from failure, and answers in natural language — all offline, on Android.
+**Agentic orchestration for on-device LLMs.** Turn a 2B/4B chat model into a task-executing assistant that plans, calls device skills, recovers from failure, and answers in natural language — all offline, on **Android and iOS**.
 
 > Built on top of [Google AI Edge Gallery](https://github.com/google-ai-edge/gallery). EdgeCat is an extension focused on **expanding the skill system and layering agentic orchestration** (planner → executor → evaluator) around the same on-device runtime. All credit for the underlying model-hosting app, UI shell, and LiteRT-LM integration goes to the AI Edge Gallery team.
+
+## Status (2026-05-01)
+
+- **iOS / Android parity.** The Android orchestration stack (Planner, ExecutionOrchestrator, SelfEvaluator, ResponseFormatter, ThinkingPolicy, SkillCreator) is fully ported to iOS under `ios-app-wip/EdgeCat/Orchestration/`, including the eval harness and ~28 native skills (calendar, health, directions, PDFs, etc.). Android remains the primary platform; iOS is feature-complete on orchestration and tracking the same prompts.
+- **Multi-turn robustness.** Planner now carries explicit pronoun-resolution and continuation rules; per-turn latency and token telemetry recorded by the eval harness; calendar.read surfaces free morning slots; multi-turn evaluation runs against four state verifiers.
+- **Thinking Mode toggle.** `enable_thinking` is wired end-to-end into LiteRT-LM via extra_context. Default is **off** to preserve baseline latency; planner stays on, evaluator/formatter/LLM-step stay off (see [ThinkingPolicy](#thinking-policy-orchestrationthinkingpolicykt)).
+- **Planner hardening.** JSON repair for small-model malformations, regex fallback for ambiguous inputs, dependency chaining for Q&A flows (`search-web → fetch-web-content`), and goal-keyword rescue for empty/placeholder args.
+- **Skill tuning.** Calculator removed (hallucination surface); calendar/reminder skills now accept natural-language dates; descriptions sharpened to reduce mis-routing.
+
+Active focus: multi-turn quality, planner prompt tuning, evaluator grounding. No major architectural changes pending.
 
 ## Download
 
@@ -170,23 +184,34 @@ The planner reads `description` for catalog listings and `instructions` when the
 ## Directory layout
 
 ```
-app/src/main/java/com/edgecat/app/
-├── orchestration/                    ← this module
-│   ├── OrchestrationController.kt    ← plan→execute→evaluate loop
-│   ├── Planner.kt                    ← NL → JSON plan
-│   ├── ExecutionOrchestrator.kt      ← DAG execution, parallel batches
-│   ├── SelfEvaluator.kt              ← rubric + evidence grounding
-│   ├── ResponseFormatter.kt          ← raw output → chat reply
-│   ├── ThinkingPolicy.kt             ← per-call-site CoT routing
-│   ├── SkillCreator.kt               ← save-as-skill + auto-repair
-│   └── OrchestrationTypes.kt         ← ExecutionPlan, PlanStep, ...
-├── customtasks/agentchat/
-│   ├── DeviceSkills.kt               ← native device features
-│   ├── OrchestrationBridge.kt        ← app ↔ orchestration glue
-│   └── AgentChatTaskModule.kt        ← system prompt, model init
-└── memory/                           ← episodic memory
-app/src/main/assets/skills/           ← packaged SKILL.md + JS
-android-app/test/                     ← on-device test harness
+android-app/
+├── app/src/main/java/com/edgecat/app/
+│   ├── orchestration/                    ← plan→execute→evaluate loop
+│   │   ├── OrchestrationController.kt
+│   │   ├── Planner.kt                    ← NL → JSON plan
+│   │   ├── ExecutionOrchestrator.kt      ← DAG execution, parallel batches
+│   │   ├── SelfEvaluator.kt              ← rubric + evidence grounding
+│   │   ├── ResponseFormatter.kt          ← raw output → chat reply
+│   │   ├── ThinkingPolicy.kt             ← per-call-site CoT routing
+│   │   ├── SkillCreator.kt               ← save-as-skill + auto-repair
+│   │   └── OrchestrationTypes.kt
+│   ├── customtasks/agentchat/
+│   │   ├── DeviceSkills.kt               ← native device features
+│   │   ├── OrchestrationBridge.kt        ← app ↔ orchestration glue
+│   │   └── AgentChatTaskModule.kt        ← system prompt, model init
+│   └── memory/                           ← episodic memory
+├── app/src/main/assets/skills/           ← packaged SKILL.md + JS
+└── test/                                 ← on-device test harness
+
+ios-app-wip/EdgeCat/                  ← iOS port (parity with Android)
+├── Orchestration/                    ← Planner, ExecutionOrchestrator, SelfEvaluator, ...
+├── Skills/                           ← native iOS skill implementations
+├── Eval/                             ← eval harness
+├── Memory/                           ← episodic memory
+├── Runtime/                          ← LiteRT-LM bridge
+└── UI/                               ← chat, model manager, conversation history
+
+docs/                                 ← project assets (icon, learnings)
 ```
 
 ## Running on-device tests
@@ -198,3 +223,7 @@ cd android-app/test
 ```
 
 Each scenario validates plan creation, execution, and final-answer pattern on a connected Android device. Screenshots land in `android-app/test/screenshots/`.
+
+## License
+
+EdgeCat is released under the [Apache License, Version 2.0](LICENSE) — the same license as the upstream [Google AI Edge Gallery](https://github.com/google-ai-edge/gallery). Existing Apache 2.0 headers in ported source files are preserved verbatim.
