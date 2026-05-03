@@ -430,6 +430,24 @@ def score_task(
     if enforce_latency_budget and tsr == 1.0 and not latency_ok:
         tsr = 0.0
 
+    # Multi-turn bookkeeping (mirrors iOS): count turn-complete spans so
+    # the run-log header can show `turns N/M` and short-circuit
+    # incomplete multi-turn runs to TSR=0 (a partial run can't be a pass
+    # even if a state verifier happens to match prior state).
+    turns_total = len(task.get("turns") or []) or 1
+    spans = trace.get("spans") or []
+    turn_complete_spans = [
+        s for s in spans
+        if s.get("kind") == "eval" and s.get("name") == "turn-complete"
+    ]
+    turns_completed = len(turn_complete_spans)
+    per_turn_status = [
+        (s.get("attrs") or {}).get("status", "unknown")
+        for s in turn_complete_spans
+    ]
+    if turns_total > 1 and turns_completed < turns_total:
+        tsr = 0.0
+
     result.update({
         "tsr": tsr,
         "scores": {
@@ -465,6 +483,9 @@ def score_task(
         },
         "iteration": (trace.get("run") or {}).get("iteration", 0),
         "final_status": (trace.get("run") or {}).get("final_status"),
+        "turns_total": turns_total,
+        "turns_completed": turns_completed,
+        "per_turn_status": per_turn_status,
     })
     return result
 
@@ -640,20 +661,22 @@ def render_report_md(run_label: str, summary: dict[str, Any], rows: list[dict[st
 
 def render_run_log(label: str, dataset: str,
                    summary: dict[str, Any], rows: list[dict[str, Any]],
-                   traces_dir: Path) -> str:
+                   traces_dir: Path, model: str | None = None) -> str:
     """Per-run human-readable log: for each task, walk the trace and
     emit each turn's user prompt, plan reasoning, step execution, and
     assistant response as labeled Markdown sections. Pairs with
     `report.md` (high-level summary) — this is the deep view a person
     reads when they want to see *what the agent actually did*.
 
-    Mirrors the iOS run-log renderer (`ios-app-wip/test/eval/run.py`)
-    so the off-device output is identical across platforms; the trace
-    JSONL shape is shared, so the same parser works on both."""
+    Mirrors `ios-app-wip/test/eval/run.py:render_run_log` byte-for-byte
+    on the formatting side so cross-platform diffs read directly. The
+    trace JSONL shape is shared, so the same parser works on both."""
     out: list[str] = []
     out.append(f"# Eval Run — {label}")
     out.append("")
     out.append(f"- Dataset: `{Path(dataset).name}`")
+    if model:
+        out.append(f"- Model: `{model}`")
     tsr = summary.get("tsr", 0.0)
     oqi = summary.get("oqi", 0.0)
     n_tasks = summary.get("n_tasks", len(rows))
@@ -665,11 +688,13 @@ def render_run_log(label: str, dataset: str,
         out.append("---")
         out.append("")
         tsr_pct = int(row.get("tsr", 0) * 100)
+        turns = f"{row.get('turns_completed', 0)}/{row.get('turns_total', 1)}"
         sv = row.get("state_verifier") or {}
         v_label = ("pass" if sv.get("passed") is True
                    else "fail" if sv.get("passed") is False
                    else "n/a")
-        out.append(f"## {row['task_id']} — TSR={tsr_pct}%, verifier={v_label}")
+        out.append(f"## {row['task_id']} — TSR={tsr_pct}%, "
+                   f"turns {turns}, verifier={v_label}")
         out.append("")
         trace_path = traces_dir / f"{row['task_id']}.jsonl"
         if not trace_path.exists():
@@ -683,8 +708,12 @@ def render_run_log(label: str, dataset: str,
 
 def _render_task_turns(trace_path: Path, row: dict[str, Any]) -> list[str]:
     """Walk a single task's trace JSONL and emit per-turn Markdown.
-    Falls back to a synthetic single-turn rendering for older traces
-    that predate `eval.start` / `eval.turn-response` span emission."""
+
+    Buckets every diagnostic span (planner / evaluator / formatter / step
+    / memory / orchestrator) into the turn it occurred in, so the rendered
+    log shows where each turn's wall time went — not just the total. Falls
+    back to a synthetic single-turn rendering for older traces that
+    predate `eval.start` / `eval.turn-response` span emission."""
     spans: list[dict[str, Any]] = []
     run_block: dict[str, Any] = {}
     for line in trace_path.read_text().splitlines():
@@ -699,46 +728,97 @@ def _render_task_turns(trace_path: Path, row: dict[str, Any]) -> list[str]:
             spans.append(o.get("span") or {})
         elif o.get("type") == "run":
             run_block = o.get("run") or {}
-    # Bucket spans into turns. Turn 0 is bounded by `eval.start` and
-    # the first `eval.turn-complete`; subsequent turns by `eval.turn-
-    # start` / `eval.turn-complete` pairs. Android EvalActivity is
-    # currently single-turn so only `eval.start` fires; multi-turn
-    # support can land here without changing this loop.
+    # TraceRecorder serializes spans in `.end()` order, but the bucketing
+    # loop below assumes chronological start order — `eval.start` opens
+    # the turn and contains every sub-span. Since `eval.start` only ends
+    # AFTER its children, it lands LAST in the file. Sort by `start_ms`
+    # to recover the actual chronology.
+    spans.sort(key=lambda s: s.get("start_ms") or 0)
+
+    def _empty_turn(turn_idx: int = 0, prompt: str = "") -> dict[str, Any]:
+        return {
+            "turn": turn_idx, "prompt": prompt, "status": "incomplete",
+            "response": "", "iteration": 0, "steps": [],
+            # Phase totals — populated as we encounter planner/evaluator/
+            # formatter/orchestrator/memory spans within the turn boundary.
+            "phase_ms": {},
+        }
+
     turns: list[dict[str, Any]] = []
     current: dict[str, Any] | None = None
     for s in spans:
         attrs = s.get("attrs") or {}
         kind, name = s.get("kind"), s.get("name")
+        dur = int(s.get("duration_ms") or 0)
         if kind == "eval" and name in ("start", "turn-start"):
             if current is not None:
                 turns.append(current)
-            current = {
-                "turn": int(attrs.get("turn") or 0),
-                "prompt": attrs.get("prompt") or "",
-                "steps": [],
-                "response": "",
-                "status": "incomplete",
-                "iteration": 0,
-            }
+            current = _empty_turn(int(attrs.get("turn") or 0),
+                                  attrs.get("prompt") or "")
         elif current is None:
             continue
+        elif kind == "step":
+            # Android emits step spans as RUNNING + COMPLETED/FAILED pairs.
+            # We only keep the terminal one — its `attrs.duration_ms` is
+            # the actual step wall-time (the outer span's duration_ms is
+            # always 0 because these are marker events, not wrapped phases).
+            # `attrs.skill` carries the step id, not the skill name; we look
+            # the real skill up from the plan's steps[] later.
+            attr_status = (attrs.get("status") or "").upper()
+            if attr_status in ("RUNNING",):
+                continue  # opening marker — wait for the closing one
+            step_dur = int(attrs.get("duration_ms") or 0)
+            ok = attr_status == "COMPLETED"
+            entry = {
+                "id": name, "skill": "", "tool": "",
+                "ok": ok, "duration_ms": step_dur,
+                "raw_status": attr_status or s.get("status") or "",
+            }
+            # Replans on Android reuse step ids (the new plan reads step_1
+            # again with a different skill) — keep the LATEST entry per id
+            # so each row in the rendered log matches one actual execution.
+            existing = next((i for i, e in enumerate(current["steps"])
+                             if e["id"] == name), None)
+            if existing is None:
+                current["steps"].append(entry)
+            else:
+                current["steps"][existing] = entry
         elif kind == "step.start":
+            # Paired-span shape (legacy / iOS-style). Kept for forward
+            # compatibility if EvalActivity ever switches to start/end pairs.
             current["steps"].append({
                 "id": name, "skill": attrs.get("skill") or "(llm-only)",
-                "ok": None, "tool": None,
+                "ok": None, "tool": None, "duration_ms": 0,
             })
         elif kind == "step.end" and current["steps"]:
             last = current["steps"][-1]
             last["ok"] = attrs.get("ok") == "1"
             last["tool"] = attrs.get("tool") or last["skill"]
+        elif kind in ("planner", "evaluator", "formatter",
+                      "orchestrator", "memory"):
+            # Sum phase wall-time so the turn header can show where the
+            # latency went (planner X.Ys, evaluator Y.Zs, ...).
+            current["phase_ms"][kind] = current["phase_ms"].get(kind, 0) + dur
+            # Track replans and triage outcome on the turn so the user
+            # can see iteration count + judge verdict at a glance.
+            if kind == "evaluator" and name and name.startswith("judge"):
+                current["iteration"] = max(
+                    current["iteration"],
+                    int(name.rsplit(".iter_", 1)[-1]) if "iter_" in name else 1,
+                )
+            if kind == "evaluator" and name == "triage":
+                current["triage_outcome"] = attrs.get("outcome") or ""
         elif kind == "eval" and name == "turn-response":
             current["response"] = attrs.get("text") or ""
-            current["iteration"] = int(attrs.get("iteration") or 0)
+            current["iteration"] = max(
+                current["iteration"], int(attrs.get("iteration") or 0))
             current["duration_ms"] = int(attrs.get("duration_ms") or 0)
             current["history_chars"] = int(attrs.get("history_chars") or 0)
             current["response_chars"] = int(attrs.get("response_chars") or 0)
-            current["approx_history_tokens"] = int(attrs.get("approx_history_tokens") or 0)
-            current["approx_response_tokens"] = int(attrs.get("approx_response_tokens") or 0)
+            current["approx_history_tokens"] = int(
+                attrs.get("approx_history_tokens") or 0)
+            current["approx_response_tokens"] = int(
+                attrs.get("approx_response_tokens") or 0)
         elif kind == "eval" and name == "turn-complete":
             current["status"] = attrs.get("status") or "ok"
             turns.append(current)
@@ -749,18 +829,28 @@ def _render_task_turns(trace_path: Path, row: dict[str, Any]) -> list[str]:
     # a single virtual turn from the run block so the renderer still produces
     # a useful log instead of "(no turn spans)".
     if not turns and run_block:
-        turns.append({
-            "turn": 0,
-            "prompt": run_block.get("user_message") or "",
-            "steps": [],
-            "response": (run_block.get("final_output") or "")[:8192],
-            "status": run_block.get("final_status") or "ok",
-            "iteration": int(run_block.get("iteration") or 0),
-        })
+        synthetic = _empty_turn(prompt=run_block.get("user_message") or "")
+        synthetic["response"] = (run_block.get("final_output") or "")[:8192]
+        synthetic["status"] = run_block.get("final_status") or "ok"
+        synthetic["iteration"] = int(run_block.get("iteration") or 0)
+        turns.append(synthetic)
     # Backfill empty turn-response from run summary (predates the new attrs).
     if turns and not turns[-1]["response"]:
         turns[-1]["response"] = (run_block.get("final_output") or "")[:8192]
+
     plan_block = run_block.get("plan") or {}
+    # Map step_id → skill_name from the (latest) plan, so step rows can
+    # show the actual skill (e.g. "search-web") instead of just the id.
+    # Android's `kind=step` spans carry attrs.skill = step_id (not the
+    # skill name), so this lookup is the only reliable source — used
+    # only on the LAST turn since `run.plan` is overwritten per
+    # controller.run() call (mid-run plans aren't recoverable here).
+    skill_by_id: dict[str, str] = {}
+    for ps in plan_block.get("steps") or []:
+        sid = ps.get("id") or ""
+        sn = ps.get("skill_name") or ps.get("tool_name") or ""
+        if sid:
+            skill_by_id[sid] = sn or "(llm-only)"
     out: list[str] = []
     for t in turns:
         out.append(f"### Turn {t['turn'] + 1} — {t['status']}")
@@ -792,8 +882,14 @@ def _render_task_turns(trace_path: Path, row: dict[str, Any]) -> list[str]:
             out.append("**Steps:**")
             for st in t["steps"]:
                 tick = "ok" if st["ok"] is True else ("err" if st["ok"] is False else "?")
-                line = f"- {st['id']} [{tick}] {st['skill']}"
-                if st["tool"] and st["tool"] != st["skill"]:
+                # Skill name: prefer last-turn plan lookup, then anything
+                # the span captured (paired step.start traces carry
+                # attrs.skill), else "(llm-only)" to match iOS's blank-
+                # skill rendering.
+                skill = (skill_by_id.get(st["id"]) if is_last else "") \
+                    or st.get("skill") or "(llm-only)"
+                line = f"- {st['id']} [{tick}] {skill}"
+                if st.get("tool") and st["tool"] != skill:
                     line += f" → {st['tool']}"
                 out.append(line)
             out.append("")
@@ -983,15 +1079,46 @@ def main() -> int:
     }
     (out_dir / "results.json").write_text(json.dumps(results, indent=2))
     (out_dir / "report.md").write_text(render_report_md(f"{label} @ {ts}", summary, rows))
-    (out_dir / "run_log.md").write_text(
-        render_run_log(
-            label=f"{label} @ {ts}",
-            dataset=str(dataset_path),
-            summary=summary,
-            rows=rows,
-            traces_dir=out_dir / "traces",
-        )
+    # Read the model name from the first row's trace extras (every task
+    # records it under run.extras.model_name). All tasks in a run share
+    # one model, so the first one is representative.
+    model_name = ""
+    for row in rows:
+        tp = out_dir / "traces" / f"{row['task_id']}.jsonl"
+        if not tp.exists():
+            continue
+        try:
+            for line in tp.read_text().splitlines():
+                if not line.strip():
+                    continue
+                obj = json.loads(line)
+                if obj.get("type") == "run":
+                    model_name = ((obj.get("run") or {}).get("extras") or {}
+                                   ).get("model_name") or ""
+                    break
+        except (OSError, json.JSONDecodeError):
+            continue
+        if model_name:
+            break
+    log_text = render_run_log(
+        label=f"{label} @ {ts}",
+        dataset=str(dataset_path),
+        summary=summary,
+        rows=rows,
+        traces_dir=out_dir / "traces",
+        model=model_name or None,
     )
+    (out_dir / "run_log.md").write_text(log_text)
+    # Mirror iOS: ALSO drop a copy in `test/eval/logs/<ts>_<label>.md`
+    # so successive runs leave a flat archive that's easy to scan
+    # without diving into the per-run dirs. Gitignored.
+    logs_dir = ROOT / "logs"
+    logs_dir.mkdir(parents=True, exist_ok=True)
+    log_filename = f"{ts}_{label}.md"
+    try:
+        (logs_dir / log_filename).write_text(log_text)
+    except OSError as exc:
+        print(f"[runner] (run-log archive write failed: {exc})")
     partial = out_dir / "results.partial.json"
     if partial.exists():
         partial.unlink()

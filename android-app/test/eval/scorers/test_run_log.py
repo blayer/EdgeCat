@@ -12,8 +12,9 @@ from pathlib import Path
 import pytest
 
 import sys
-ROOT = Path(__file__).resolve().parent
-sys.path.insert(0, str(ROOT))
+# This file lives in test/eval/scorers/ — add the parent (test/eval/) to
+# sys.path so `import run` resolves to test/eval/run.py.
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from run import render_run_log, _render_task_turns  # noqa: E402
 
 
@@ -60,13 +61,17 @@ def test_render_run_log_emits_per_turn_metrics(tmp_path: Path) -> None:
             }},
         ],
     )
-    rows = [{"task_id": "task-001", "tsr": 1.0, "state_verifier": {"passed": True}}]
+    rows = [{"task_id": "task-001", "tsr": 1.0,
+             "turns_total": 1, "turns_completed": 1,
+             "state_verifier": {"passed": True}}]
     log = render_run_log(
         label="test", dataset="datasets/x.jsonl",
         summary={"tsr": 1.0, "oqi": 0.95, "n_tasks": 1},
-        rows=rows, traces_dir=traces,
+        rows=rows, traces_dir=traces, model="gemma-4-E2B-it",
     )
-    assert "task-001 — TSR=100%, verifier=pass" in log
+    # iOS-aligned header: includes turns N/M and a Model line.
+    assert "- Model: `gemma-4-E2B-it`" in log
+    assert "task-001 — TSR=100%, turns 1/1, verifier=pass" in log
     assert "what is 2+2" in log
     assert "Latency: 2.5s" in log
     assert "memory in: ~2 tok (11 chars)" in log
@@ -111,13 +116,14 @@ def test_render_run_log_handles_missing_trace_file(tmp_path: Path) -> None:
     traces = tmp_path / "traces"
     traces.mkdir()
     rows = [{"task_id": "missing-001", "tsr": 0.0,
+             "turns_total": 1, "turns_completed": 0,
              "state_verifier": {"passed": False}}]
     log = render_run_log(
         label="test", dataset="datasets/x.jsonl",
         summary={"tsr": 0.0, "oqi": 0.0, "n_tasks": 1},
         rows=rows, traces_dir=traces,
     )
-    assert "missing-001 — TSR=0%, verifier=fail" in log
+    assert "missing-001 — TSR=0%, turns 0/1, verifier=fail" in log
     assert "no trace file" in log
 
 
@@ -138,6 +144,76 @@ def test_render_task_turns_buckets_steps(tmp_path: Path) -> None:
     ])
     md = "\n".join(_render_task_turns(trace, {"task_id": "t"}))
     assert "step_1 [ok] search-web" in md
+
+
+def test_render_step_skill_resolution_from_plan(tmp_path: Path) -> None:
+    """Android traces emit `kind=step` spans whose `attrs.skill` is the
+    step id, not the actual skill name. The renderer should resolve
+    skill names from `run.plan.steps[].skill_name` on the LAST turn,
+    deduping the RUNNING + COMPLETED markers into one row per step.
+    Sort-by-start_ms is required because TraceRecorder serializes
+    spans in `.end()` order — `eval.start` ends LAST."""
+    traces = tmp_path / "traces"
+    def span(kind, name, start_ms, end_ms, attrs=None, status="ok"):
+        return {"type": "span", "span": {
+            "kind": kind, "name": name,
+            "start_ms": start_ms, "end_ms": end_ms,
+            "duration_ms": end_ms - start_ms,
+            "status": status, "attrs": attrs or {},
+        }}
+    rows = [
+        # step_1 + step_2 each have RUNNING + COMPLETED markers; eval.start
+        # ends LAST (matches TraceRecorder write order).
+        span("step", "step_1", 1700, 1700, {"skill": "step_1",
+              "status": "RUNNING", "duration_ms": 0}, "error"),
+        span("step", "step_1", 2700, 2700, {"skill": "step_1",
+              "status": "COMPLETED", "duration_ms": 1000}, "ok"),
+        span("step", "step_2", 2800, 2800, {"skill": "step_2",
+              "status": "RUNNING", "duration_ms": 0}, "error"),
+        span("step", "step_2", 3300, 3300, {"skill": "step_2",
+              "status": "COMPLETED", "duration_ms": 500}, "ok"),
+        span("eval", "turn-response", 3950, 3950, {
+            "turn": "0", "text": "weather is sunny",
+            "iteration": "0", "duration_ms": "3850",
+            "history_chars": "20", "response_chars": "16",
+            "approx_history_tokens": "5", "approx_response_tokens": "4",
+        }),
+        span("eval", "turn-complete", 3960, 3960, {"turn": "0", "status": "ok"}),
+        span("eval", "start", 100, 3960, {"turn": "0", "prompt": "weather?"}),
+        {"type": "run", "run": {
+            "user_message": "weather?", "final_output": "weather is sunny",
+            "final_status": "ok", "iteration": 0,
+            "plan": {"goal": "find weather", "reasoning": "two-step",
+                      "steps": [
+                          {"id": "step_1", "skill_name": "search-web"},
+                          {"id": "step_2", "skill_name": "fetch-web-content"},
+                      ]},
+            "step_results": {"step_1": {"output": "tokyo: sunny"},
+                             "step_2": {"output": "details..."}},
+        }},
+    ]
+    _write_trace(traces / "skill-res-001.jsonl", rows)
+    log = render_run_log(
+        label="t", dataset="datasets/x.jsonl",
+        summary={"tsr": 1.0, "oqi": 1.0, "n_tasks": 1},
+        rows=[{"task_id": "skill-res-001", "tsr": 1.0,
+               "turns_total": 1, "turns_completed": 1,
+               "state_verifier": {"passed": True}}],
+        traces_dir=traces,
+    )
+    # iOS-style step rows: id + ok/err + skill name (from the plan).
+    # No per-step durations, no replan annotation, no phase line.
+    assert "step_1 [ok] search-web" in log
+    assert "step_2 [ok] fetch-web-content" in log
+    # Steps deduped to one row each despite RUNNING + COMPLETED markers.
+    assert log.count("step_1 [ok]") == 1
+    assert log.count("step_2 [ok]") == 1
+    # Step outputs section appears (last-turn only).
+    assert "**Step outputs (final turn):**" in log
+    assert "tokyo: sunny" in log
+    # Format guarantees we ship clean — no Android-only diagnostics.
+    assert "_Phases:" not in log
+    assert "(replan x" not in log
 
 
 def test_render_run_log_multi_turn_renders_each_turn(tmp_path: Path) -> None:

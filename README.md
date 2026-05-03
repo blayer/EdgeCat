@@ -178,12 +178,14 @@ The planner reads `description` for catalog listings and `instructions` when the
 ## Running on-device tests
 
 ```bash
-cd android-app/test
+cd android-app/test/on-device
 ./orchestration.sh local-search           # single scenario
 ./orchestration.sh                        # all scenarios from TEST-PLAN.md
 ```
 
-Each scenario validates plan creation, execution, and final-answer pattern on a connected Android device. Screenshots land in `android-app/test/screenshots/`.
+Each scenario validates plan creation, execution, and final-answer pattern on a connected Android device. Screenshots land in `android-app/test/on-device/screenshots/`.
+
+For the agentic eval harness (multi-turn datasets, scorers, run-log markdown), see `android-app/test/eval/README.md`.
 
 ## License
 
