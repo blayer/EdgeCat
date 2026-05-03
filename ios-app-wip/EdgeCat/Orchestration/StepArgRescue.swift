@@ -151,8 +151,12 @@ public enum StepArgRescue {
         ]
         let nonStopTitleTokens = titleTokens.filter { !stop.contains($0) }
         let bindsToConvo = nonStopTitleTokens.contains { convo.contains($0) }
-        guard looksBoilerplate || (!nonStopTitleTokens.isEmpty == false && !bindsToConvo)
-                || nonStopTitleTokens.isEmpty else {
+        // Replace when EITHER the title matches a known boilerplate
+        // shape OR no non-stop word in it appears in the conversation
+        // (so the title doesn't reference anything we've talked
+        // about). The original branch had operator-precedence soup
+        // that boiled down to "always do nothing".
+        guard looksBoilerplate || !bindsToConvo else {
             return value
         }
         // Try to extract an entity from prior assistant turns.

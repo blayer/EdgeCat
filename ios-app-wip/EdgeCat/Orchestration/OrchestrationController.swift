@@ -155,13 +155,34 @@ public final class OrchestrationController {
             state.plan = p
 
             try throwIfCancelled()
+            // Skill-continuation rescue: when the prior turn used a
+            // write-side skill (set-reminder / add-calendar-event) and
+            // the current user message is a bare-detail follow-up
+            // ("Tomorrow at 5pm.", "Next Friday."), the planner often
+            // switches to the other write-side skill — set-reminder
+            // turns into add-calendar-event because "tomorrow at X"
+            // reads like an event-scheduling cue. The MULTI-TURN
+            // CONTINUATION rule in the planner prompt covers this but
+            // the small model drops it; correct it here so the right
+            // entity gets created. No-op when there's no prior skill
+            // to continue or the plan already matches.
+            let correctedPlan = Self.correctSkillContinuation(
+                plan: p,
+                userMessage: userMessage,
+                conversationContext: conversationContext)
+
             // Execute
             state.status = .executing
             results = await trace.phase(kind: "phase", name: "execute") {
-                await executor.execute(plan: p,
+                await executor.execute(plan: correctedPlan,
                                         conversationContext: conversationContext)
             }
             state.stepResults = results
+            // Persist the corrected plan into the iteration loop so
+            // the evaluator scores against what we actually executed,
+            // not what the planner originally emitted.
+            plan = correctedPlan
+            state.plan = correctedPlan
 
             try throwIfCancelled()
             // Evaluate
@@ -323,6 +344,14 @@ extension OrchestrationController {
         let alreadyCalled = Set(plan.steps.compactMap {
             $0.skillName?.lowercased().replacingOccurrences(of: "_", with: "-")
         })
+        // If ANY injectable write-side skill already ran, the user's
+        // intent has been addressed; don't double-write with the
+        // counterpart skill. Catches the case where skill-continuation
+        // rescue swapped add-calendar-event → set-reminder, the
+        // executor wrote the reminder, and the evaluator hallucinated
+        // a missing add-calendar-event — the agent did its job, no
+        // need to also create a calendar event.
+        if !injectable.intersection(alreadyCalled).isEmpty { return nil }
         let candidate = evaluation.missingItems
             .map { $0.lowercased().trimmingCharacters(in: .whitespacesAndNewlines) }
             .first(where: { injectable.contains($0) && !alreadyCalled.contains($0) })
@@ -667,6 +696,109 @@ extension OrchestrationController {
             return "tomorrow morning"
         }
         return nil
+    }
+
+    /// Override the planner's chosen skill when it contradicts the
+    /// multi-turn continuation pattern. Specifically: when the prior
+    /// assistant turn produced a set-reminder success envelope
+    /// ("created: …" without the calendar-event "start: …" / ISO
+    /// timestamp signature) and the current user message is a
+    /// bare-detail follow-up (no main verb — just a time/location/
+    /// date phrase), but the planner picked add-calendar-event,
+    /// swap it back to set-reminder. Symmetric in the other
+    /// direction. Returns the input unchanged when no rule fires.
+    static func correctSkillContinuation(
+        plan: ExecutionPlan,
+        userMessage: String,
+        conversationContext: String,
+    ) -> ExecutionPlan {
+        let priorSkill = inferPriorWriteSkill(conversationContext)
+        guard let priorSkill else { return plan }
+        guard isBareDetailFollowUp(userMessage) else { return plan }
+        let counterpart: [String: String] = [
+            "set-reminder": "add-calendar-event",
+            "add-calendar-event": "set-reminder",
+        ]
+        guard let wrongSkill = counterpart[priorSkill] else { return plan }
+        var changed = false
+        let newSteps = plan.steps.map { step -> PlanStep in
+            guard let s = step.skillName?.lowercased(),
+                  s == wrongSkill else { return step }
+            changed = true
+            // Args carry over; the time field name differs (set-reminder
+            // uses dueWhen / dueIso, add-calendar-event uses whenText /
+            // startIso) but both downstream skills accept the other's
+            // key as a synonym in their resolver paths, OR the rescue
+            // layer normalizes them. Pass through and let the skill
+            // sort it.
+            return PlanStep(
+                id: step.id,
+                description: step.description,
+                skillName: priorSkill,
+                toolName: step.toolName,
+                toolArgs: step.toolArgs,
+                dependsOn: step.dependsOn)
+        }
+        guard changed else { return plan }
+        return ExecutionPlan(
+            goal: plan.goal,
+            reasoning: plan.reasoning + " [skill swapped \(wrongSkill)→\(priorSkill) for multi-turn continuation]",
+            steps: newSteps,
+            successCriteria: plan.successCriteria)
+    }
+
+    /// Detect which write-side skill produced the most recent assistant
+    /// output, by output shape. Returns nil when the prior turn wasn't
+    /// a write-side action.
+    static func inferPriorWriteSkill(_ context: String) -> String? {
+        let trimmed = context.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return nil }
+        let blocks = trimmed.components(separatedBy: "Assistant:")
+            .dropFirst()
+            .map { $0.components(separatedBy: "User:").first ?? $0 }
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+        guard let last = blocks.last else { return nil }
+        let lower = last.lowercased()
+        // add-calendar-event success envelope contains start: / ISO
+        // timestamp / "calendar":"…" — distinct from set-reminder's
+        // bare "created: <title>".
+        if lower.contains("start:") || lower.contains("\"start\":")
+            || lower.contains("\"calendar\":") {
+            return "add-calendar-event"
+        }
+        if lower.hasPrefix("created:") || lower.contains("created: ") {
+            return "set-reminder"
+        }
+        return nil
+    }
+
+    /// True when the user message is a follow-up detail (time / date /
+    /// location / name) without its own main action verb. Used to
+    /// distinguish "Tomorrow at 5pm." (continuation) from "Schedule
+    /// dinner for tomorrow at 5pm." (new request).
+    static func isBareDetailFollowUp(_ userMessage: String) -> Bool {
+        let trimmed = userMessage.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty, trimmed.count <= 80 else { return false }
+        let lower = trimmed.lowercased()
+        // Reject anything that contains a clear action verb at the start.
+        let actionVerbs = [
+            "add", "schedule", "create", "set ", "send", "remind ",
+            "remove", "delete", "call ", "find", "what ", "when ",
+            "where ", "why ", "how ", "tell ", "show ", "list ",
+            "search ", "remember", "save ", "share ", "open ",
+            "play ", "buy ",
+        ]
+        if actionVerbs.contains(where: { lower.hasPrefix($0) }) {
+            return false
+        }
+        // Accept temporal-ish phrasings.
+        let temporalCues = [
+            "tomorrow", "tonight", "today", "next ", "this ",
+            "in the ", "at ", "later", "weekend", "monday", "tuesday",
+            "wednesday", "thursday", "friday", "saturday", "sunday",
+        ]
+        return temporalCues.contains(where: { lower.contains($0) })
     }
 
     static func allFailuresAreNonRecoverable(_ results: [String: StepResult]) -> Bool {
