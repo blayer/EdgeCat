@@ -2,7 +2,7 @@
 # EdgeCat: Unified Test Runner
 # Runs all 3 test levels in order. Stops on first failure.
 #
-# Usage: ./android-app/test/run-all.sh [-d <device-serial>] [--skip-device]
+# Usage: ./android-app/test/on-device/run-all.sh [-d <device-serial>] [--skip-device]
 #
 # Levels:
 #   1. Unit tests       — individual function tests (no device)
