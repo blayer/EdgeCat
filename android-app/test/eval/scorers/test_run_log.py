@@ -61,13 +61,17 @@ def test_render_run_log_emits_per_turn_metrics(tmp_path: Path) -> None:
             }},
         ],
     )
-    rows = [{"task_id": "task-001", "tsr": 1.0, "state_verifier": {"passed": True}}]
+    rows = [{"task_id": "task-001", "tsr": 1.0,
+             "turns_total": 1, "turns_completed": 1,
+             "state_verifier": {"passed": True}}]
     log = render_run_log(
         label="test", dataset="datasets/x.jsonl",
         summary={"tsr": 1.0, "oqi": 0.95, "n_tasks": 1},
-        rows=rows, traces_dir=traces,
+        rows=rows, traces_dir=traces, model="gemma-4-E2B-it",
     )
-    assert "task-001 — TSR=100%, verifier=pass" in log
+    # iOS-aligned header: includes turns N/M and a Model line.
+    assert "- Model: `gemma-4-E2B-it`" in log
+    assert "task-001 — TSR=100%, turns 1/1, verifier=pass" in log
     assert "what is 2+2" in log
     assert "Latency: 2.5s" in log
     assert "memory in: ~2 tok (11 chars)" in log
@@ -112,13 +116,14 @@ def test_render_run_log_handles_missing_trace_file(tmp_path: Path) -> None:
     traces = tmp_path / "traces"
     traces.mkdir()
     rows = [{"task_id": "missing-001", "tsr": 0.0,
+             "turns_total": 1, "turns_completed": 0,
              "state_verifier": {"passed": False}}]
     log = render_run_log(
         label="test", dataset="datasets/x.jsonl",
         summary={"tsr": 0.0, "oqi": 0.0, "n_tasks": 1},
         rows=rows, traces_dir=traces,
     )
-    assert "missing-001 — TSR=0%, verifier=fail" in log
+    assert "missing-001 — TSR=0%, turns 0/1, verifier=fail" in log
     assert "no trace file" in log
 
 
@@ -141,30 +146,24 @@ def test_render_task_turns_buckets_steps(tmp_path: Path) -> None:
     assert "step_1 [ok] search-web" in md
 
 
-def test_render_phase_breakdown_and_step_durations(tmp_path: Path) -> None:
-    """Android traces emit kind=planner/evaluator/formatter/step phase
-    spans alongside eval.* turn markers. The renderer should sum each
-    phase's wall-time into the per-turn '_Phases:' line and lift step
-    durations from `attrs.duration_ms` (the outer span's duration_ms is
-    0 because steps are emitted as RUNNING + COMPLETED markers, not
-    wrapped phases). Sort-by-start_ms is required because TraceRecorder
-    serializes spans in `.end()` order — `eval.start` ends LAST."""
+def test_render_step_skill_resolution_from_plan(tmp_path: Path) -> None:
+    """Android traces emit `kind=step` spans whose `attrs.skill` is the
+    step id, not the actual skill name. The renderer should resolve
+    skill names from `run.plan.steps[].skill_name` on the LAST turn,
+    deduping the RUNNING + COMPLETED markers into one row per step.
+    Sort-by-start_ms is required because TraceRecorder serializes
+    spans in `.end()` order — `eval.start` ends LAST."""
     traces = tmp_path / "traces"
     def span(kind, name, start_ms, end_ms, attrs=None, status="ok"):
         return {"type": "span", "span": {
             "kind": kind, "name": name,
             "start_ms": start_ms, "end_ms": end_ms,
             "duration_ms": end_ms - start_ms,
-            "status": status,
-            "attrs": attrs or {},
+            "status": status, "attrs": attrs or {},
         }}
-    # File order is reverse-end (matches TraceRecorder behavior). The
-    # renderer must sort by start_ms to recover the bucketing order.
     rows = [
-        # planner phase 1.5s, two step pairs, evaluator triage 0.2s,
-        # formatter 0.3s — all inside an eval.start that ends last.
-        span("memory", "recall", 100, 150, {}, "ok"),
-        span("planner", "plan", 150, 1650, {}, "ok"),
+        # step_1 + step_2 each have RUNNING + COMPLETED markers; eval.start
+        # ends LAST (matches TraceRecorder write order).
         span("step", "step_1", 1700, 1700, {"skill": "step_1",
               "status": "RUNNING", "duration_ms": 0}, "error"),
         span("step", "step_1", 2700, 2700, {"skill": "step_1",
@@ -173,8 +172,6 @@ def test_render_phase_breakdown_and_step_durations(tmp_path: Path) -> None:
               "status": "RUNNING", "duration_ms": 0}, "error"),
         span("step", "step_2", 3300, 3300, {"skill": "step_2",
               "status": "COMPLETED", "duration_ms": 500}, "ok"),
-        span("evaluator", "triage", 3400, 3600, {}, "ok"),
-        span("formatter", "llm", 3600, 3900, {}, "ok"),
         span("eval", "turn-response", 3950, 3950, {
             "turn": "0", "text": "weather is sunny",
             "iteration": "0", "duration_ms": "3850",
@@ -186,7 +183,7 @@ def test_render_phase_breakdown_and_step_durations(tmp_path: Path) -> None:
         {"type": "run", "run": {
             "user_message": "weather?", "final_output": "weather is sunny",
             "final_status": "ok", "iteration": 0,
-            "plan": {"goal": "find weather",
+            "plan": {"goal": "find weather", "reasoning": "two-step",
                       "steps": [
                           {"id": "step_1", "skill_name": "search-web"},
                           {"id": "step_2", "skill_name": "fetch-web-content"},
@@ -195,28 +192,28 @@ def test_render_phase_breakdown_and_step_durations(tmp_path: Path) -> None:
                              "step_2": {"output": "details..."}},
         }},
     ]
-    _write_trace(traces / "phase-001.jsonl", rows)
+    _write_trace(traces / "skill-res-001.jsonl", rows)
     log = render_run_log(
         label="t", dataset="datasets/x.jsonl",
         summary={"tsr": 1.0, "oqi": 1.0, "n_tasks": 1},
-        rows=[{"task_id": "phase-001", "tsr": 1.0,
+        rows=[{"task_id": "skill-res-001", "tsr": 1.0,
+               "turns_total": 1, "turns_completed": 1,
                "state_verifier": {"passed": True}}],
         traces_dir=traces,
     )
-    assert "_Phases:" in log
-    assert "planner 1.5s" in log
-    assert "execute 1.5s (2 steps)" in log  # 1.0s + 0.5s, 0 orchestrator
-    assert "evaluator 0.2s" in log
-    assert "formatter 0.3s" in log
-    # Step rows surface the actual skill name from the plan + per-step
-    # duration from attrs.duration_ms (NOT the outer span's 0ms).
-    assert "step_1 [ok] search-web (1.0s)" in log
-    assert "step_2 [ok] fetch-web-content (0.5s)" in log
-    # Per-step output preview
-    assert "tokyo: sunny" in log
-    # Steps deduped — no second row per step despite RUNNING + COMPLETED.
+    # iOS-style step rows: id + ok/err + skill name (from the plan).
+    # No per-step durations, no replan annotation, no phase line.
+    assert "step_1 [ok] search-web" in log
+    assert "step_2 [ok] fetch-web-content" in log
+    # Steps deduped to one row each despite RUNNING + COMPLETED markers.
     assert log.count("step_1 [ok]") == 1
     assert log.count("step_2 [ok]") == 1
+    # Step outputs section appears (last-turn only).
+    assert "**Step outputs (final turn):**" in log
+    assert "tokyo: sunny" in log
+    # Format guarantees we ship clean — no Android-only diagnostics.
+    assert "_Phases:" not in log
+    assert "(replan x" not in log
 
 
 def test_render_run_log_multi_turn_renders_each_turn(tmp_path: Path) -> None:
