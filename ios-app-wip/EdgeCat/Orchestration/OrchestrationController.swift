@@ -553,7 +553,35 @@ extension OrchestrationController {
            let inner = Range(m.range(at: 1), in: text) {
             return String(text[inner]).trimmingCharacters(in: .whitespaces)
         }
-        if let q = extractQuotedTitle(from: text) { return q }
+        // Quoted phrases — but skip JSON keys ("title":"value").
+        for pattern in [#"'([^']{2,80})'"#, #""([^"]{2,80})""#] {
+            guard let r = try? NSRegularExpression(pattern: pattern)
+            else { continue }
+            let nsr = NSRange(text.startIndex..<text.endIndex, in: text)
+            for m in r.matches(in: text, range: nsr) {
+                guard let outer = Range(m.range, in: text),
+                      let inner = Range(m.range(at: 1), in: text)
+                else { continue }
+                if outer.upperBound < text.endIndex,
+                   text[outer.upperBound] == ":" { continue }
+                let candidate = String(text[inner])
+                    .trimmingCharacters(in: .whitespaces)
+                let stopKeys: Set<String> = [
+                    "title", "name", "subject", "label",
+                    "status", "result", "value", "id",
+                    "succeeded", "failed", "ok", "error",
+                    "calendar", "reminder", "default",
+                ]
+                if stopKeys.contains(candidate.lowercased()) { continue }
+                if candidate.range(of: #"^\d{4}-\d{2}-\d{2}"#,
+                                   options: .regularExpression) != nil { continue }
+                if candidate.range(of: #"^\d+(\.\d+)?$"#,
+                                   options: .regularExpression) != nil { continue }
+                if candidate.range(of: #"^https?://"#,
+                                   options: .regularExpression) != nil { continue }
+                if !candidate.isEmpty { return candidate }
+            }
+        }
         // Prefer multi-word TitleCase phrases (more specific) over
         // single-word matches; both are TitleCase but a single word
         // alone is often a sentence start ("Yoga is a practice…")

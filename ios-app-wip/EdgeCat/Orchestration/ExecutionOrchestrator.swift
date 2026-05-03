@@ -137,7 +137,9 @@ public final class ExecutionOrchestrator: @unchecked Sendable {
         }
         var finalArgs = StepArgRescue.rescue(args: step.toolArgs,
                                              dependencies: depOutputs,
-                                             goal: goal)
+                                             goal: goal,
+                                             conversationContext: conversationContext,
+                                             skillName: normalizedSkill ?? "")
 
         // For runJs: inject normalized skillName so the WebView loader
         // hits the right asset folder.

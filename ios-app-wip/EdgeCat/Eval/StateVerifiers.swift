@@ -379,11 +379,29 @@ public enum StateVerifiers {
         // collapsed out.
         let candTitleLower = (cand.title ?? "").lowercased()
         let candModified = cand.lastModifiedDate ?? now
+        // Junk-title patterns left by hallucinated planner outputs in
+        // prior eval runs — "an unspecified item to the user's calendar"
+        // and similar boilerplate phrases the agent invented when it
+        // couldn't bind a pronoun. These pollute the simulator's
+        // calendar across sweeps and shouldn't veto a fresh, correctly-
+        // titled add. The injector's title guard now blocks creating
+        // these going forward, but historical entries persist.
+        let junkPatterns = [
+            "unspecified",
+            "user's calendar",
+            "user's reminder",
+            "reminder for one hour before event",
+        ]
         let others = events.filter { e in
             guard e !== cand else { return false }
+            let titleLower = (e.title ?? "").lowercased()
+            // Strip known junk-titled stragglers from prior runs.
+            if junkPatterns.contains(where: { titleLower.contains($0) }) {
+                return false
+            }
             // Same-title duplicate at overlapping time → not a real
             // conflict; just a re-run of the same intent (replan).
-            let sameTitle = (e.title ?? "").lowercased() == candTitleLower
+            let sameTitle = titleLower == candTitleLower
             let overlapsCand = max(e.startDate, cand.startDate)
                                 < min(e.endDate, cand.endDate)
             if sameTitle && overlapsCand { return false }
