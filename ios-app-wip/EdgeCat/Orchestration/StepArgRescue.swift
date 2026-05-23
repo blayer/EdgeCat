@@ -20,13 +20,28 @@ public enum StepArgRescue {
     public static func rescue(args: [String: String],
                               dependencies: [String: String],
                               now: Date = Date(),
-                              goal: String = "") -> [String: String] {
+                              goal: String = "",
+                              userMessage: String = "",
+                              conversationContext: String = "",
+                              skillName: String = "") -> [String: String] {
         var out: [String: String] = [:]
         for (key, value) in args {
             var v = value
             v = substitutePlaceholders(v, dependencies: dependencies)
             v = extractUrlIfNeeded(v, key: key)
             v = extractTitleHintIfNeeded(v, key: key, goal: goal)
+            // Conversation-context binding: when a write-side skill
+            // (set-reminder, add-calendar-event) emits a title that
+            // doesn't reference any entity from prior turns, replace
+            // it with one. Catches yoga turn 3 ("Remind me one hour
+            // before it starts") where the planner emits title=
+            // "Reminder for one hour before event" — generic, no
+            // pronoun bind. We detect "no entity overlap with the
+            // conversation" and pull one from prior assistant turns.
+            v = bindTitleToConversationIfNeeded(
+                v, key: key, skillName: skillName,
+                userMessage: userMessage,
+                conversationContext: conversationContext)
             // NOTE: photo_id / asset_id values are NOT extracted here —
             // BarcodeSkill and RecognizeTextSkill already iterate the
             // full search-photos JSON envelope via
@@ -77,6 +92,231 @@ public enum StepArgRescue {
             }
         }
         return value
+    }
+
+    /// Replace a planner-emitted title that doesn't bind to any
+    /// conversation entity with a noun phrase pulled from a prior
+    /// assistant turn. Only fires for write-side skills (set-reminder,
+    /// add-calendar-event) and only when the existing title looks
+    /// generic — i.e. doesn't share any non-stopword token with the
+    /// recent conversation OR matches a known boilerplate shape
+    /// ("Reminder for X", "Event for X", "an unspecified item").
+    /// No-op when conversationContext is empty or no entity is found.
+    static func bindTitleToConversationIfNeeded(
+        _ value: String,
+        key: String,
+        skillName: String,
+        userMessage: String,
+        conversationContext: String,
+    ) -> String {
+        let titleKeys: Set<String> = ["title", "name", "subject", "label"]
+        guard titleKeys.contains(key) else { return value }
+        let writeSkills: Set<String> = [
+            "set-reminder", "reminders",
+            "add-calendar-event",
+            "share-content",
+        ]
+        guard writeSkills.contains(skillName.lowercased()) else { return value }
+        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return value }
+        // Boilerplate shapes the planner emits when it can't bind a
+        // pronoun: "Reminder", "Event for next Friday", "Reminder for
+        // one hour before event", "an unspecified item to the user's
+        // calendar." All flag as generic.
+        let lowered = trimmed.lowercased()
+        let boilerplate = [
+            "^reminder$",
+            "^event$",
+            "^reminder for ",
+            "^event for ",
+            "^an unspecified ",
+            " unspecified item",
+        ]
+        let looksBoilerplate = boilerplate.contains { p in
+            lowered.range(of: p, options: .regularExpression) != nil
+        }
+        // Also flag generic if the title doesn't share any 4+-char
+        // non-stop token with the user's most recent message OR
+        // the conversation context. Cheap "does this title relate
+        // to what we've been talking about" check.
+        let convo = (userMessage + " " + conversationContext).lowercased()
+        let titleTokens = lowered
+            .split(whereSeparator: { !$0.isLetter && !$0.isNumber })
+            .map(String.init)
+            .filter { $0.count >= 4 }
+        let stop: Set<String> = [
+            "reminder", "event", "calendar", "thing", "item", "task",
+            "schedule", "before", "after", "minute", "hour", "starts",
+            "later", "today", "tomorrow",
+        ]
+        let nonStopTitleTokens = titleTokens.filter { !stop.contains($0) }
+        let bindsToConvo = nonStopTitleTokens.contains { convo.contains($0) }
+        // Replace when EITHER the title matches a known boilerplate
+        // shape OR no non-stop word in it appears in the conversation
+        // (so the title doesn't reference anything we've talked
+        // about). The original branch had operator-precedence soup
+        // that boiled down to "always do nothing".
+        guard looksBoilerplate || !bindsToConvo else {
+            return value
+        }
+        // Try to extract an entity from prior assistant turns.
+        guard let entity = extractEntityFromConversation(conversationContext)
+                        ?? extractEntityFromConversation(userMessage)
+        else { return value }
+        return entity
+    }
+
+    /// Walk assistant blocks newest-to-oldest looking for a named
+    /// entity (Title: X / quoted phrase / TitleCase noun). Mirrors the
+    /// OrchestrationController injector heuristic but local here so
+    /// the rescue layer can use it without a circular import.
+    static func extractEntityFromConversation(_ context: String) -> String? {
+        let trimmed = context.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return nil }
+        let blocks = trimmed.components(separatedBy: "Assistant:")
+            .dropFirst()
+            .map { $0.components(separatedBy: "User:").first ?? $0 }
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+        // Walk OLDEST → newest so the first-established topic of the
+        // conversation wins (e.g. yoga case: Turn 1 says "Yoga for
+        // Harmony & Peace", Turn 2's success envelope mentions
+        // "Harmony & Peace Join" which is a fragment — the persistent
+        // topic is "Yoga"). Reversing newer-first incidentally favored
+        // Turn 2 fragments and broke yoga-binding for the Turn 3
+        // reminder.
+        let userBlocks = trimmed.components(separatedBy: "User:")
+            .dropFirst()
+            .map { $0.components(separatedBy: "Assistant:").first ?? $0 }
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+        let stop: Set<String> = [
+            "the", "this", "that", "you", "we", "today",
+            "tomorrow", "yesterday", "user", "assistant", "no",
+            "yes", "ok", "sure", "to", "for", "and", "or",
+            "i", "in", "on", "at", "by", "of", "an", "a",
+            "reminder", "event",
+        ]
+        for block in blocks {
+            // Title: X — formatter format.
+            if let r = try? NSRegularExpression(
+                pattern: #"Title:\s*([^,\n]{2,60})"#,
+                options: .caseInsensitive),
+               let m = r.firstMatch(
+                in: block,
+                range: NSRange(block.startIndex..<block.endIndex, in: block)),
+               let inner = Range(m.range(at: 1), in: block) {
+                return String(block[inner]).trimmingCharacters(in: .whitespaces)
+            }
+            // Quoted phrase. Skip JSON keys ("title":"value") — those
+            // match the regex but are field names, not entities. The
+            // prior assistant's add-calendar-event success envelope
+            // emits {"title":"free yoga class …"} and we want the
+            // value, not the key.
+            for pattern in [#"'([^']{2,80})'"#, #""([^"]{2,80})""#] {
+                guard let r = try? NSRegularExpression(pattern: pattern)
+                else { continue }
+                let nsr = NSRange(block.startIndex..<block.endIndex, in: block)
+                for m in r.matches(in: block, options: [], range: nsr) {
+                    guard let outer = Range(m.range, in: block),
+                          let inner = Range(m.range(at: 1), in: block)
+                    else { continue }
+                    // Look at the character right after the closing
+                    // quote — if it's `:`, this match is a JSON key.
+                    let afterIdx = outer.upperBound
+                    if afterIdx < block.endIndex, block[afterIdx] == ":" {
+                        continue
+                    }
+                    let candidate = String(block[inner])
+                        .trimmingCharacters(in: .whitespaces)
+                    // Filter single-word generic keys that crept in.
+                    let lower = candidate.lowercased()
+                    let stopKeys: Set<String> = [
+                        "title", "name", "subject", "label",
+                        "status", "result", "value", "id",
+                        "succeeded", "failed", "ok", "error",
+                        "calendar", "reminder", "default",
+                    ]
+                    if stopKeys.contains(lower) { continue }
+                    // Filter ISO timestamps, dates, pure numbers — these
+                    // are JSON values that aren't user-meaningful titles.
+                    if candidate.range(
+                        of: #"^\d{4}-\d{2}-\d{2}"#,
+                        options: .regularExpression) != nil { continue }
+                    if candidate.range(
+                        of: #"^\d+(\.\d+)?$"#,
+                        options: .regularExpression) != nil { continue }
+                    if candidate.range(
+                        of: #"^https?://"#,
+                        options: .regularExpression) != nil { continue }
+                    if !candidate.isEmpty { return candidate }
+                }
+            }
+            // Multi-word TitleCase (e.g. "Yoga for Harmony & Peace").
+            if let multi = try? NSRegularExpression(
+                pattern: #"\b([A-Z][a-z]+(?:\s+(?:&\s+)?[A-Z][a-z]+){1,4})\b"#) {
+                let nsr = NSRange(block.startIndex..<block.endIndex, in: block)
+                for m in multi.matches(in: block, range: nsr) {
+                    guard let inner = Range(m.range(at: 1), in: block)
+                    else { continue }
+                    let candidate = String(block[inner])
+                    if !stop.contains(candidate.lowercased()),
+                       candidate.count >= 4 {
+                        return candidate
+                    }
+                }
+            }
+            // Single-word TitleCase noun.
+            if let single = try? NSRegularExpression(
+                pattern: #"\b([A-Z][a-z]{2,})\b"#) {
+                let nsr = NSRange(block.startIndex..<block.endIndex, in: block)
+                for m in single.matches(in: block, range: nsr) {
+                    guard let inner = Range(m.range(at: 1), in: block)
+                    else { continue }
+                    let candidate = String(block[inner])
+                    if !stop.contains(candidate.lowercased()) {
+                        return candidate
+                    }
+                }
+            }
+        }
+        // Fallback: scan user blocks (oldest-relevant for entity since
+        // the user usually establishes the entity in the first turn).
+        // Strips common request-prefix verbs ("Remind me to", "Add an
+        // event for", "Set a reminder to") and returns the rest if
+        // it looks like a noun phrase (≥ 2 chars, ≥ 1 letter).
+        let prefixes = [
+            "remind me to ", "remind me about ", "remind me of ",
+            "add ", "set a reminder to ", "set a reminder for ",
+            "set a reminder about ", "schedule ", "create a reminder to ",
+            "create a reminder for ", "book ",
+        ]
+        for block in userBlocks {
+            let lower = block.lowercased()
+            for prefix in prefixes where lower.hasPrefix(prefix) {
+                var rest = String(block.dropFirst(prefix.count))
+                // Trim trailing temporal/location clauses ("at Whole
+                // Foods on Stevens Creek", "tomorrow at 5pm").
+                let trailingCutters = [
+                    " at ", " on ", " for ", " in ",
+                    " tomorrow", " today", " tonight",
+                ]
+                for cutter in trailingCutters {
+                    if let r = rest.range(of: cutter) {
+                        rest = String(rest[..<r.lowerBound])
+                        break
+                    }
+                }
+                rest = rest.trimmingCharacters(in: .whitespaces)
+                    .trimmingCharacters(in: .punctuationCharacters)
+                if rest.count >= 2,
+                   rest.contains(where: \.isLetter),
+                   !stop.contains(rest.lowercased()) {
+                    return rest
+                }
+            }
+        }
+        return nil
     }
 
     /// When the arg key is URL-shaped (`url`, `link`, `href`) and the

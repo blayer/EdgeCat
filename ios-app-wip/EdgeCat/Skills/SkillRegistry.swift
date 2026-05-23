@@ -66,6 +66,7 @@ public final class SkillRegistry: ToolExecutor, @unchecked Sendable {
             SearchWebSkill(),
             ContactsSkill(),
             CalendarSkill(),
+            AddCalendarEventSkill(),
             RemindersSkill(),
             PhotosSkill(),
             SearchPhotosSkill(),

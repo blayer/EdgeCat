@@ -109,10 +109,39 @@ public final class AddCalendarEventSkill: Skill, @unchecked Sendable {
             let range = NSRange(when.startIndex..., in: when)
             if let match = detector.firstMatch(in: when, options: [], range: range),
                let date = match.date {
-                return date
+                return adjustHourForTimeOfDay(date: date, whenText: when)
             }
         }
         return nil
+    }
+
+    /// NSDataDetector resolves "tomorrow morning in the first free slot
+    /// before noon" to "tomorrow at midnight" — the time-of-day cue gets
+    /// dropped because the trailing prepositional phrase confuses the
+    /// detector. When the detected date sits at exactly 00:00, look for
+    /// time-of-day phrases ("morning"/"afternoon"/"evening"/"noon") in
+    /// the original whenText and bump the hour so the event lands in a
+    /// sensible window. Caught by eval: planner-emitted add-calendar-
+    /// event with verbose whenText was parsing to midnight, missing the
+    /// state verifier's "before noon ≥ 30min" filter.
+    static func adjustHourForTimeOfDay(date: Date, whenText: String) -> Date {
+        let cal = Calendar.current
+        let h = cal.component(.hour, from: date)
+        let m = cal.component(.minute, from: date)
+        // Only adjust when the detector landed at exactly midnight — any
+        // explicit time the detector found (like "tomorrow at 5pm") we
+        // trust as-is.
+        guard h == 0 && m == 0 else { return date }
+        let lower = whenText.lowercased()
+        let targetHour: Int
+        if lower.contains("morning") { targetHour = 9 }
+        else if lower.contains("noon") { targetHour = 11 }   // "before noon"
+        else if lower.contains("afternoon") { targetHour = 14 }
+        else if lower.contains("evening") { targetHour = 18 }
+        else if lower.contains("night") { targetHour = 20 }
+        else { return date }
+        return cal.date(bySettingHour: targetHour, minute: 0, second: 0,
+                        of: date) ?? date
     }
 
     static func parseIsoStatic(_ s: String) -> Date? {

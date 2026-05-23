@@ -137,7 +137,9 @@ public final class ExecutionOrchestrator: @unchecked Sendable {
         }
         var finalArgs = StepArgRescue.rescue(args: step.toolArgs,
                                              dependencies: depOutputs,
-                                             goal: goal)
+                                             goal: goal,
+                                             conversationContext: conversationContext,
+                                             skillName: normalizedSkill ?? "")
 
         // For runJs: inject normalized skillName so the WebView loader
         // hits the right asset folder.
@@ -244,7 +246,8 @@ public final class ExecutionOrchestrator: @unchecked Sendable {
         let now = Date()
         let today = fmt.string(from: now)
         let tomorrow = fmt.string(from: cal.date(byAdding: .day, value: 1, to: now) ?? now)
-        return "DATE CONTEXT: TODAY=\(today), TOMORROW=\(tomorrow)."
+        let year = String(today.prefix(4))
+        return "DATE CONTEXT: TODAY=\(today), TOMORROW=\(tomorrow), CURRENT_YEAR=\(year)."
     }
 
     private func runLlmStep(_ step: PlanStep,
@@ -303,7 +306,7 @@ public final class ExecutionOrchestrator: @unchecked Sendable {
         }
         prompt += "Task: \(taskText)"
         if isLlmSkill {
-            prompt += "\n\nIMPORTANT: Output ONLY the result text. Do not add explanations or preamble. Do not ask the user for information already present in the prior turns or step results above. If the task references 'that', 'it', 'them', or 'there', resolve the referent from the prior conversation — NEVER ask the user to clarify a referent that a prior turn already established."
+            prompt += "\n\nIMPORTANT: Output ONLY the result text. Do not add explanations or preamble. Do not ask the user for information already present in the prior turns or step results above. If the task references 'that', 'it', 'them', or 'there', resolve the referent from the prior conversation — NEVER ask the user to clarify a referent that a prior turn already established. NEVER respond with 'I apologize, the context does not contain...' or 'I do not have access to...' when there IS data in the step results above — even truncated JSON envelopes (e.g. {\"content\":\"...\",\"content_length\":N}) carry usable text in the `content` field. Extract whatever you can see; if a prior LLM-only step apologized for missing data, IGNORE that apology and re-extract from the search/fetch step's actual output. When the user references 'this year', use the year from TODAY in DATE CONTEXT — recurring holidays (Christmas, New Year, etc.) repeat annually so 'Christmas this year' means TODAY's year."
         }
 
         let llmRef = self.llm

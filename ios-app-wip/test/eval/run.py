@@ -47,7 +47,7 @@ os.environ.setdefault("DEVELOPER_DIR",
 # Ensure we can `import scorers.*` regardless of cwd.
 ROOT = Path(__file__).resolve().parent
 sys.path.insert(0, str(ROOT))
-from scorers import structural, perf, state  # noqa: E402
+from scorers import structural, perf, state, judge  # noqa: E402
 
 DEFAULT_BUNDLE_ID = "com.edgecat.app"
 DEFAULT_TIMEOUT_S = 180
@@ -399,6 +399,27 @@ def score_task(task: dict[str, Any], trace: dict[str, Any], adb: list[str] | Non
     verifier_spec = task.get("verifier") or {"type": "none"}
     state_passed, state_detail = state.run_verifier(adb or [], trace, verifier_spec)
 
+    # Trace assertions — optional `forbidden_skills_per_turn`,
+    # `required_skills_per_turn`, `max_steps_per_turn` fields on the
+    # verifier block. Catches the "got lucky on output regex but the
+    # trace shows the agent ignored prior-turn data" anti-pattern,
+    # plus the "passed regex without ever calling the action skill"
+    # case. None when undeclared.
+    trace_passed, trace_detail = structural.trace_assertions(trace, verifier_spec)
+
+    # LLM judge — runs only when verifier.type == "llm_judge" OR
+    # `judge` block is set as a secondary tiebreaker on top of regex.
+    # Skipped (returns None) when ANTHROPIC_API_KEY is unset, so CI
+    # without API access still works on the cheap checks alone.
+    judge_passed: bool | None = None
+    judge_detail = "no judge configured"
+    judge_spec = (
+        verifier_spec if verifier_spec.get("type") == "llm_judge"
+        else (verifier_spec.get("judge") or None)
+    )
+    if judge_spec:
+        judge_passed, judge_detail = judge.llm_judge(task, trace, judge_spec)
+
     # Structural — every scorer takes the full trace dict, returns
     # (score, detail). We keep the score; details land in failure_info.
     pv_score, _ = structural.plan_validity(trace)
@@ -425,6 +446,25 @@ def score_task(task: dict[str, Any], trace: dict[str, Any], adb: list[str] | Non
         tsr = 0.0
     else:
         tsr = 1.0 if final_status == "ok" else 0.0
+    # Trace assertions, if declared, gate TSR independently — a run
+    # that passes the output regex but violates trace-shape (e.g.
+    # called get-location on a "based on Tokyo weather" turn) is a
+    # false-pass and must drop to 0.
+    if trace_passed is False:
+        tsr = 0.0
+    # LLM judge as a final gate when configured. Two modes:
+    #  - primary: verifier.type == "llm_judge" → judge IS the verdict.
+    #  - secondary: any verifier with a top-level `judge` block →
+    #    judge can VETO a regex/state pass (catches subtle false-passes
+    #    that don't fit a reject regex), but doesn't rescue a regex fail.
+    if verifier_spec.get("type") == "llm_judge":
+        if judge_passed is True:
+            tsr = 1.0
+        elif judge_passed is False:
+            tsr = 0.0
+        # judge_passed is None → keep final_status fallback (no API key)
+    elif judge_passed is False:
+        tsr = 0.0  # secondary judge veto
 
     # Performance — compose individual scorers.
     latency = perf.latency_stats(trace)
@@ -477,6 +517,14 @@ def score_task(task: dict[str, Any], trace: dict[str, Any], adb: list[str] | Non
             "type": verifier_spec.get("type"),
             "passed": state_passed,
             "detail": state_detail,
+        },
+        "trace_assertions": {
+            "passed": trace_passed,
+            "detail": trace_detail,
+        },
+        "llm_judge": {
+            "passed": judge_passed,
+            "detail": judge_detail,
         },
         "perf": perf_block,
         "failure_info": extract_failure_info(trace) if tsr < 1.0 else None,
